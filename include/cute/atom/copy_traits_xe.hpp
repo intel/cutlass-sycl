@@ -214,7 +214,10 @@ template<class TileShape, int Num_SGs, int SubgroupSize = detail::subgroup_size,
 CUTE_HOST_DEVICE auto prefetch_selector(Tensor const& tensor) {
   constexpr size_t cacheline_bytes = 64;
   using dtype = typename Tensor::value_type;
-  constexpr size_t dtype_size_bits = sizeof_bits_v<dtype>;
+
+  constexpr int dtype_size_bits = sizeof_bits_v<dtype>;
+  constexpr int dtype_size_bits_inst = std::max(dtype_size_bits, 8);
+
   constexpr bool is_tensor_M_major = detail::is_stride_leftmost<decltype(tensor.stride())>;
   using CopyThreadShape = std::conditional_t<is_tensor_M_major,
                                              Shape<Int<SubgroupSize>, _1>,
@@ -243,17 +246,24 @@ CUTE_HOST_DEVICE auto prefetch_selector(Tensor const& tensor) {
            Stride<Int<SubgroupSize * sgs_contig>,  Stride<_1, Int<SubgroupSize>>>>
   >;
 
-  using PrefetchOp = typename choose_prefetch_for_type<dtype_size_bits, block_non_contig_size>::Prefetch;
-  using PrefetchTraits = Copy_Traits<PrefetchOp, decltype(tensor.stride())>;
-  using PrefetchAtom = Copy_Atom<PrefetchTraits, dtype>;
-  using Scalar = Int<cute::max(1, 8 / dtype_size_bits)>;
-  using ScalarLayout = std::conditional_t<is_tensor_M_major, Layout<Shape<Scalar, _1>>,
-    Layout<Shape<_1, Scalar>>>;
-  using ScalarPrefetchShape =  decltype(product_each(raked_product(ScalarLayout{},
-    Layout<typename PrefetchTraits::BlockShape>{}).shape()));
-  using PrefetchValLayout = decltype(make_layout(shape_div(ScalarPrefetchShape{}, CopyThreadShape{})));
-  return make_tiled_copy(PrefetchAtom{}.with(tensor), PrefetchTilingLayout{}, PrefetchValLayout{});
-
+  using PrefetchInst = XE_2D_LD_N<dtype_size_bits_inst, block_non_contig_size, block_contig_size>; \
+  using PrefetchTraits = Copy_Traits<PrefetchInst, decltype(tensor.stride())>; \
+  using PrefetchAtom = Copy_Atom<PrefetchTraits, dtype>; \
+  using Scalar = Int<cute::max(1, dtype_size_bits_inst / dtype_size_bits)>; \
+  using ScalarLayout = std::conditional_t<is_tensor_M_major, Layout<Shape<Scalar, _1>>, Layout<Shape<_1, Scalar>>>; \
+  using ScalarPrefetchShape =  decltype(product_each(raked_product(ScalarLayout{}, \
+                                                      Layout<typename PrefetchTraits::BlockShape>{}).shape())); \
+  using PrefetchValLayout = decltype(make_layout(shape_div(ScalarPrefetchShape{}, CopyThreadShape{}))); \
+  /*if(thread0()){ \
+    print("old "); print("XE_2D_U" #DTYPE_SIZE "x" #NON_CONTIG "x" #CONTIG "_LD_N"); print("\n"); \
+    print("PrefetchInst "); print(PrefetchInst{}); print("\n"); \
+    print("PrefetchInst2 "); print(PrefetchInst2{}); print("\n"); \
+    print("PrefetchAtom "); print(PrefetchAtom{}); print("\n"); \
+    print("PrefetchAtom2 "); print(Copy_Atom<Copy_Traits<PrefetchInst2, decltype(tensor.stride())>, dtype>{}); print("\n"); \
+  } */\
+  return make_tiled_copy(PrefetchAtom{}.with(tensor), \
+                          PrefetchTilingLayout{}, \
+                          PrefetchValLayout{});
 }
 
 template<class TileShape, int Num_SGs, class... TiledCopyArgs>
@@ -538,7 +548,7 @@ template <typename CopyOp, typename... Args>
 struct Copy_Traits_{
   static_assert(cute::dependent_false<CopyOp>, "Copy_Traits_ not defined for this CopyOp");
 };
-
+/*
 template <class... args_t>
 struct Copy_Traits_<XE_2D_Packed_U8x1x32_LD_N, args_t...>
     : XE_2D_LD_Unpack<XE_2D_Packed_U8x1x32_LD_N, args_t...> {
@@ -1841,10 +1851,10 @@ struct Copy_Traits_<XE_2D_U16x16x8_LD_T, args_t...>
   Copy_Traits_(ArgT... args)
       : XE_2D_LD_Unpack<XE_2D_U16x16x8_LD_T, args_t...>(args...) {}
 };
-
+*/
 template <class... args_t>
-struct Copy_Traits_<XE_2D_U16x16x16_LD_T, args_t...>
-    : XE_2D_LD_Unpack<XE_2D_U16x16x16_LD_T, args_t...> {
+struct Copy_Traits_<XE_2D_U16x16x16_LD_T_, args_t...>
+    : XE_2D_LD_Unpack<XE_2D_U16x16x16_LD_T_, args_t...> {
   using ThrID = Layout<_16>;
   // Map from (src-thr,src-val) to bit
   // TODO(joe): Not convinced that changing from <_16, _256> should be required here
@@ -1859,9 +1869,9 @@ struct Copy_Traits_<XE_2D_U16x16x16_LD_T, args_t...>
 
   template <class... ArgT>
   Copy_Traits_(ArgT... args)
-      : XE_2D_LD_Unpack<XE_2D_U16x16x16_LD_T, args_t...>(args...) {}
+      : XE_2D_LD_Unpack<XE_2D_U16x16x16_LD_T_, args_t...>(args...) {}
 };
-
+/*
 // template<class... args_t>
 // struct Copy_Traits<XE_2D_U32x16x1_LD_T, args_t...>
 //     : XE_2D_LD_Unpack<XE_2D_U32x16x1_LD_T, args_t...> {
@@ -2268,6 +2278,7 @@ struct Copy_Traits_<XE_2D_U32x8x16_ST_N, args_t...>
   Copy_Traits_(ArgTs... args)
       : XE_2D_ST_Unpack<XE_2D_U32x8x16_ST_N, args_t...>(args...) {}
 };
+*/
 
 template<class S, class D>
 struct Copy_Traits<XE_ATOMIC<S, D>> {
@@ -2373,7 +2384,7 @@ struct Copy_Traits<COPY_OP, args_t...> : Copy_Traits_<COPY_OP, args_t...>{ \
   Copy_Traits(ArgTs... args) \
       : Copy_Traits_<CopyOp, args_t...>(args...) {} \
 };
-
+/*
 COPY_TRAIT_LD_DEF(XE_2D_Packed_U8x1x32_LD_N)
 COPY_TRAIT_LD_DEF(XE_2D_Packed_U8x2x32_LD_N)
 COPY_TRAIT_LD_DEF(XE_2D_Packed_U8x4x32_LD_N)
@@ -2431,9 +2442,9 @@ COPY_TRAIT_LD_DEF(XE_2D_U32x32x16_LD_N)
 COPY_TRAIT_LD_DEF(XE_2D_U16x16x16_LD_V)
 COPY_TRAIT_LD_DEF(XE_2D_U16x32x16_LD_V)
 COPY_TRAIT_LD_DEF(XE_2D_U16x32x32_LD_V)
-COPY_TRAIT_LD_DEF(XE_2D_U16x16x32_LD_V)
-COPY_TRAIT_LD_DEF(XE_2D_U16x16x16_LD_T)
-COPY_TRAIT_LD_DEF(XE_2D_TF32x16x16_LD_N)
+COPY_TRAIT_LD_DEF(XE_2D_U16x16x32_LD_V)*/
+COPY_TRAIT_LD_DEF(XE_2D_U16x16x16_LD_T_)
+/*COPY_TRAIT_LD_DEF(XE_2D_TF32x16x16_LD_N)
 COPY_TRAIT_LD_DEF(XE_2D_TF32x32x16_LD_N)
 COPY_TRAIT_LD_DEF(XE_2D_U4x32x64_LD_N)
 COPY_TRAIT_LD_DEF(XE_2D_U4x16x64_LD_N)
@@ -2471,6 +2482,139 @@ COPY_TRAIT_ST_DEF(XE_2D_U32x1x16_ST_N)
 COPY_TRAIT_ST_DEF(XE_2D_U32x2x16_ST_N)
 COPY_TRAIT_ST_DEF(XE_2D_U32x4x16_ST_N)
 COPY_TRAIT_ST_DEF(XE_2D_U32x8x16_ST_N)
+*/
+template <int TSizeBits, int Height, int Width, class... args_t>
+struct Copy_Traits<XE_2D_ST_N<TSizeBits, Height, Width>, args_t...>
+    : XE_2D_ST_Unpack<XE_2D_ST_N<TSizeBits, Height, Width>, args_t...> {
+  using ThrID = Layout<_16>;
+  // Map from (dst-thr,dst-val) to bit
+  using SrcLayout = decltype(make_ordered_layout(Shape<_16, Shape<Int<TSizeBits>, 
+                                                                  Int<XE_2D_ST_N<TSizeBits, Height, Width>::VecSize>, 
+                                                                  Int<Height>, 
+                                                                  Int<XE_2D_ST_N<TSizeBits, Height, Width>::NBlocks>
+                                                 >>{}, Step<_2, Step<_0, _1, _3, _4>>{}));
+  // Map from (src-thr,src-val) to bit
+  using DstLayout = Layout<Shape <_16, decltype(get<1>(SrcLayout{}).shape())>,
+                           Stride<_0,  decltype(get<1>(SrcLayout{}).stride())>>;
+  // Reference map from (thr,val) to bit
+  using RefLayout = SrcLayout;
+
+  template <class... ArgTs>
+  Copy_Traits(ArgTs... args)
+      : XE_2D_ST_Unpack<XE_2D_ST_N<TSizeBits, Height, Width>, args_t...>(args...) {}
+};
+
+template <int TSizeBits, int Height, int Width, int InstSizeBits, class... args_t>
+struct Copy_Traits<XE_2D_LD_N<TSizeBits, Height, Width, InstSizeBits>, args_t...>
+    : XE_2D_LD_Unpack<XE_2D_LD_N<TSizeBits, Height, Width, InstSizeBits>, args_t...> {
+  using Base = XE_2D_LD_Unpack<XE_2D_LD_N<TSizeBits, Height, Width, InstSizeBits>, args_t...>;
+  using Base::is_matrix_B;
+  using BlockShape = std::conditional_t<is_matrix_B, decltype(cute::reverse(typename Base::BlockShape{})), typename Base::BlockShape>;
+
+  using ThrID = Layout<_16>;
+  // Map from (dst-thr,dst-val) to bit
+  using DstLayout = decltype(make_ordered_layout(Shape<_16, Shape<Int<TSizeBits>, 
+                                                                   Int<XE_2D_LD_N<TSizeBits, Height, Width, InstSizeBits>::VecSize>, 
+                                                                   Int<Height>, 
+                                                                   Int<XE_2D_LD_N<TSizeBits, Height, Width, InstSizeBits>::NBlocks>
+                                                  >>{}, std::conditional_t<is_matrix_B, 
+                                                                           Step<_3, Step<_0, _1, _2, _4>>, 
+                                                                           Step<_2, Step<_0, _1, _3, _4>>>{}));
+  // Map from (src-thr,src-val) to bit
+  using SrcLayout = Layout<Shape <_16, decltype(get<1>(DstLayout{}).shape())>,
+                           Stride<_0,  decltype(get<1>(DstLayout{}).stride())>>;
+
+  //using SrcLayout = decltype(detail::get_logical_layout<is_matrix_B>(SrcLayout_{}, typename Base::BlockShape{}));
+  //using DstLayout = decltype(detail::get_logical_layout<is_matrix_B>(DstLayout_{}, typename Base::BlockShape{}));
+  // Reference map from (thr,val) to bit
+  using RefLayout = DstLayout;
+
+  template <class... ArgTs>
+  Copy_Traits(ArgTs... args)
+      : XE_2D_LD_Unpack<XE_2D_LD_N<TSizeBits, Height, Width, InstSizeBits>, args_t...>(args...) {}
+};
+
+template <int TSizeBits, int Height, int Width, class... args_t>
+struct Copy_Traits<XE_2D_LD_N_PREFETCH<TSizeBits, Height, Width>, args_t...>
+    : XE_2D_LD_Unpack<XE_2D_LD_N_PREFETCH<TSizeBits, Height, Width>, args_t...> {
+  using Base = XE_2D_LD_Unpack<XE_2D_LD_N_PREFETCH<TSizeBits, Height, Width>, args_t...>;
+  using Base::is_matrix_B;
+  using BlockShape = std::conditional_t<is_matrix_B, decltype(cute::reverse(typename Base::BlockShape{})), typename Base::BlockShape>;
+
+  using ThrID = Layout<_16>;
+  // Map from (dst-thr,dst-val) to bit
+  using DstLayout = decltype(make_ordered_layout(Shape<_16, Shape<Int<TSizeBits>, 
+                                                                  Int<XE_2D_LD_N_PREFETCH<TSizeBits, Height, Width>::VecSize>, 
+                                                                  Int<Height>, 
+                                                                  Int<XE_2D_LD_N_PREFETCH<TSizeBits, Height, Width>::NBlocks>>>{},
+                                                  std::conditional_t<is_matrix_B, 
+                                                                     Step<_3, Step<_0, _1, _2, _4>>, 
+                                                                     Step<_2, Step<_0, _1, _3, _4>>>{}));
+  // Map from (src-thr,src-val) to bit
+  using SrcLayout = Layout<Shape <_16, decltype(get<1>(DstLayout{}).shape())>,
+                           Stride<_0,  decltype(get<1>(DstLayout{}).stride())>>;
+  //using SrcLayout = decltype(detail::get_logical_layout<is_matrix_B>(SrcLayout_{}, typename Base::BlockShape{}));
+  //using DstLayout = decltype(detail::get_logical_layout<is_matrix_B>(DstLayout_{}, typename Base::BlockShape{}));
+  // Reference map from (thr,val) to bit
+  using RefLayout = DstLayout;
+
+  template <class... ArgTs>
+  Copy_Traits(ArgTs... args)
+      : XE_2D_LD_Unpack<XE_2D_LD_N_PREFETCH<TSizeBits, Height, Width>, args_t...>(args...) {}
+};
+
+template <int TSizeBits, int Height, int Width, class... args_t>
+struct Copy_Traits<XE_2D_LD_V<TSizeBits, Height, Width>, args_t...>
+    : XE_2D_LD_Unpack<XE_2D_LD_V<TSizeBits, Height, Width>, args_t...> {
+  using Base = XE_2D_LD_Unpack<XE_2D_LD_V<TSizeBits, Height, Width>, args_t...>;
+  using Base::is_matrix_B;
+  using BlockShape = std::conditional_t<is_matrix_B, decltype(cute::reverse(typename Base::BlockShape{})), typename Base::BlockShape>;
+
+  using ThrID = Layout<_16>;
+  // Map from (dst-thr,dst-val) to bit
+  using DstLayout = decltype(make_ordered_layout(Shape<_16, Shape<Int<TSizeBits>, 
+                                                                  Int<XE_2D_LD_V<TSizeBits, Height, Width>::VecSize>, 
+                                                                  Int<Height>, 
+                                                                  Int<XE_2D_LD_V<TSizeBits, Height, Width>::NBlocks>>>{},
+                                                 Step<_2, Step<_0, _1, _3, _4>>{}));
+  // Map from (src-thr,src-val) to bit
+  using SrcLayout = Layout<Shape <_16, decltype(get<1>(DstLayout{}).shape())>,
+                           Stride<_0,  decltype(get<1>(DstLayout{}).stride())>>;
+  // Reference map from (thr,val) to bit
+  using RefLayout = DstLayout;
+
+  template <class... ArgTs>
+  Copy_Traits(ArgTs... args)
+      : XE_2D_LD_Unpack<XE_2D_LD_V<TSizeBits, Height, Width>, args_t...>(args...) {}
+};
+
+template <int TSizeBits, int Height, int Width, class... args_t>
+struct Copy_Traits<XE_2D_LD_T<TSizeBits, Height, Width>, args_t...>
+    : XE_2D_LD_Unpack<XE_2D_LD_T<TSizeBits, Height, Width>, args_t...> {
+  using Base = XE_2D_LD_Unpack<XE_2D_LD_T<TSizeBits, Height, Width>, args_t...>;
+  using Base::is_matrix_B;
+  using BlockShape = std::conditional_t<is_matrix_B, decltype(cute::reverse(typename Base::BlockShape{})), typename Base::BlockShape>;
+  
+  using ThrID = Layout<_16>;
+  // Map from (dst-thr,dst-val) to bit
+  using DstLayout = decltype(make_ordered_layout(Shape<_16, Shape<Int<TSizeBits>, 
+                                                                  _1,//Int<XE_2D_LD_T<TSizeBits, Height, Width>::VecSize>, 
+                                                                  Int<Width>, 
+                                                                  Int<XE_2D_LD_T<TSizeBits, Height, Width>::NBlocks>>>{},
+                                                  std::conditional_t<is_matrix_B, 
+                                                                     Step<_2, Step<_0, _1, _3, _4>>, 
+                                                                     Step<_3, Step<_0, _1, _2, _4>>
+                                                                     >{}));
+  // Map from (src-thr,src-val) to bit
+  using SrcLayout = Layout<Shape <_16, decltype(get<1>(DstLayout{}).shape())>,
+                           Stride<_0,  decltype(get<1>(DstLayout{}).stride())>>;
+  // Reference map from (thr,val) to bit
+  using RefLayout = DstLayout;
+
+  template <class... ArgTs>
+  Copy_Traits(ArgTs... args)
+      : XE_2D_LD_Unpack<XE_2D_LD_T<TSizeBits, Height, Width>, args_t...>(args...) {}
+};
 
 // Generate the Xe coordinate tensor
 template <class GShape>

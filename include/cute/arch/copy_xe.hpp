@@ -40,12 +40,17 @@
 #include <cute/arch/copy_xe_spirv.hpp>
 #endif
 
+#include <cute/arch/copy_xe_st_n.hpp>
+#include <cute/arch/copy_xe_ld_n.hpp>
+#include <cute/arch/copy_xe_ld_v.hpp>
+#include <cute/arch/copy_xe_ld_t.hpp>
+/*
 #include <cute/arch/copy_xe_U4.hpp>
 #include <cute/arch/copy_xe_U8.hpp>
 #include <cute/arch/copy_xe_U16.hpp>
 #include <cute/arch/copy_xe_U32.hpp>
 #include <cute/arch/copy_xe_U64.hpp>
-
+*/
 #ifdef __SYCL_DEVICE_ONLY__
 SYCL_EXTERNAL __attribute__((convergent)) void __spirv_ControlBarrierWaitINTEL(int execution_scope, int memory_scope, int memory_semantics);
 SYCL_EXTERNAL __attribute__((convergent)) void __spirv_ControlBarrierArriveINTEL(int execution_scope, int memory_scope, int memory_semantics);

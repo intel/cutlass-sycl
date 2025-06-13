@@ -518,4 +518,14 @@ struct XeSubgroup2DBlockPrefetch<4, 8, 16, 1> {
       coordinate);
   }
 };
+
+template<int BlockHeight>
+struct XeSubgroup2DBlockLoad<1, 16, BlockHeight, 2> : public XeSubgroup2DBlockLoad<1, 32, BlockHeight, 1> {};
+template<int BlockHeight>
+struct XeSubgroup2DBlockLoad<1, 16, BlockHeight, 4> : public XeSubgroup2DBlockLoad<1, 32, BlockHeight, 2> {};
+template<int BlockHeight>
+struct XeSubgroup2DBlockPrefetch<1, 16, BlockHeight, 2> : public XeSubgroup2DBlockPrefetch<1, 32, BlockHeight, 1> {};
+template<int BlockHeight>
+struct XeSubgroup2DBlockPrefetch<1, 16, BlockHeight, 4> : public XeSubgroup2DBlockPrefetch<1, 32, BlockHeight, 2> {};
+
 } // namespace cute::detail end

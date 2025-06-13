@@ -349,6 +349,9 @@ struct ThrCopy
     //static_assert(sizeof(typename remove_cvref_t<STensor>::value_type) == sizeof(typename TiledCopy::ValType),
     //              "Expected ValType for tiling SrcTensor.");
     auto thr_tensor = make_tensor(static_cast<STensor&&>(stensor).data(), TiledCopy::tidfrg_S(stensor.layout()));
+    /*if(thread0()){
+      print("thr "); print(thr_tensor); print("\n");
+    }*/
     return thr_tensor(thr_idx_, _, repeat<rank_v<STensor>>(_));
   }
 

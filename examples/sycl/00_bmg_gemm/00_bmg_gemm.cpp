@@ -345,7 +345,9 @@ int main(int argc, const char** argv)
   using LayoutD = cutlass::layout::RowMajor;
 
   // The 2D block copy operations used for the A and B matrices
+  //using GmemTiledCopyA = XE_2D_LD_N<16,2,16>;
   using GmemTiledCopyA = XE_2D_U16x32x32_LD_N;
+  //using GmemTiledCopyB = XE_2D_LD_V<16,32,32>;
   using GmemTiledCopyB = XE_2D_U16x32x32_LD_V;
 
   // Workgroup-level tile

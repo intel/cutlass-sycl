@@ -192,22 +192,41 @@ struct CollectiveMma<MainloopIntelXeXMX16<Stages, Schedule>, TileShape_, Element
 
 #if CUTLASS_ENABLE_DEBUG_PRINTS
 #define PRINT(x) print(#x ": "); print(x); print("\n");
-    if (cute::thread(LOG_THREAD, LOG_GROUP)) {
+    if (cute::thread(0, 0)) {
       print("======================= A: \n");
-      PRINT(tCgA);
+      /*PRINT(tCgA);
       PRINT(tAgA);
 
       PRINT(tCrA);
-      PRINT(tArA);
+      PRINT(tArA);*/
       PRINT(mainloop.tiled_copy_a);
+      PRINT(traits_load_A::is_matrix_B);
+      PRINT(typename traits_load_A::DstLayout{});
+      PRINT(GmemTiledCopyA{});
 
       print("======================= B: \n");
-      PRINT(tCgB);
+      /*PRINT(tCgB);
       PRINT(tBgB);
 
       PRINT(tCrB);
-      PRINT(tBrB);
+      PRINT(tBrB);*/
       PRINT(mainloop.tiled_copy_b);
+      PRINT(traits_load_B::is_matrix_B);
+      /*using St = std::conditional_t<traits_load_B::is_matrix_B, 
+                                Step<_1, Step<_0, _2, _3>>, 
+                                Step<_2, Step<_0, _1, _3>>
+                                >;
+      auto b_layout = make_ordered_layout(Shape<_16, Shape<Int<16>, 
+                                                                  Int<16>, 
+                                                                  Int<16>>>{},
+                                                  std::conditional_t<traits_load_B::is_matrix_B, 
+                                                                     Step<_1, Step<_0, _2, _3>>, 
+                                                                     Step<_2, Step<_0, _1, _3>>
+                                                                     >{});
+      PRINT(St{});
+      PRINT(b_layout);*/
+      PRINT(typename traits_load_B::DstLayout{});
+      PRINT(GmemTiledCopyB{});
       }
 #undef PRINT
 #endif

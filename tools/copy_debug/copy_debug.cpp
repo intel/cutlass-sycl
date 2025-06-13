@@ -55,7 +55,14 @@ void copy_kernel(TensorS S) {
   }
   syncthreads();
 
-  using CopyThreadShape = Shape<_1, Int<SUBGROUP_SIZE>>;
+  if(thread(0)){
+    using traits_load = Copy_Traits<CopyInstruction, decltype(S)>;
+    print("BlockShape: "); print(typename traits_load::BlockShape{}); print("\n");
+    print("DstLayout: "); print(typename traits_load::DstLayout{}); print("\n");
+  }
+
+  //using CopyThreadShape = Shape<_1, Int<SUBGROUP_SIZE>>;
+  using CopyThreadShape = Shape<Int<SUBGROUP_SIZE>, _1>;
   using traits_load = Copy_Traits<CopyInstruction, decltype(S)>;
   using Atom_load = Copy_Atom<traits_load, Element>;
   auto tiled_copy_load = make_tiled_copy(Atom_load{}.with(S),
@@ -75,6 +82,9 @@ void copy_kernel(TensorS S) {
   auto thread_s = thr_copy_load.partition_S(blk_load_S(_,_,0));
 
   if(thread(0)){
+    print("tiled_copy_load: "); print(tiled_copy_load); print("\n");
+    print("BlockShape: "); print(typename traits_load::BlockShape{}); print("\n");
+    print("DstLayout: "); print(typename traits_load::DstLayout{}); print("\n");
     print("fragment_copy_view: "); print(fragment_copy_view); print("\n");
     print("thread_s: "); print(thread_s); print("\n");
   }
@@ -130,7 +140,9 @@ void copy(int global_M, int global_N) {
 int main(){
   // for 16b copies use integers as floating point types could lose precision for bigger indices
   // for 8b copies you have to work with overflow
-  copy<XE_2D_U16x32x32_LD_V, int16_t>(256, 256);
-  copy<XE_2D_U16x32x32_LD_N, int16_t>(256, 256);
+  //copy<XE_2D_U16x32x32_LD_V, int16_t>(256, 256);
+  copy<XE_2D_U16x16x16_LD_T, int16_t>(16, 16);
+  
+  //copy<XE_2D_Packed_U8x32x32_LD_N, uint8_t>(32, 32);
   return 0;
 }

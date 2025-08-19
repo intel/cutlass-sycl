@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2025 -----
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,30 +30,21 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/tensor_impl.hpp>
+namespace cute
+{
 
-//
-// Extended Engines
-//
+// Reorder dispatch tags
+struct ReorderDispatchRelayoutConvert {};      // Change layout, then convert
+struct ReorderDispatchConvertRelayout {};      // Convert, then change layout
+#ifdef SYCL_INTEL_TARGET
+struct ReorderDispatchXeGeneric {};            // Generic Xe subgroup reorder operation
+#endif
 
-#include <cute/pointer_swizzle.hpp>
-#include <cute/pointer_sparse.hpp>
-#include <cute/pointer_flagged.hpp>
-#include <cute/tensor_zip.hpp>
+} // end namespace cute
 
-//
-// Tensor Algorithms
-//
 
-#include <cute/algorithm/tensor_algorithms.hpp>
-#include <cute/algorithm/fill.hpp>
-#include <cute/algorithm/clear.hpp>
-#include <cute/algorithm/copy.hpp>
-#include <cute/algorithm/prefetch.hpp>
-#include <cute/algorithm/axpby.hpp>
-#include <cute/algorithm/gemm.hpp>
-#include <cute/algorithm/reorder.hpp>
+#include <cute/arch/reorder.hpp>
 
-#include <cute/algorithm/cooperative_copy.hpp>
-#include <cute/algorithm/cooperative_gemm.hpp>
-
+#ifdef SYCL_INTEL_TARGET
+#include <cute/atom/reorder_atom_xe.hpp>
+#endif

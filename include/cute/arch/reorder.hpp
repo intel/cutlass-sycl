@@ -1,5 +1,5 @@
 /***************************************************************************************************
- * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2025 -----
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,30 +30,18 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/tensor_impl.hpp>
+namespace cute {
 
-//
-// Extended Engines
-//
+// Universal reorder with no change of layout.
+template <typename SrcType, typename DstType>
+struct Universal_Reorder_UU {
+  using SRegisters = SrcType[1];
+  using DRegisters = DstType[1];
 
-#include <cute/pointer_swizzle.hpp>
-#include <cute/pointer_sparse.hpp>
-#include <cute/pointer_flagged.hpp>
-#include <cute/tensor_zip.hpp>
+  CUTE_HOST_DEVICE static void
+  reorder(SrcType const& src0, DstType& dst0) {
+    dst0 = src0;
+  }
+};
 
-//
-// Tensor Algorithms
-//
-
-#include <cute/algorithm/tensor_algorithms.hpp>
-#include <cute/algorithm/fill.hpp>
-#include <cute/algorithm/clear.hpp>
-#include <cute/algorithm/copy.hpp>
-#include <cute/algorithm/prefetch.hpp>
-#include <cute/algorithm/axpby.hpp>
-#include <cute/algorithm/gemm.hpp>
-#include <cute/algorithm/reorder.hpp>
-
-#include <cute/algorithm/cooperative_copy.hpp>
-#include <cute/algorithm/cooperative_gemm.hpp>
-
+} // end namespace cute

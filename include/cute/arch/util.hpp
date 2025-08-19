@@ -164,6 +164,19 @@ struct CallCOPY {
 };
 
 //
+// Wrapper for ReorderOp::reorder
+//
+
+template <class ReorderOp>
+struct CallReorder {
+  template <class... Args>
+  CUTE_HOST_DEVICE constexpr void
+  operator()(Args&&... args) const {
+    return ReorderOp::reorder(static_cast<Args&&>(args)...);
+  }
+};
+
+//
 // Utility for exploding pointers/arrays/tensors into functions
 //
 

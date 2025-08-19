@@ -30,7 +30,7 @@
  **************************************************************************************************/
 #pragma once
 
-#include <cute/arch/mma_xe.hpp>
+#include <cute/arch/mma_xe_legacy.hpp>
 #include <cute/atom/mma_traits.hpp>
 
 #include <cute/layout.hpp>

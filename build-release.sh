@@ -1,11 +1,14 @@
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 rm -rf ${script_dir}/build && mkdir ${script_dir}/build && cd ${script_dir}/build
 
-. /home/taozha2/workspace/crisim/env.sh
 . /opt/intel/oneapi/setvars.sh
+. /home/taozha2/workspace/crisim/env.sh
 
 export CC=icx
 export CXX=icpx
+
+export PrintDebugMessages=1
+export NEOReadDebugKeys=1
 
 export IGC_ShaderDumpEnable=1
 export IGC_DumpToCustomDir=${script_dir}/build/mm_dumps
@@ -23,4 +26,4 @@ cmake .. -G Ninja -DCUTLASS_ENABLE_SYCL=ON -DSYCL_INTEL_TARGET=ON -DCUTLASS_SYCL
 
 target=./examples/sycl/00_bmg_gemm/00_bmg_gemm
 
-ninja $target && $target --m=64 --k=64 --n=64 --iterations=1
+ninja $target && $target --m=256 --k=1024 --n=256 --iterations=1

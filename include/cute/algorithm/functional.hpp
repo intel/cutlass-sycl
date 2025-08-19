@@ -188,6 +188,7 @@ CUTE_BINARY_OP(less_equal,          <=);
 
 CUTE_NAMED_BINARY_OP(max_fn, cute::max);
 CUTE_NAMED_BINARY_OP(min_fn, cute::min);
+CUTE_NAMED_BINARY_OP(gcd_fn, cute::gcd);
 
 #undef CUTE_BINARY_OP
 #undef CUTE_NAMED_BINARY_OP

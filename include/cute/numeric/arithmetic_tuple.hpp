@@ -252,6 +252,13 @@ struct is_scaled_basis : false_type {};
 template <class T, int N>
 struct is_scaled_basis<ScaledBasis<T,N>> : true_type {};
 
+template <class T>
+struct is_arithmetic_tuple_like : false_type {};
+template <class... T>
+struct is_arithmetic_tuple_like<ArithmeticTuple<T...>> : true_type {};
+template <class T, int N>
+struct is_arithmetic_tuple_like<ScaledBasis<T,N>> : true_type {};
+
 template <class T, int N>
 struct is_integral<ScaledBasis<T,N>> : true_type {};
 
@@ -463,6 +470,43 @@ auto
 operator+(ScaledBasis<T,N> const& t, C<u>) {
   static_assert(u == 0, "ScaledBasis op+ error!");
   return t;
+}
+
+// Component-wise maximum
+template <class... T, class... U>
+CUTE_HOST_DEVICE constexpr
+auto
+atuple_max(ArithmeticTuple<T...> const& t, ArithmeticTuple<U...> const& u) {
+  constexpr int R = cute::max(int(sizeof...(T)), int(sizeof...(U)));
+  return transform_apply(append<R>(t,Int<0>{}), append<R>(u,Int<0>{}), max_fn{}, [](auto const&... a){ return make_arithmetic_tuple(a...); });
+}
+
+template <class T, int... Ns, class U, int... Ms>
+CUTE_HOST_DEVICE constexpr
+auto
+atuple_max(ScaledBasis<T,Ns...> const& t, ScaledBasis<U,Ms...> const& u) {
+  return atuple_max(as_arithmetic_tuple(t), as_arithmetic_tuple(u));
+}
+
+template <class... T, class U, int... Ms>
+CUTE_HOST_DEVICE constexpr
+auto
+atuple_max(ArithmeticTuple<T...> const& t, ScaledBasis<U,Ms...> const& u) {
+  return atuple_max(t, as_arithmetic_tuple(u));
+}
+
+template <class T, int... Ns, class... U>
+CUTE_HOST_DEVICE constexpr
+auto
+atuple_max(ScaledBasis<T,Ns...> const& t, ArithmeticTuple<U...> const& u) {
+  return atuple_max(as_arithmetic_tuple(t), u);
+}
+
+template <class T0, class T1, class... Ts>
+CUTE_HOST_DEVICE constexpr
+auto
+atuple_max(T0 const& t0, T1 const& t1, Ts const&... ts) {
+    return atuple_max(t0, atuple_max(t1, ts...));
 }
 
 //

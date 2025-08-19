@@ -455,7 +455,9 @@ auto
 make_fragment_like(Layout<Shape,Stride> const& layout)
 {
   constexpr int R = Layout<Shape,Stride>::rank;
-  if constexpr (R > 1 && is_static<Shape>::value) {
+  if constexpr (is_arithmetic_tuple_like<decltype(layout(0))>::value) {
+    return make_fragment_like(project_strides(layout));
+  } else if constexpr (R > 1 && is_static<Shape>::value) {
     return tiled_product(make_layout(get<0>(layout.shape()),
                                      compact_major<LayoutLeft>(filter_zeros(get<0>(layout.stride()), get<0>(layout.shape())))),
                          make_ordered_layout(take<1,R>(layout.shape()), take<1,R>(layout.stride())));
@@ -654,6 +656,33 @@ coshape(Layout<Shape,Stride> const& layout)
   return transform_leaf(co_coord, [](auto c) { return c + Int<1>{}; });
 }
 
+template <class IntTupleA, class IntTupleB>
+CUTE_HOST_DEVICE constexpr
+auto
+inner_product_atuple_max(IntTupleA const& a, IntTupleB const& b)
+{
+  if constexpr (is_tuple<IntTupleA>::value && is_tuple<IntTupleB>::value) {
+    static_assert(tuple_size<IntTupleA>::value == tuple_size<IntTupleB>::value, "Mismatched ranks");
+    return transform_apply(a, b, [](auto const& x, auto const& y) { return inner_product_atuple_max(x,y); },
+                                 [](auto const&... v) { return atuple_max(v...); });
+  } else {
+    return a * b;
+  }
+
+  CUTE_GCC_UNREACHABLE;
+}
+
+// Return the codomain shape of an ArithmeticTuple-strided layout,
+//   treating each dimension of the ArithmeticTuple separately.
+template <class Shape, class Stride>
+CUTE_HOST_DEVICE constexpr
+auto
+atuple_coshape(Layout<Shape, Stride> const& layout)
+{
+  auto flayout = filter(flatten(layout));
+  return inner_product_atuple_max(shape(flayout), stride(flayout));
+}
+
 // Return the codomain size of a mode
 // @return M smallest integer such that
 //           size(@a sub_layout(c)) < M for all c < size(@a sub_layout)
@@ -679,6 +708,19 @@ auto
 crd2idx(Coord const& c, Layout<Shape,Stride> const& layout)
 {
   return crd2idx(c, layout.shape(), layout.stride());
+}
+
+// Project an ArithmeticTuple-strided layout to a standard layout,
+//   by composing it with a LayoutLeft layout.
+template <class Shape, class Stride>
+CUTE_HOST_DEVICE constexpr
+auto
+project_strides(Layout<Shape,Stride> const& layout)
+{
+  if constexpr (is_arithmetic_tuple_like<decltype(layout(0))>::value)
+    return composition(make_layout(atuple_coshape(layout)), layout);
+  else
+    return layout;
 }
 
 //
@@ -834,7 +876,7 @@ coalesce_x(Layout<Shape,Stride> const& layout)
   } else {
     return detail::bw_coalesce<R-2>(flat_shape, flat_stride, get<R-1>(flat_shape), get<R-1>(flat_stride));
   }
-  
+
   CUTE_GCC_UNREACHABLE;
 }
 

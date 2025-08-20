@@ -60,7 +60,7 @@ static constexpr bool is_counting_layout_v = is_arithmetic_tuple_like<decltype(L
 
 
 
-// Base traits class for block 2D loads.
+// Base traits class for block 2D messages.
 //
 // XMode and YMode are mode indices into the tensor, identifying which modes map to the block 2D dimensions.
 //   X: consecutive dimension
@@ -72,7 +72,7 @@ static constexpr bool is_counting_layout_v = is_arithmetic_tuple_like<decltype(L
 //   in registers, the generic CuTe code for handling type size changes (via Copy_Atom) does not
 //   work properly in most cases.
 template <class Op, class XMode, class YMode, typename ValType, typename TiledStrides = Stride<_1>>
-struct Xe2DLoadTraitsBase
+struct Xe2DTraitsBase
 {
   using Traits = Copy_Traits<Op, XMode, YMode, ValType, TiledStrides>;
   using ThrID = Layout<_16>;
@@ -99,22 +99,33 @@ struct Xe2DLoadTraitsBase
 
   // Uninitialized atom, available on host or device.
   CUTE_HOST_DEVICE
-  Xe2DLoadTraitsBase() {}
+  Xe2DTraitsBase() {}
 
   // Initialized atom, device-only.
   template <typename SEngine, typename SLayout>
   CUTE_DEVICE
-  Xe2DLoadTraitsBase(Tensor<SEngine, SLayout> const& src)
+  Xe2DTraitsBase(Tensor<SEngine, SLayout> const& src)
       : base_ptr(&*src.data()),
         tiled_strides(replace<XMode::value>(replace<YMode::value>(src.stride(), _0{}), _0{}))
   {
     constexpr auto SBits = sizeof_bits_v<typename SEngine::value_type>;
+    uint32_t width = (shape<XMode::value>(src) * SBits) >> 3;
+    uint32_t height = shape<YMode::value>(src);
+    uint32_t pitch = (stride<YMode::value>(src) * SBits) >> 3;
+#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
+    assert(((long) base_ptr % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
+    assert((width % 4 == 0) && "CuTe runtime error: misaligned block 2D tensor width");
+    assert((pitch % 4 == 0) && "CuTe runtime error: misaligned block 2D tensor pitch");
+    assert((width <= 0xFFFFFF) && "CuTe runtime error: block 2D tensor width exceeds 2^24");
+    assert((height <= 0xFFFFFF) && "CuTe runtime error: block 2D tensor height exceeds 2^24");
+    assert((pitch <= 0xFFFFFF) && "CuTe runtime error: block 2D tensor pitch exceeds 2^24");
+#endif
 #ifdef __SYCL_DEVICE_ONLY__
     payload = __builtin_IB_subgroup_createBlock2DAddressPayload(
       (long) base_ptr,
-      ((shape<XMode::value>(src) * SBits) >> 3) - 1,
-      shape<YMode::value>(src) - 1,
-      ((stride<YMode::value>(src) * SBits) >> 3) - 1,
+      width - 1,
+      height - 1,
+      pitch - 1,
       0,  /* x offset, configured per-copy */
       0,  /* y offset, configured per-copy */
       Op::AtomWidth / Op::BlockCount,
@@ -123,6 +134,14 @@ struct Xe2DLoadTraitsBase
     );
 #endif
   }
+};
+
+template <class Op, class XMode, class YMode, typename ValType, typename TiledStrides = Stride<_1>>
+struct Xe2DLoadTraitsBase : Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrides>
+{
+  using Super = Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrides>;
+  using Traits = typename Super::Traits;
+  using ThrID = typename Super::ThrID;
 
   // Provide a global memory tensor to a previously-uninitialized atom.
   template <typename SEngine, typename SLayout>
@@ -131,7 +150,7 @@ struct Xe2DLoadTraitsBase
     return Xe2DLoadTraitsBase<Op, XMode, YMode, ValType, TiledStrides>(src);
   }
 
-  // Execution
+  // Execution.
   template <class SEngine, class SLayout,
             class DEngine, class DLayout>
   CUTE_DEVICE friend constexpr void
@@ -159,15 +178,23 @@ struct Xe2DLoadTraitsBase
     __builtin_IB_subgroup_setBlock2DAddressPayloadBlockX(payload, x);
     __builtin_IB_subgroup_setBlock2DAddressPayloadBlockY(payload, y);
 
+#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
+    assert((x % 4 == 0) && "CuTe runtime error: misaligned block 2D x offset");
+#endif
+
     // Perform stride calculation and update base pointer for > 2D tensors
-    if constexpr (nontrivial_tiled_strides) {
+    if constexpr (Super::nontrivial_tiled_strides) {
       auto offset = inner_product(coord, traits.tiled_strides);
       auto typed_base = reinterpret_cast<const SType*>(traits.base_ptr);
       __builtin_IB_subgroup_setBlock2DAddressPayloadBase(payload, (long) (typed_base + offset));
+
+#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
+      assert((offset % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
+#endif
     }
 
     // Call atom
-    Op::copy(payload, recast_ptr<int_byte_t<bits_to_bytes(ValBits)>>(&*dst.data()));
+    Op::copy(payload, recast_ptr<int_byte_t<bits_to_bytes(Super::ValBits)>>(&*dst.data()));
   }
 };
 
@@ -210,7 +237,7 @@ struct XeInterleavedLayoutHelper {
 template <typename Layout, int CopyBits, int ValBits, int Threads = 16>
 using XeInterleavedLayout = typename XeInterleavedLayoutHelper<Layout, CopyBits, ValBits, Threads>::Result;
 
-// Block 2D load traits
+// Block 2D load traits.
 template <class XMode, class YMode, typename ValType, typename TiledStrides,
           int CopyBits, int Height, int Width, int BlockWidth>
 struct Copy_Traits<XE_LOAD_2D<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>
@@ -226,7 +253,7 @@ struct Copy_Traits<XE_LOAD_2D<CopyBits, Height, Width, BlockWidth>, XMode, YMode
   using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
 };
 
-// Block 2D VNNI load traits
+// Block 2D VNNI load traits.
 template <class XMode, class YMode, typename ValType, typename TiledStrides,
           int CopyBits, int Height, int Width, int BlockWidth>
 struct Copy_Traits<XE_LOAD_2D_VNNI<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>
@@ -244,7 +271,7 @@ struct Copy_Traits<XE_LOAD_2D_VNNI<CopyBits, Height, Width, BlockWidth>, XMode, 
   using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
 };
 
-// Block 2D transposed load traits
+// Block 2D transposed load traits.
 template <class XMode, class YMode, typename ValType, typename TiledStrides,
           int CopyBits, int Height, int Width>
 struct Copy_Traits<XE_LOAD_2D_TRANSPOSE<CopyBits, Height, Width>, XMode, YMode, ValType, TiledStrides>
@@ -258,6 +285,80 @@ struct Copy_Traits<XE_LOAD_2D_TRANSPOSE<CopyBits, Height, Width>, XMode, YMode, 
 
   using RefLayout = DstLayout;
   using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
+};
+
+// Block 2D store traits.
+template <class XMode, class YMode, typename ValType, typename TiledStrides,
+          int CopyBits, int Height, int Width>
+struct Copy_Traits<XE_STORE_2D<CopyBits, Height, Width>, XMode, YMode, ValType, TiledStrides>
+    : Xe2DTraitsBase<XE_STORE_2D<CopyBits, Height, Width>, XMode, YMode, ValType, TiledStrides>
+{
+  // (src-thr, src-val) -> (x, y)
+  using SrcLayout = XeInterleavedLayout<Layout<Shape<Int<Width>, Int<Height>>>,
+                                        CopyBits,
+                                        sizeof_bits_v<ValType>>;
+
+  using RefLayout = SrcLayout;
+  using DstLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
+
+  using Op = XE_STORE_2D<CopyBits, Height, Width>;
+  using Super = Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrides>;
+  using Traits = typename Super::Traits;  // a.k.a. this class
+  using ThrID = typename Super::ThrID;
+
+  // Provide a global memory tensor to a previously-uninitialized atom.
+  template <typename DEngine, typename DLayout>
+  CUTE_DEVICE auto
+  with(Tensor<DEngine, DLayout> const& dst) {
+    return Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrides>(dst);
+  }
+
+  // Execution.
+  template <class SEngine, class SLayout,
+            class DEngine, class DLayout>
+  CUTE_DEVICE friend constexpr void
+  copy_unpack(Traits const&                   traits,
+              Tensor<SEngine, SLayout> const& src,
+              Tensor<DEngine, DLayout> &      dst) {
+    using SType = typename SEngine::value_type;
+    using DType = typename DEngine::value_type;
+    using SrcLayout = typename Traits::SrcLayout;
+    using DstLayout = typename Traits::DstLayout;
+    constexpr auto SBits = sizeof_bits_v<SType>;
+
+    static_assert(is_counting_layout_v<DLayout>, "Destination tensor must be a coordinate tensor.");
+    static_assert(is_rmem_v<SEngine>, "Source tensor must be in registers.");
+    static_assert(size(SLayout{}) * SBits == size<1>(SrcLayout{}),
+                  "Source tensor size does not match copy atom size.");
+    static_assert(size(DLayout{}) * SBits == size<1>(DstLayout{}),
+                  "Destination tensor size does not match copy atom size.");
+
+    // Update x/y offsets in payload
+    auto *payload = traits.payload;
+    auto coord = dst.data().coord_;
+    int32_t x = get<XMode::value>(coord) * SBits / Op::CopyBits;
+    int32_t y = get<YMode::value>(coord);
+    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockX(payload, x);
+    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockY(payload, y);
+
+#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
+    assert((x % 4 == 0) && "CuTe runtime error: misaligned block 2D x offset");
+#endif
+
+    // Perform stride calculation and update base pointer for > 2D tensors
+    if constexpr (Super::nontrivial_tiled_strides) {
+      auto offset = inner_product(coord, traits.tiled_strides);
+      auto typed_base = reinterpret_cast<const DType*>(traits.base_ptr);
+      __builtin_IB_subgroup_setBlock2DAddressPayloadBase(payload, (long) (typed_base + offset));
+
+#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
+      assert((offset % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
+#endif
+    }
+
+    // Call atom
+    Op::copy(payload, recast_ptr<int_byte_t<bits_to_bytes(Super::ValBits)>>(&*src.data()));
+  }
 };
 
 

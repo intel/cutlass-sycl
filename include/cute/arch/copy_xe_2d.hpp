@@ -54,6 +54,11 @@ namespace cute {
 template <int Bits, int Height, int Width, int Count = 1, bool Transpose = false>
 struct XE_Copy_Op_2D_Base
 {
+  static_assert(Height <= 32, "Height exceeds hardware limits");
+  static_assert(Width * Count <= 64, "Total width exceeds hardware limits");
+  static_assert(Bits * Count <= 64 && Count <= 4 && Count != 3, "Unsupported block count");
+  static_assert(Bits == 8 || Bits == 16 || Bits == 32 || Bits == 64, "Unsupported data size");
+
   static constexpr int CopyBits = Bits;
   static constexpr int AtomWidth = Width;
   static constexpr int AtomHeight = Height;
@@ -83,6 +88,8 @@ struct XE_LOAD_2D : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidth>
 template <int Bits, int Height, int Width, int BlockWidth = Width>
 struct XE_LOAD_2D_VNNI : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidth>
 {
+  static_assert(Bits == 8 || Bits == 16, "Unsupported data size");
+
   template <typename T>
   CUTE_HOST_DEVICE static void copy(const int *payload, T *dst) {
 #ifdef CUTE_ARCH_COPY_XE_ENABLED
@@ -101,6 +108,10 @@ struct XE_LOAD_2D_VNNI : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidt
 template <int Bits, int Height, int Width>
 struct XE_LOAD_2D_TRANSPOSE : XE_Copy_Op_2D_Base<Bits, Height, Width, 1, true>
 {
+  static_assert(Bits == 32 || Bits == 64, "Unsupported data size");
+  static_assert(Width <= 8, "Width exceeds hardware limits");
+  static_assert(Bits != 64 || (Height == 8 && Width < 4), "Unsupported D64 transpose block size");
+
   template <typename T>
   CUTE_HOST_DEVICE static void copy(const int *payload, T *dst) {
 #ifdef CUTE_ARCH_COPY_XE_ENABLED
@@ -135,6 +146,8 @@ struct XE_PREFETCH_2D : XE_Copy_Op_2D_Base<Bits, Height, Width>
 template <int Bits, int Height, int Width>
 struct XE_STORE_2D : XE_Copy_Op_2D_Base<Bits, Height, Width>
 {
+  static_assert(Height <= 8, "Height exceeds hardware limits");
+
   template <typename T>
   CUTE_HOST_DEVICE static void copy(const int *payload, const T *src) {
 #ifdef CUTE_ARCH_COPY_XE_ENABLED

@@ -86,10 +86,11 @@ struct Xe2DTraitsBase
   //   - matrix width/height/pitch in global memory
   //   - x/y offsets (overwritten during each copy operation)
   //   - block width/height/count
+  // Note the payload is mutable to allow x/y offsets to be dynamically updated for each use.
   mutable int *payload;
 
   // Copy of base pointer, to allow payload updates for >2D tensors.
-  const void *base_ptr;
+  uint64_t base_ptr;
 
   // Strides not handled by block 2D operations (>2D tensors).
   TiledStrides tiled_strides;
@@ -105,7 +106,7 @@ struct Xe2DTraitsBase
   template <typename SEngine, typename SLayout>
   CUTE_DEVICE
   Xe2DTraitsBase(Tensor<SEngine, SLayout> const& src)
-      : base_ptr(&*src.data()),
+      : base_ptr((uint64_t) &*src.data()),
         tiled_strides(replace<XMode::value>(replace<YMode::value>(src.stride(), _0{}), _0{}))
   {
     constexpr auto SBits = sizeof_bits_v<typename SEngine::value_type>;
@@ -113,7 +114,7 @@ struct Xe2DTraitsBase
     uint32_t height = shape<YMode::value>(src);
     uint32_t pitch = (stride<YMode::value>(src) * SBits) >> 3;
 #ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
-    assert(((long) base_ptr % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
+    assert((base_ptr % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
     assert((width % 4 == 0) && "CuTe runtime error: misaligned block 2D tensor width");
     assert((pitch % 4 == 0) && "CuTe runtime error: misaligned block 2D tensor pitch");
     assert((width <= 0xFFFFFF) && "CuTe runtime error: block 2D tensor width exceeds 2^24");
@@ -122,7 +123,7 @@ struct Xe2DTraitsBase
 #endif
 #ifdef __SYCL_DEVICE_ONLY__
     payload = __builtin_IB_subgroup_createBlock2DAddressPayload(
-      (long) base_ptr,
+      base_ptr,
       width - 1,
       height - 1,
       pitch - 1,
@@ -133,6 +134,32 @@ struct Xe2DTraitsBase
       Op::BlockCount
     );
 #endif
+  }
+
+  template <int Bits, typename Coord>
+  CUTE_DEVICE
+  void update_payload(const Coord &coord) const
+  {
+    // Update x/y offsets in payload
+    int32_t x = get<XMode::value>(coord) * Bits / Op::CopyBits;
+    int32_t y = get<YMode::value>(coord);
+    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockX(payload, x);
+    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockY(payload, y);
+
+#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
+    assert((x % 4 == 0) && "CuTe runtime error: misaligned block 2D x offset");
+#endif
+
+    // Perform stride calculation and update base pointer for > 2D tensors
+    if constexpr (nontrivial_tiled_strides) {
+      auto offset = inner_product(coord, tiled_strides);
+      auto byte_offset = (offset * Bits) >> 3;
+      __builtin_IB_subgroup_setBlock2DAddressPayloadBase(payload, base_ptr + byte_offset);
+
+#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
+      assert((byte_offset % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
+#endif
+    }
   }
 };
 
@@ -170,31 +197,8 @@ struct Xe2DLoadTraitsBase : Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrid
     static_assert(size(DLayout{}) * DBits == size<1>(DstLayout{}),
                   "Destination tensor size does not match copy atom size.");
 
-    // Update x/y offsets in payload
-    auto *payload = traits.payload;
-    auto coord = src.data().coord_;
-    int32_t x = get<XMode::value>(coord) * DBits / Op::CopyBits;
-    int32_t y = get<YMode::value>(coord);
-    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockX(payload, x);
-    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockY(payload, y);
-
-#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
-    assert((x % 4 == 0) && "CuTe runtime error: misaligned block 2D x offset");
-#endif
-
-    // Perform stride calculation and update base pointer for > 2D tensors
-    if constexpr (Super::nontrivial_tiled_strides) {
-      auto offset = inner_product(coord, traits.tiled_strides);
-      auto typed_base = reinterpret_cast<const SType*>(traits.base_ptr);
-      __builtin_IB_subgroup_setBlock2DAddressPayloadBase(payload, (long) (typed_base + offset));
-
-#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
-      assert((offset % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
-#endif
-    }
-
-    // Call atom
-    Op::copy(payload, recast_ptr<int_byte_t<bits_to_bytes(Super::ValBits)>>(&*dst.data()));
+    traits.template update_payload<DBits>(src.data().coord_);
+    Op::copy(traits.payload, recast_ptr<int_byte_t<bits_to_bytes(Super::ValBits)>>(&*dst.data()));
   }
 };
 
@@ -333,31 +337,8 @@ struct Copy_Traits<XE_STORE_2D<CopyBits, Height, Width>, XMode, YMode, ValType, 
     static_assert(size(DLayout{}) * SBits == size<1>(DstLayout{}),
                   "Destination tensor size does not match copy atom size.");
 
-    // Update x/y offsets in payload
-    auto *payload = traits.payload;
-    auto coord = dst.data().coord_;
-    int32_t x = get<XMode::value>(coord) * SBits / Op::CopyBits;
-    int32_t y = get<YMode::value>(coord);
-    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockX(payload, x);
-    __builtin_IB_subgroup_setBlock2DAddressPayloadBlockY(payload, y);
-
-#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
-    assert((x % 4 == 0) && "CuTe runtime error: misaligned block 2D x offset");
-#endif
-
-    // Perform stride calculation and update base pointer for > 2D tensors
-    if constexpr (Super::nontrivial_tiled_strides) {
-      auto offset = inner_product(coord, traits.tiled_strides);
-      auto typed_base = reinterpret_cast<const DType*>(traits.base_ptr);
-      __builtin_IB_subgroup_setBlock2DAddressPayloadBase(payload, (long) (typed_base + offset));
-
-#ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
-      assert((offset % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
-#endif
-    }
-
-    // Call atom
-    Op::copy(payload, recast_ptr<int_byte_t<bits_to_bytes(Super::ValBits)>>(&*src.data()));
+    traits.template update_payload<SBits>(dst.data().coord_);
+    Op::copy(traits.payload, recast_ptr<int_byte_t<bits_to_bytes(Super::ValBits)>>(&*src.data()));
   }
 };
 

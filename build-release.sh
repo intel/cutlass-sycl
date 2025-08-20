@@ -26,4 +26,4 @@ cmake .. -G Ninja -DCUTLASS_ENABLE_SYCL=ON -DSYCL_INTEL_TARGET=ON -DCUTLASS_SYCL
 
 target=./examples/sycl/00_bmg_gemm/00_bmg_gemm
 
-ninja $target && $target --m=256 --k=1024 --n=256 --iterations=1
+ninja $target && $target --m=1024 --k=2048 --n=2048 --iterations=1

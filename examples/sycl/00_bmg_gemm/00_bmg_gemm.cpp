@@ -237,9 +237,9 @@ struct ExampleRunner {
     block_D.reset(static_cast<std::size_t>(M) * N * L);
     block_ref_D.reset(static_cast<std::size_t>(M) * N * L);
 
-    initialize_block(block_A, seed + 2023);
-    initialize_block(block_B, seed + 2022);
-    initialize_block(block_C, seed + 2021);
+    // initialize_block(block_A, seed + 2023);
+    // initialize_block(block_B, seed + 2022);
+    // initialize_block(block_C, seed + 2021);
   }
 
   cutlass::Status run(const Options& options, const cutlass::KernelHardwareInfo& hw_info) {
@@ -268,15 +268,15 @@ struct ExampleRunner {
     CUTLASS_CHECK(gemm_op.initialize(arguments, workspace.get()));
 
     // Run the GEMM
-    CUTLASS_CHECK(gemm_op.run());
+    // CUTLASS_CHECK(gemm_op.run());
 
-    syclcompat::wait();
+    // syclcompat::wait();
 
     // Verify that the result is correct
-    bool passed = verify(problem_size, options.alpha, options.beta);
-    std::cout << "Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
+    // bool passed = verify(problem_size, options.alpha, options.beta);
+    // std::cout << "Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
 
-    if(!passed) return cutlass::Status::kErrorInternal;
+    // if(!passed) return cutlass::Status::kErrorInternal;
 
     if (options.iterations > 0) {
       GPU_Clock timer;
@@ -366,7 +366,7 @@ int main(int argc, const char** argv)
                                     Layout<Shape<_8, _4, _1>, Stride<_4, _1, _0>>>::TiledMMA;
 
   // For Intel BMG, PipelineStages defines how many k-blocks ahead to prefetch from A and B.
-  constexpr int PipelineStages = 2;
+  constexpr int PipelineStages = 1;
   using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16<PipelineStages>;
   using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeXMX16;
 

@@ -33,11 +33,11 @@
 
 #include <cute/tensor.hpp>
 #include <sycl/sycl.hpp>
-#include <syclcompat.hpp>
+#include <cutlasscompat.hpp>
 
 #include "cutlass_unit_test.h"
 
-using namespace syclcompat::experimental;
+using namespace cutlasscompat::experimental;
 
 #define SUBGROUP_SIZE (16)
 
@@ -144,8 +144,8 @@ void copy_kernel_vectorized(TensorS S, TensorD D) {
 #endif
 
   // onlt run first subgroup
-  if (syclcompat::global_id::x() < 16 && !syclcompat::global_id::y() &&
-      !syclcompat::global_id::z()) {
+  if (cutlasscompat::global_id::x() < 16 && !cutlasscompat::global_id::y() &&
+      !cutlasscompat::global_id::z()) {
     copy(tiled_copy_store, fragment, thr_tile_store_D);
   }
 }
@@ -207,9 +207,9 @@ bool copy(uint32_t M, uint32_t N) {
   // Determine grid and block dimensions
   //
 
-  auto gridDim = syclcompat::dim3(cute::ceil_div(M, wg_tile_m),
+  auto gridDim = cutlasscompat::dim3(cute::ceil_div(M, wg_tile_m),
                                   cute::ceil_div(N, wg_tile_n));
-  auto blockDim = syclcompat::dim3(size(thr_layout));
+  auto blockDim = cutlasscompat::dim3(size(thr_layout));
 
   //
   // Launch the kernel
@@ -220,7 +220,7 @@ bool copy(uint32_t M, uint32_t N) {
                     kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
       tensor_S, tensor_D);
 
-  syclcompat::wait_and_throw();
+  cutlasscompat::wait_and_throw();
 
   //
   // Verify

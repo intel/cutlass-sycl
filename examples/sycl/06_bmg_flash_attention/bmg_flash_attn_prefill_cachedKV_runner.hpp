@@ -256,24 +256,24 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
           cutlass::DeviceAllocation<ElementV> block_V_concat(seq_len_kv_total * head_size_vo);
 
           // Concatenate K_cache and K
-          syclcompat::memcpy<ElementK>(
+          cutlasscompat::memcpy<ElementK>(
               block_K_concat.get(),
               block_K_cache.get() + offset_k_cache,
               seq_len_kv_cache * head_size_qk
           );
-          syclcompat::memcpy<ElementK>(
+          cutlasscompat::memcpy<ElementK>(
               block_K_concat.get() + seq_len_kv_cache * head_size_qk,
               block_K.get() + offset_k,
               seq_len_kv * head_size_qk
           );
 
           // Concatenate V_cache and V
-          syclcompat::memcpy<ElementV>(
+          cutlasscompat::memcpy<ElementV>(
               block_V_concat.get(),
               block_V_cache.get() + offset_v_cache,
               seq_len_kv_cache * head_size_vo
           );
-          syclcompat::memcpy<ElementV>(
+          cutlasscompat::memcpy<ElementV>(
               block_V_concat.get() + seq_len_kv_cache * head_size_vo,
               block_V.get() + offset_v,
               seq_len_kv * head_size_vo
@@ -301,10 +301,10 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
                                                 seq_len_qo * seq_len_kv_total    // batch_stride_S
         );
 
-        syclcompat::wait();
+        cutlasscompat::wait();
 
         std::vector<ElementAccumulator> host_S(block_S.size());
-        syclcompat::memcpy<ElementAccumulator>(host_S.data(), block_S.get(), host_S.size());
+        cutlasscompat::memcpy<ElementAccumulator>(host_S.data(), block_S.get(), host_S.size());
 
         // delete this memory as it is no longer needed
         block_S.reset();
@@ -371,7 +371,7 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
         cutlass::DeviceAllocation<ElementV> block_P;
         block_P.reset(host_P.size());
 
-        syclcompat::memcpy<ElementV>(block_P.get(), host_P.data(), host_P.size());
+        cutlasscompat::memcpy<ElementV>(block_P.get(), host_P.data(), host_P.size());
 
         cutlass::TensorRef ref_P(block_P.get(), LayoutQ::packed({seq_len_qo, seq_len_kv_total}));
 
@@ -389,12 +389,12 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
                                                 seq_len_qo * head_size_vo  // batch_stride_O
         );
 
-        syclcompat::wait();
+        cutlasscompat::wait();
         // delete this memory as it is no longer needed
         block_P.reset();
 
         std::vector<ElementAccumulator> vec_acc(block_acc.size());
-        syclcompat::memcpy<ElementAccumulator>(vec_acc.data(), block_acc.get(), vec_acc.size());
+        cutlasscompat::memcpy<ElementAccumulator>(vec_acc.data(), block_acc.get(), vec_acc.size());
 
         // delete this memory as it is no longer needed
         block_acc.reset();
@@ -402,7 +402,7 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
         for(int i = 0; i < vec_out.size(); i++) {
           vec_out[i] = static_cast<ElementOutput>(vec_acc[i]);
         }
-        syclcompat::memcpy<ElementOutput>(block_ref_O.get() + offset_o, vec_out.data(), vec_out.size());
+        cutlasscompat::memcpy<ElementOutput>(block_ref_O.get() + offset_o, vec_out.data(), vec_out.size());
 
         offset_q += seq_len_qo * head_size_qk;
         if(kv_group_update % q_group_size==0) {
@@ -416,7 +416,7 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
       }
     }
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Check if output from CUTLASS kernel and reference kernel are equal or not
     bool passed = cutlass::reference::device::BlockCompareRelativelyEqual(block_ref_O.get(), block_O.get(),
@@ -560,10 +560,10 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
           page_mapping[logical_idx] = physical_pages[blk];
         }
       }
-      syclcompat::memcpy(paged_kv_cache.page_table.get(), page_mapping.data(), page_mapping.size() * sizeof(int));
+      cutlasscompat::memcpy(paged_kv_cache.page_table.get(), page_mapping.data(), page_mapping.size() * sizeof(int));
 
       paged_kv_cache.num_pages_per_seq.reset(num_pages_per_seq.size());
-      syclcompat::memcpy(paged_kv_cache.num_pages_per_seq.get(), num_pages_per_seq.data(), num_pages_per_seq.size() * sizeof(int));
+      cutlasscompat::memcpy(paged_kv_cache.num_pages_per_seq.get(), num_pages_per_seq.data(), num_pages_per_seq.size() * sizeof(int));
     }
 
     initialize_block(block_Q, seed + 2023);
@@ -608,25 +608,25 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
     // configure smem size and carveout
     int smem_size = FMHAPrefillCachedKernel::SharedStorageSize;
 
-    const auto sycl_block = syclcompat::dim3(block.x, block.y, block.z);
-    const auto sycl_grid = syclcompat::dim3(grid.x, grid.y, grid.z);
+    const auto sycl_block = cutlasscompat::dim3(block.x, block.y, block.z);
+    const auto sycl_grid = cutlasscompat::dim3(grid.x, grid.y, grid.z);
 
 // Launch parameters depend on whether SYCL compiler supports work-group scratch memory extension
 #if !defined(SYCL_EXT_ONEAPI_WORK_GROUP_SCRATCH_MEMORY)
-    using namespace syclcompat::experimental;
+    using namespace cutlasscompat::experimental;
     auto event = launch<cutlass::device_kernel<FMHAPrefillCachedKernel>>(
         launch_policy{sycl_grid, sycl_block, local_mem_size{static_cast<std::size_t>(smem_size)},
                       kernel_properties{sycl_exp::sub_group_size<FMHAPrefillCachedKernel::DispatchPolicy::SubgroupSize>}},
         params);
 #else
-    syclcompat::experimental::launch_properties launch_props {
+    cutlasscompat::experimental::launch_properties launch_props {
       sycl::ext::oneapi::experimental::work_group_scratch_size(smem_size),
     };
-    syclcompat::experimental::kernel_properties kernel_props{
+    cutlasscompat::experimental::kernel_properties kernel_props{
       sycl::ext::oneapi::experimental::sub_group_size<FMHAPrefillCachedKernel::DispatchPolicy::SubgroupSize>
     };
-    syclcompat::experimental::launch_policy policy{sycl_grid, sycl_block, launch_props, kernel_props};
-    auto event = syclcompat::experimental::launch<cutlass::device_kernel<FMHAPrefillCachedKernel>>(policy, params);
+    cutlasscompat::experimental::launch_policy policy{sycl_grid, sycl_block, launch_props, kernel_props};
+    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FMHAPrefillCachedKernel>>(policy, params);
 #endif
 
     EventManager::getInstance().addEvent(event);
@@ -671,7 +671,7 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
     // Run the Flash Attention implementation.
     run(params);
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Verify that the result is correct
     bool use_kv_cache = options.seq_len_kv_cache > 0;
@@ -688,7 +688,7 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
       for (int i = 0; i < options.iterations; ++i) {
         run(params);
       }
-      syclcompat::wait();
+      cutlasscompat::wait();
  
       auto offset = cute::min(options.seq_len_qo, options.seq_len_kv);
       auto discard_seq_coord = options.seq_len_qo - offset;

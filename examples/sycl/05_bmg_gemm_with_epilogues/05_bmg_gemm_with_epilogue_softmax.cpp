@@ -205,14 +205,14 @@ struct ExampleRunner {
           M * N  // batch_stride_D
         );
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     std::vector<ElementOutput> ptr(M*N*L);
     std::vector<ElementOutput> ptr_refD(M*N*L);
 
-    syclcompat::memcpy(ptr.data(), block_ref_D.get(),
+    cutlasscompat::memcpy(ptr.data(), block_ref_D.get(),
                        M * N * L * sizeof(ElementOutput));
-    syclcompat::memcpy(ptr_refD.data(), block_D.get(),
+    cutlasscompat::memcpy(ptr_refD.data(), block_D.get(),
                        (size_t)M * N * L * sizeof(ElementOutput));
 
     // Verify using a manual row-wise softmax on the host
@@ -324,7 +324,7 @@ struct ExampleRunner {
     // Run the GEMM
     gemm_op.run();
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Verify that the result is correct
     bool passed = verify(problem_size, options.alpha, options.beta);
@@ -337,7 +337,7 @@ struct ExampleRunner {
       for (int i = 0; i < options.iterations; ++i) {
         gemm_op.run();
       }
-      syclcompat::wait();
+      cutlasscompat::wait();
     double io =
         options.l *
         (options.m * options.k * sizeof(ElementA) + options.k * options.n * sizeof(ElementB) +

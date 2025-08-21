@@ -12,12 +12,12 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- *  SYCLcompat
+ *  CUTLASScompat
  *
- *  syclcompat.hpp
+ *  cutlasscompat.hpp
  *
  *  Description:
- *    Main include header for SYCLcompat
+ *    Main include header for CUTLASScompat
  **************************************************************************/
 
 #pragma once

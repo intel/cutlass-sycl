@@ -31,13 +31,13 @@
 
 #include <cute/tensor.hpp>
 #include <sycl/sycl.hpp>
-#include <syclcompat.hpp>
+#include <cutlasscompat.hpp>
 
 #include <cutlass/util/device_memory.h>
 #include <syclcompat/syclcompat.hpp>
 #include <cutlass/cutlass.h>
 
-using namespace syclcompat::experimental;
+using namespace cutlasscompat::experimental;
 using namespace cute;
 
 #define SUBGROUP_SIZE (16)
@@ -113,14 +113,14 @@ void copy(int global_M, int global_N) {
 
   Tensor tensor_S = make_tensor(make_gmem_ptr(src.get()), make_layout(tensor_shape, LayoutLeft{}));
 
-  auto gridDim = syclcompat::dim3(1);
-  auto blockDim = syclcompat::dim3(SUBGROUP_SIZE);
+  auto gridDim = cutlasscompat::dim3(1);
+  auto blockDim = cutlasscompat::dim3(SUBGROUP_SIZE);
   launch<copy_kernel<CopyInstruction, decltype(tensor_S), fragment_size>>(
       launch_policy{gridDim, blockDim,
                     kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
       tensor_S);
 
-  syclcompat::wait_and_throw();
+  cutlasscompat::wait_and_throw();
 }
 
 int main(){

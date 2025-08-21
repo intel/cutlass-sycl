@@ -44,7 +44,7 @@ bool is_close(T a, T b, float atol, float rtol) {
 
 template <typename SrcT, typename DstT>
 void convert_dtype(const SrcT* d_src, DstT* d_dst, size_t size) {
-  syclcompat::get_default_queue().parallel_for(size, [=](auto indx) {
+  cutlasscompat::get_default_queue().parallel_for(size, [=](auto indx) {
     d_dst[indx] = static_cast<DstT>(d_src[indx]);
   }).wait();
 }

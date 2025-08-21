@@ -2124,7 +2124,7 @@ struct TestbedImpl {
     status = gemm_op.run();
 #if defined SYCL_INTEL_TARGET
     result = cudaSuccess;
-    syclcompat::wait();
+    cutlasscompat::wait();
 #else
     result = cudaDeviceSynchronize();
 #endif

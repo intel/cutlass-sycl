@@ -34,7 +34,7 @@
 
 #pragma once
 #ifdef CUTLASS_ENABLE_SYCL
-#include <syclcompat.hpp> 
+#include <cutlasscompat.hpp> 
 #else
 #include <cuda.h>
 #endif
@@ -195,13 +195,13 @@ static void dequantize(DequantizedElement* dq_buffer,
 
   dim3 blocks(blocks_x, blocks_y, 1);
 #ifdef CUTLASS_ENABLE_SYCL
-  syclcompat::launch<dequantize_kernel<
+  cutlasscompat::launch<dequantize_kernel<
       QuantizedElement, DequantizedElement, OperandLayout, ElementScale,
       ElementZero, decltype(scale_layout_bcast), decltype(zero_layout_bcast), decltype(thr_layout)>>(
       blocks, tpb, dq_buffer, q_buffer, operand_layout, scale_buffer,
       zero_buffer, scale_layout_bcast, zero_layout_bcast, thr_layout);
 
-  syclcompat::wait_and_throw();
+  cutlasscompat::wait_and_throw();
 #else
   dequantize_kernel<<<blocks, tpb, 0, stream>>>(dq_buffer, q_buffer, operand_layout, scale_buffer, zero_buffer, scale_layout_bcast, thr_layout);
   CUDA_CHECK(cudaStreamSynchronize(stream));

@@ -458,17 +458,17 @@ public:
       CUTLASS_ASSERT(cuda_adapter == nullptr);
 
 #if defined(CUTLASS_ENABLE_SYCL)
-      const auto sycl_block = syclcompat::dim3(block.x, block.y, block.z);
-      const auto sycl_grid = syclcompat::dim3(grid.x, grid.y, grid.z);
+      const auto sycl_block = cutlasscompat::dim3(block.x, block.y, block.z);
+      const auto sycl_grid = cutlasscompat::dim3(grid.x, grid.y, grid.z);
 
-      sycl::queue q = stream ? *stream : syclcompat::get_default_queue();
-      syclcompat::experimental::launch<Kernel2<GemmKernel>>(
-        syclcompat::experimental::launch_policy{
+      sycl::queue q = stream ? *stream : cutlasscompat::get_default_queue();
+      cutlasscompat::experimental::launch<Kernel2<GemmKernel>>(
+        cutlasscompat::experimental::launch_policy{
           sycl_grid, sycl_block,
 #if defined(SYCL_EXT_ONEAPI_WORK_GROUP_SCRATCH_MEMORY)
           sycl::ext::oneapi::experimental::work_group_scratch_size(kSharedStorageSize)
 #else
-          syclcompat::experimental::local_mem_size{static_cast<std::size_t>(kSharedStorageSize)}
+          cutlasscompat::experimental::local_mem_size{static_cast<std::size_t>(kSharedStorageSize)}
 #endif
         },
         q, params_);

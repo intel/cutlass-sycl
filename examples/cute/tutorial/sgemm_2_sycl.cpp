@@ -31,7 +31,7 @@
  **************************************************************************************************/
 
 #include <sycl/sycl.hpp>
-#include <syclcompat.hpp>
+#include <cutlasscompat.hpp>
 
 
 #include <cute/tensor.hpp>
@@ -86,14 +86,14 @@ gemm_device(ProblemShape shape_MNK, CtaTiler cta_tiler,
   Tensor mC = make_tensor(make_gmem_ptr(C), select<0,1>(shape_MNK), dC); // (M,N)
 
   // Get the appropriate blocks for this thread block
-  auto cta_coord = make_coord(syclcompat::work_group_id::x(), syclcompat::work_group_id::y(), _);  // (m,n,k
+  auto cta_coord = make_coord(cutlasscompat::work_group_id::x(), cutlasscompat::work_group_id::y(), _);  // (m,n,k
   Tensor gA = local_tile(mA, cta_tiler, cta_coord, Step<_1, X,_1>{});  // (BLK_M,BLK_K,k)
   Tensor gB = local_tile(mB, cta_tiler, cta_coord, Step< X,_1,_1>{});  // (BLK_N,BLK_K,k)
   Tensor gC = local_tile(mC, cta_tiler, cta_coord, Step<_1,_1, X>{});  // (BLK_M,BLK_N)
 
   // Shared memory buffers
-  auto smemA = syclcompat::local_mem<TA[cosize_v<ASmemLayout>]>();
-  auto smemB = syclcompat::local_mem<TB[cosize_v<BSmemLayout>]>();
+  auto smemA = cutlasscompat::local_mem<TA[cosize_v<ASmemLayout>]>();
+  auto smemB = cutlasscompat::local_mem<TB[cosize_v<BSmemLayout>]>();
   Tensor sA = make_tensor(make_smem_ptr(smemA), sA_layout);            // (BLK_M,BLK_K)
   Tensor sB = make_tensor(make_smem_ptr(smemB), sB_layout);            // (BLK_N,BLK_K)
 
@@ -103,13 +103,13 @@ gemm_device(ProblemShape shape_MNK, CtaTiler cta_tiler,
 
   // TUTORIAL: Example of partitioning via a TiledCopy
 
-  ThrCopy thr_copy_a = copy_a.get_slice(syclcompat::local_id::x());
+  ThrCopy thr_copy_a = copy_a.get_slice(cutlasscompat::local_id::x());
   Tensor tAgA = thr_copy_a.partition_S(gA);                            // (CPY,CPY_M,CPY_K,k)
   Tensor tAsA = thr_copy_a.partition_D(sA);                            // (CPY,CPY_M,CPY_K)
   // Allocate registers same shape/layout as partitioned data
   Tensor tArA = make_fragment_like(tAsA);                              // (CPY,CPY_M,CPY_K)
 
-  ThrCopy thr_copy_b = copy_b.get_slice(syclcompat::local_id::x());
+  ThrCopy thr_copy_b = copy_b.get_slice(cutlasscompat::local_id::x());
   Tensor tBgB = thr_copy_b.partition_S(gB);                            // (CPY,CPY_N,CPY_K,k)
   Tensor tBsB = thr_copy_b.partition_D(sB);                            // (CPY,CPY_N,CPY_K)
   // Allocate registers same shape/layout as partitioned data
@@ -133,7 +133,7 @@ gemm_device(ProblemShape shape_MNK, CtaTiler cta_tiler,
 
   // TUTORIAL: Example of partitioning via a TiledMMA
 
-  ThrMMA thr_mma = mma.get_slice(syclcompat::local_id::x());
+  ThrMMA thr_mma = mma.get_slice(cutlasscompat::local_id::x());
   Tensor tCsA = thr_mma.partition_A(sA);                               // (MMA,MMA_M,MMA_K)
   Tensor tCsB = thr_mma.partition_B(sB);                               // (MMA,MMA_N,MMA_K)
   Tensor tCgC = thr_mma.partition_C(gC);                               // (MMA,MMA_M,MMA_N)
@@ -194,10 +194,10 @@ gemm_device(ProblemShape shape_MNK, CtaTiler cta_tiler,
   for (int k_tile = 0; k_tile < K_TILE_MAX; ++k_tile)
   {
     // Copy rmem to smem with tA|tB thread-partitioned tensors
-    syclcompat::wg_barrier();         // Wait for all threads to consume smem
+    cutlasscompat::wg_barrier();         // Wait for all threads to consume smem
     copy(tArA, tAsA);
     copy(tBrB, tBsB);
-    syclcompat::wg_barrier();         // Wait for all threads to consume smem
+    cutlasscompat::wg_barrier();         // Wait for all threads to consume smem
 
     // Copy gmem to rmem for k_tile+1 with tA|tB thread-partitioned tensors
     int k_tile_next = (k_tile + 1 < K_TILE_MAX) ? k_tile + 1 : k_tile;
@@ -305,9 +305,9 @@ gemm_nt(int m, int n, int k,
   print_latex(mmaC);
 #endif
 
-  auto dimBlock = syclcompat::dim3(size(mmaC));
-  auto dimGrid  = syclcompat::dim3(size(ceil_div(M, bM)), size(ceil_div(N, bN)));
-  auto event = syclcompat::launch<
+  auto dimBlock = cutlasscompat::dim3(size(mmaC));
+  auto dimGrid  = cutlasscompat::dim3(size(ceil_div(M, bM)), size(ceil_div(N, bN)));
+  auto event = cutlasscompat::launch<
       gemm_device<decltype(prob_shape), decltype(cta_tiler),
                   TA, decltype(dA), decltype(sA), decltype(copyA),
                   TB, decltype(dB), decltype(sB), decltype(copyB),
@@ -389,9 +389,9 @@ gemm_tn(int m, int n, int k,
   print_latex(mmaC);
 #endif
 
-  auto dimBlock = syclcompat::dim3(size(mmaC));
-  auto dimGrid  = syclcompat::dim3(size(ceil_div(M, bM)), size(ceil_div(N, bN)));
-  auto event = syclcompat::launch<
+  auto dimBlock = cutlasscompat::dim3(size(mmaC));
+  auto dimGrid  = cutlasscompat::dim3(size(ceil_div(M, bM)), size(ceil_div(N, bN)));
+  auto event = cutlasscompat::launch<
       gemm_device<decltype(prob_shape), decltype(cta_tiler),
                   TA, decltype(dA), decltype(sA), decltype(copyA),
                   TB, decltype(dB), decltype(sB), decltype(copyB),
@@ -467,13 +467,13 @@ int main(int argc, char** argv)
   for (int j = 0; j < n*k; ++j) h_B[j] = static_cast<TB>( 2*(rand() / double(RAND_MAX)) - 1 );
   for (int j = 0; j < m*n; ++j) h_C[j] = static_cast<TC>(-1);
 
-  auto d_A = syclcompat::malloc<TA>(m*k);
-  auto d_B = syclcompat::malloc<TB>(k*n);
-  auto d_C = syclcompat::malloc<TC>(m*n);
+  auto d_A = cutlasscompat::malloc<TA>(m*k);
+  auto d_B = cutlasscompat::malloc<TB>(k*n);
+  auto d_C = cutlasscompat::malloc<TC>(m*n);
 
-  syclcompat::memcpy<TA>(d_A, h_A.data(), m*k);
-  syclcompat::memcpy<TB>(d_B, h_B.data(), k*n);
-  syclcompat::memcpy<TC>(d_C, h_C.data(), m*n);
+  cutlasscompat::memcpy<TA>(d_A, h_A.data(), m*k);
+  cutlasscompat::memcpy<TB>(d_B, h_B.data(), k*n);
+  cutlasscompat::memcpy<TC>(d_C, h_C.data(), m*n);
 
   double gflops = (2.0*m*n*k) * 1e-9;
 
@@ -505,7 +505,7 @@ int main(int argc, char** argv)
        d_B, ldB,
        beta,
        d_C, ldC);
-  syclcompat::wait_and_throw();
+  cutlasscompat::wait_and_throw();
 
   // Timing iterations
   timer.start();

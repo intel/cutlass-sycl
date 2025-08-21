@@ -33,14 +33,14 @@
 
 #include <cute/tensor.hpp>
 #include <sycl/sycl.hpp>
-#include <syclcompat.hpp>
+#include <cutlasscompat.hpp>
 
 #include "cutlass_unit_test.h"
 #include "utils.hpp"
 
 using namespace cute;
 using namespace cutlass;
-using namespace syclcompat::experimental;
+using namespace cutlasscompat::experimental;
 
 #define SUBGROUP_SIZE (16)
 
@@ -169,9 +169,9 @@ template <class MMA, uint32_t wg_tile_m, uint32_t wg_tile_n, uint32_t sg_tile_m,
 void gemm(int m, int n, int k, TA *A, TB *B, TC *C) {
   using namespace cute;
 
-  auto dimBlock = syclcompat::dim3(SUBGROUP_SIZE * (wg_tile_m * wg_tile_n) /
+  auto dimBlock = cutlasscompat::dim3(SUBGROUP_SIZE * (wg_tile_m * wg_tile_n) /
                                    (sg_tile_m * sg_tile_n));
-  auto dimGrid = syclcompat::dim3(size(ceil_div(m, wg_tile_m)),
+  auto dimGrid = cutlasscompat::dim3(size(ceil_div(m, wg_tile_m)),
                                   size(ceil_div(n, wg_tile_n)));
 
   launch<gemm_device<MMA, wg_tile_m, wg_tile_n, sg_tile_m, sg_tile_n, sg_tile_k,
@@ -197,7 +197,7 @@ void MMA_Test(int m, int n, int k) {
 
   ::gemm<MMA, wg_tile_m, wg_tile_n, sg_tile_m, sg_tile_n, sg_tile_k>(
       m, n, k, d_A.data(), d_B.data(), d_C.data());
-  syclcompat::wait();
+  cutlasscompat::wait();
 
   h_C = d_C;
   verify(m, n, k, h_A.data(), h_B.data(), h_C.data());

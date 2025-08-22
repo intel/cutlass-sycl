@@ -66,6 +66,9 @@ struct XE_Copy_Op_2D_Base
   static constexpr bool Transposing = Transpose;
 };
 
+template <int Bits, int Height, int Width, int BlockWidth = 0 /* unused */>
+struct XE_PREFETCH_2D;
+
 
 template <int Bits, int Height, int Width, int BlockWidth = Width>
 struct XE_LOAD_2D : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidth>
@@ -83,6 +86,8 @@ struct XE_LOAD_2D : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidth>
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe block 2D copy atom on non-Xe hardware");
 #endif
   }
+
+  using PREFETCH = XE_PREFETCH_2D<Bits, Height, Width>;
 };
 
 template <int Bits, int Height, int Width, int BlockWidth = Width>
@@ -103,6 +108,8 @@ struct XE_LOAD_2D_VNNI : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidt
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe block 2D copy atom on non-Xe hardware");
 #endif
   }
+
+  using PREFETCH = XE_PREFETCH_2D<Bits, Height, Width>;
 };
 
 template <int Bits, int Height, int Width>
@@ -125,22 +132,25 @@ struct XE_LOAD_2D_TRANSPOSE : XE_Copy_Op_2D_Base<Bits, Height, Width, 1, true>
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe block 2D copy atom on non-Xe hardware");
 #endif
   }
+
+  using PREFETCH = XE_PREFETCH_2D<Bits, Height, Width>;
 };
 
-template <int Bits, int Height, int Width>
+template <int Bits, int Height, int Width, int>
 struct XE_PREFETCH_2D : XE_Copy_Op_2D_Base<Bits, Height, Width>
 {
-  template <typename T>
-  CUTE_HOST_DEVICE static void copy(const int *payload, T *dst) {
+  CUTE_HOST_DEVICE static void copy(const int *payload) {
 #ifdef CUTE_ARCH_COPY_XE_ENABLED
     asm (
-      "lsc_load_block2d.ugm (M1, 1)  %null:d%1.%2x%3nn flat[%0+(0,0)]"
+      "lsc_load_block2d.ugm.ca.ca (M1, 1)  %%null:d%1.%2x%3nn flat[%0+(0,0)]"
         :: "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
     );
 #else
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe block 2D copy atom on non-Xe hardware");
 #endif
   }
+
+  using PREFETCH = XE_PREFETCH_2D;
 };
 
 template <int Bits, int Height, int Width>

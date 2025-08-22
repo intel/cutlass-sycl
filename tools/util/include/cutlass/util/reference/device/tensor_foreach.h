@@ -156,7 +156,7 @@ struct BlockForEach {
 #if defined(CUTLASS_ENABLE_SYCL)
     const auto sycl_block = cutlasscompat::dim3(block_size, 1, 1);
     const auto sycl_grid = cutlasscompat::dim3(grid_size, 1, 1);
-    cutlasscompat::launch<kernel::BlockForEach<Element, Func>>(sycl_grid, sycl_block, ptr, capacity, params);
+    cutlasscompat::launch<kernel::BlockForEach<Element, Func>, class BlockForEach>(sycl_grid, sycl_block, ptr, capacity, params);
 #else
     dim3 grid(grid_size, 1, 1);
     dim3 block(block_size, 1, 1);

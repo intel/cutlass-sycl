@@ -588,7 +588,7 @@ public:
         cutlasscompat::experimental::launch_policy policy{
           sycl_grid, sycl_block, launch_props, kernel_props
         };
-        auto event = cutlasscompat::experimental::launch<device_kernel<GemmKernel>>(policy, q, params);
+        auto event = cutlasscompat::experimental::launch<device_kernel<GemmKernel>, GemmKernel>(policy, q, params);
         EventManager::getInstance().addEvent(event);
 #endif // !defined(SYCL_EXT_ONEAPI_WORK_GROUP_SCRATCH_MEMORY)
 #else

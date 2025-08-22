@@ -227,6 +227,8 @@ bool BlockCompareEqual(
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+template<class> class BlockCompareRelativelyEqualName;
+
 /// Performs a bit-level equality check between two blocks
 template <typename Element>
 bool BlockCompareRelativelyEqual(
@@ -288,7 +290,7 @@ bool BlockCompareRelativelyEqual(
   const auto sycl_block = cutlasscompat::dim3(block_size, 1, 1);
   const auto sycl_grid = cutlasscompat::dim3(grid_size, 1, 1);
 
-  cutlasscompat::launch<kernel::BlockCompareRelativelyEqual<Element>>(sycl_grid, sycl_block, device_equal_flag, ptr_A, ptr_B, capacity,
+  cutlasscompat::launch<kernel::BlockCompareRelativelyEqual<Element>, BlockCompareRelativelyEqualName<Element>>(sycl_grid, sycl_block, device_equal_flag, ptr_A, ptr_B, capacity,
                                                                   epsilon, nonzero_floor);
   cutlasscompat::wait();
 

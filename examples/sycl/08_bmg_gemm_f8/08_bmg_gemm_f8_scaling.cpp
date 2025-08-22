@@ -137,6 +137,8 @@ struct Options {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+template <class, class, class> class convert_fp8_to_fp16_name;
+
 template <
   class Gemm
 >
@@ -211,9 +213,10 @@ struct ExampleRunner {
   //
   // Methods
   //
+
   template <typename SrcT, typename DstT>
   void convert_fp8_to_fp16(const SrcT* d_src, DstT* d_dst, size_t size) {
-    cutlasscompat::get_default_queue().parallel_for(size, [=](auto indx) {
+    cutlasscompat::get_default_queue().parallel_for<convert_fp8_to_fp16_name<SrcT, DstT, ExampleRunner>>(size, [=](auto indx) {
       d_dst[indx] = static_cast<DstT>(d_src[indx]);
     }).wait();
   }

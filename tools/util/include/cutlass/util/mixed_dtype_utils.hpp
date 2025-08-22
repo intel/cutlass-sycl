@@ -150,6 +150,8 @@ CUTLASS_GLOBAL void dequantize_kernel(DequantizedElement* dq_buffer,
   }
 }
 
+template<class...> class dequantize_kernel_name;
+
 template <
   class QuantizedElement,
   class DequantizedElement,
@@ -205,6 +207,8 @@ static void dequantize(DequantizedElement* dq_buffer,
 #ifdef CUTLASS_ENABLE_SYCL
   cutlasscompat::launch<dequantize_kernel<
       QuantizedElement, DequantizedElement, OperandLayout, ElementScale,
+      ElementZero, decltype(scale_layout_bcast), decltype(zero_layout_bcast), decltype(thr_layout)>, 
+      dequantize_kernel_name<QuantizedElement, DequantizedElement, OperandLayout, ElementScale,
       ElementZero, decltype(scale_layout_bcast), decltype(zero_layout_bcast), decltype(thr_layout)>>(
       blocks, tpb, dq_buffer, q_buffer, operand_layout, scale_buffer,
       zero_buffer, scale_layout_bcast, zero_layout_bcast, thr_layout);

@@ -434,6 +434,15 @@ operator*(ScaledBasis<T,N> const& e, B const& b) {
   return ScaledBasis<decltype(r),N>{r};
 }
 
+// Division
+template <class T, int N, class B>
+CUTE_HOST_DEVICE constexpr
+auto
+operator/(ScaledBasis<T,N> const& e, B const& b) {
+  auto r = e.value() / b;
+  return ScaledBasis<decltype(r),N>{r};
+}
+
 // Addition
 template <class T, int N, class U, int M>
 CUTE_HOST_DEVICE constexpr

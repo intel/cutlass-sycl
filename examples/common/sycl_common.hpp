@@ -42,9 +42,11 @@ bool is_close(T a, T b, float atol, float rtol) {
   return std::abs((float)a - (float)b) <= atol + rtol * std::abs((float)b);
 }
 
-template <typename SrcT, typename DstT>
+template <class, class, class> class convert_dtype_name;
+
+template <typename SrcT, typename DstT, typename Runner>
 void convert_dtype(const SrcT* d_src, DstT* d_dst, size_t size) {
-  cutlasscompat::get_default_queue().parallel_for(size, [=](auto indx) {
+  cutlasscompat::get_default_queue().parallel_for<convert_dtype_name<SrcT, DstT, Runner>>(size, [=](auto indx) {
     d_dst[indx] = static_cast<DstT>(d_src[indx]);
   }).wait();
 }

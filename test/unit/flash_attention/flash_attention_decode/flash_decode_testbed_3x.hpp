@@ -733,7 +733,7 @@ struct TestbedImpl {
       sycl::ext::oneapi::experimental::sub_group_size<FlashDecode::DispatchPolicy::SubgroupSize>
     };
     cutlasscompat::experimental::launch_policy policy{sycl_grid, sycl_block, launch_props, kernel_props};
-    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FlashDecode>>(policy, params);
+    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FlashDecode>, FlashDecode>(policy, params);
 #endif
     EventManager::getInstance().addEvent(event);
 

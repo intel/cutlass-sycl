@@ -225,10 +225,11 @@ struct TestbedImpl {
   //
   // Methods
   //
+  template <class, class, class> class convert_fp8_to_fp16_name;
 
-  template <typename SrcT, typename DstT>
+  template <typename SrcT, typename DstT, typename Runner>
   void convert_fp8_to_fp16(const SrcT* d_src, DstT* d_dst, size_t size) {
-    cutlasscompat::get_default_queue().parallel_for(size, [=](auto indx) {
+    cutlasscompat::get_default_queue().parallel_for<convert_dtype_name<SrcT, DstT, Runner>>(size, [=](auto indx) {
       d_dst[indx] = static_cast<DstT>(d_src[indx]);
     }).wait();
   }
@@ -240,7 +241,7 @@ struct TestbedImpl {
     using outType = cute::conditional_t<is_fp8_v<Tin>, half_t, Tin>;
     if constexpr(is_fp8_v<Tin>) {
       cutlass::DeviceAllocation<outType> out(in.size());
-      convert_fp8_to_fp16<Tin, outType>(in.get(), out.get(), in.size());
+      convert_fp8_to_fp16<Tin, outType, TestbedImpl>(in.get(), out.get(), in.size());
       return out;
     } else { 
       return in;
@@ -636,7 +637,7 @@ struct TestbedImpl {
       sycl::ext::oneapi::experimental::sub_group_size<FlashAttention::DispatchPolicy::SubgroupSize>
     };
     cutlasscompat::experimental::launch_policy policy{sycl_grid, sycl_block, launch_props, kernel_props};
-    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FlashAttention>>(policy, params);
+    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FlashAttention>, FlashAttention>(policy, params);
 #endif
     EventManager::getInstance().addEvent(event);
 

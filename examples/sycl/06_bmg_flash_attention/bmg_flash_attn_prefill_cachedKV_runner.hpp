@@ -626,7 +626,7 @@ template <class FMHAPrefillCachedKernel, bool isVarLen> struct ExampleRunner {
       sycl::ext::oneapi::experimental::sub_group_size<FMHAPrefillCachedKernel::DispatchPolicy::SubgroupSize>
     };
     cutlasscompat::experimental::launch_policy policy{sycl_grid, sycl_block, launch_props, kernel_props};
-    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FMHAPrefillCachedKernel>>(policy, params);
+    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FMHAPrefillCachedKernel>, FMHAPrefillCachedKernel>(policy, params);
 #endif
 
     EventManager::getInstance().addEvent(event);

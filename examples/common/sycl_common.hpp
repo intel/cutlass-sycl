@@ -58,7 +58,7 @@ void random_fill(T *src, int seed, size_t N, float max, float min) {
     cutlasscompat::memcpy<T>(src, buff.data(), N);
     cutlasscompat::wait();
   } else {
-    assert(0 & "Not supported dtype");
+    assert(0 && "Not supported dtype");
   }
 }
 

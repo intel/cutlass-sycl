@@ -139,11 +139,11 @@ sycl::event launch(LaunchPolicy launch_policy, sycl::queue q, Args... args) {
     auto KernelFunctor = build_kernel_functor<F>(cgh, launch_policy, args...);
     if constexpr (cutlasscompat::detail::is_range_v<
                       typename LaunchPolicy::RangeT>) {
-      parallel_for<N>(cgh, config, KernelFunctor);
+      sycl_exp::parallel_for<N>(cgh, config, KernelFunctor);
     } else {
       static_assert(
           cutlasscompat::detail::is_nd_range_v<typename LaunchPolicy::RangeT>);
-      nd_launch<N>(cgh, config, KernelFunctor);
+      sycl_exp::nd_launch<N>(cgh, config, KernelFunctor);
     }
   });
 }

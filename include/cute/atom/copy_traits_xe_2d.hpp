@@ -92,6 +92,9 @@ struct Xe2DTraitsBase
   // Copy of base pointer, to allow payload updates for >2D tensors.
   uint64_t base_ptr;
 
+  // Copies of width/height/pitch, for constructing related traits (e.g. load->prefetch)
+  uint32_t width, height, pitch;
+
   // Strides not handled by block 2D operations (>2D tensors).
   TiledStrides tiled_strides;
 
@@ -110,9 +113,9 @@ struct Xe2DTraitsBase
         tiled_strides(replace<XMode::value>(replace<YMode::value>(src.stride(), _0{}), _0{}))
   {
     constexpr auto SBits = sizeof_bits_v<typename SEngine::value_type>;
-    uint32_t width = (shape<XMode::value>(src) * SBits) >> 3;
-    uint32_t height = shape<YMode::value>(src);
-    uint32_t pitch = (stride<YMode::value>(src) * SBits) >> 3;
+    width = (shape<XMode::value>(src) * SBits) >> 3;
+    height = shape<YMode::value>(src);
+    pitch = (stride<YMode::value>(src) * SBits) >> 3;
 #ifdef CUTE_ENABLE_XE_BLOCK_2D_ASSERT
     assert((base_ptr % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
     assert((width % 4 == 0) && "CuTe runtime error: misaligned block 2D tensor width");
@@ -121,6 +124,27 @@ struct Xe2DTraitsBase
     assert((height <= 0xFFFFFF) && "CuTe runtime error: block 2D tensor height exceeds 2^24");
     assert((pitch <= 0xFFFFFF) && "CuTe runtime error: block 2D tensor pitch exceeds 2^24");
 #endif
+    init_payload();
+  }
+
+  template <class Op2, typename ValType2>
+  CUTE_DEVICE explicit
+  Xe2DTraitsBase(Xe2DTraitsBase<Op2, XMode, YMode, ValType2, TiledStrides> const& other)
+    : base_ptr(other.base_ptr), width(other.width), height(other.height), pitch(other.pitch),
+      tiled_strides(other.tiled_strides)
+  {
+    init_payload();
+  }
+
+  // Initialize a previously-uninitialized atom.
+  template <typename... Args>
+  CUTE_DEVICE static auto
+  with(Args&&... args) {
+    return Traits(std::forward<Args>(args)...);
+  }
+
+  CUTE_DEVICE
+  void init_payload() {
 #ifdef __SYCL_DEVICE_ONLY__
     payload = __builtin_IB_subgroup_createBlock2DAddressPayload(
       base_ptr,
@@ -173,12 +197,7 @@ struct Xe2DLoadTraitsBase : Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrid
   using Traits = typename Super::Traits;
   using ThrID = typename Super::ThrID;
 
-  // Provide a global memory tensor to a previously-uninitialized atom.
-  template <typename SEngine, typename SLayout>
-  CUTE_DEVICE static auto
-  with(Tensor<SEngine, SLayout> const& src) {
-    return Traits(src);
-  }
+  using Super::Super;
 
   // Execution.
   template <class SEngine, class SLayout,
@@ -250,6 +269,9 @@ template <class XMode, class YMode, typename ValType, typename TiledStrides,
 struct Copy_Traits<XE_LOAD_2D<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>
     : Xe2DLoadTraitsBase<XE_LOAD_2D<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>
 {
+  using Super = Xe2DLoadTraitsBase<XE_LOAD_2D<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>;
+  using Super::Super;
+
   // (dst-thr, dst-val) -> (x, y)
   using DstLayout = XeInterleavedLayout<Layout<Shape<Int<BlockWidth>, Int<Height>, Int<Width/BlockWidth>>,
                                                Stride<_1, Int<Width>, Int<BlockWidth>>>,
@@ -266,6 +288,9 @@ template <class XMode, class YMode, typename ValType, typename TiledStrides,
 struct Copy_Traits<XE_LOAD_2D_VNNI<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>
     : Xe2DLoadTraitsBase<XE_LOAD_2D_VNNI<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>
 {
+  using Super = Xe2DLoadTraitsBase<XE_LOAD_2D_VNNI<CopyBits, Height, Width, BlockWidth>, XMode, YMode, ValType, TiledStrides>;
+  using Super::Super;
+
   static constexpr int BV = 32 / CopyBits;
 
   // (dst-thr, dst-val) -> (x, y)
@@ -284,6 +309,9 @@ template <class XMode, class YMode, typename ValType, typename TiledStrides,
 struct Copy_Traits<XE_LOAD_2D_TRANSPOSE<CopyBits, Height, Width>, XMode, YMode, ValType, TiledStrides>
     : Xe2DLoadTraitsBase<XE_LOAD_2D_TRANSPOSE<CopyBits, Height, Width>, XMode, YMode, ValType, TiledStrides>
 {
+  using Super = Xe2DLoadTraitsBase<XE_LOAD_2D_TRANSPOSE<CopyBits, Height, Width>, XMode, YMode, ValType, TiledStrides>;
+  using Super::Super;
+
   // (dst-thr, dst-val) -> (x, y)
   using DstLayout = XeInterleavedLayout<Layout<Shape<Int<Height>, Int<Width>>,
                                                Stride<Int<Width>, _1>>,
@@ -313,12 +341,7 @@ struct Copy_Traits<XE_STORE_2D<CopyBits, Height, Width>, XMode, YMode, ValType, 
   using Traits = typename Super::Traits;  // a.k.a. this class
   using ThrID = typename Super::ThrID;
 
-  // Provide a global memory tensor to a previously-uninitialized atom.
-  template <typename DEngine, typename DLayout>
-  CUTE_DEVICE static auto
-  with(Tensor<DEngine, DLayout> const& dst) {
-    return Traits(dst);
-  }
+  using Super::Super;
 
   // Execution.
   template <class SEngine, class SLayout,
@@ -369,13 +392,6 @@ struct Copy_Traits<XE_PREFETCH_2D<CopyBits, Height, Width, BlockWidth>, XMode, Y
 
   using Super::Super;
 
-  // Provide a global memory tensor to a previously-uninitialized atom.
-  template <typename SEngine, typename SLayout>
-  CUTE_DEVICE static auto
-  with(Tensor<SEngine, SLayout> const& src) {
-    return Traits(src);
-  }
-
   // Execution.
   template <class SEngine, class SLayout,
             class DEngine, class DLayout>
@@ -419,13 +435,13 @@ make_block_2d_copy(const CopyOp& op, const Stride<Strides...>&)
                                      OptionalValType>;
 
   Stride<Strides...> strides{};
-  return make_block_2d_copy<ValType>(op, find_x_mode(strides), find_y_mode(strides), strides);
+  return make_block_2d_copy<ValType>(op, strides, find_x_mode(strides), find_y_mode(strides));
 }
 
-template <class ValType, class XMode, class YMode, class CopyOp, class... Strides>
+template <class ValType, class CopyOp, class... Strides, class XMode, class YMode>
 CUTE_HOST_DEVICE
 auto
-make_block_2d_copy(const CopyOp& op, const XMode&, const YMode&, const Stride<Strides...>&)
+make_block_2d_copy(const CopyOp& op, const Stride<Strides...>&, const XMode&, const YMode&)
 {
   static constexpr auto ValBits = sizeof_bits_v<ValType>;
 
@@ -462,19 +478,20 @@ make_block_2d_copy(const CopyOp& op, const XMode&, const YMode&, const Stride<St
 // In addition to the usual parameters, it takes:
 //   - atom_shape = "subgroup shape" (# of copy blocks in each dimension)
 //   - sv_layout = "subgroup-value layout" (ordering for subgroups in the tiling)
-template <class ValType, class XMode, class YMode,
+template <class ValType,
           class CopyOp, class... Strides,
+          class XMode, class YMode,
           class SGShape, class SVLayout>
 CUTE_HOST_DEVICE
 auto
 make_block_2d_copy(const CopyOp& op,
-                   const XMode& x_mode, const YMode& y_mode,
                    const Stride<Strides...>& strides,
+                   const XMode& x_mode, const YMode& y_mode,
                    const SGShape& atom_shape,             // (SG_M, SG_N, ...)
-                   const SVLayout& sv_layout)           // (SG #, SG value) -> (SG_M, SG_N, ...)
+                   const SVLayout& sv_layout)             // (SG #, SG value) -> (SG_M, SG_N, ...)
 {
   // Create TiledCopy for a single subgroup.
-  using SGCopy = decltype(make_block_2d_copy<ValType>(op, x_mode, y_mode, strides));
+  using SGCopy = decltype(make_block_2d_copy<ValType>(op, strides, x_mode, y_mode));
   using Atom          = typename SGCopy::Atom;
   using ShapeTiler_MN = typename SGCopy::Tiler_MN;
   using LayoutCopy_TV = typename SGCopy::TiledLayout_TV;
@@ -510,6 +527,428 @@ find_y_mode(const Stride<Strides...>&) {
     return find_if(strides, [](auto const &x) { return C<!is_constant_v<1, decltype(x)>>{}; });
 }
 
+// Copy selection and creation.
+
+template <int I, int min_scale, class T>
+struct find_first_basis_mode_pred { using type = C<false>; };
+
+template <int I, int min_scale, int S>
+struct find_first_basis_mode_pred<I, min_scale, ScaledBasis<C<S>, I>> {
+    using type = C<(S >= min_scale)>;
+};
+
+template <int N, int min_size, class InLayout>
+CUTE_HOST_DEVICE
+constexpr auto
+find_first_basis_mode(InLayout const&) {
+  return find_if(InLayout{}.stride(), [](auto const &x) {
+    using XType = remove_cvref_t<decltype(x)>;
+    return typename find_first_basis_mode_pred<N, min_size, XType>::type{};
+  });
+}
+
+// Find the first block size (stride) in dimension N of size at least min_size.
+// FIXME: should look through all matching strides and pick the smallest.
+template <int N, int min_size = 2, class InLayout>
+CUTE_HOST_DEVICE
+constexpr auto
+get_block_size(InLayout const&) {
+  InLayout layout{};
+  constexpr auto block_mode = find_first_basis_mode<N, min_size>(layout);
+  if constexpr (block_mode < rank(layout))
+    return basis_value(stride<block_mode>(layout));
+  else
+    return get<N>(atuple_coshape(layout));
+}
+
+// Remove VNNI modes from a layout, if present.
+// Returns a std::pair<Layout, bool> = (layout_out, has_vnni)
+template <int Bits, class InLayout>
+CUTE_HOST_DEVICE
+constexpr auto
+strip_vnni(InLayout const&)
+{
+  constexpr InLayout layout{};
+  constexpr int R = rank(InLayout{});
+  constexpr bool vnni = (R >= 2)
+                     && (Bits < 32)
+                     && is_constant_v<32 / Bits, decltype(size<0>(layout))>;
+
+  if constexpr (vnni) {
+    // Coalesce VNNI mode with next mode in that dimension, if any,
+    //   or else move it to the end of the layout.
+    constexpr auto vmode = get<0>(layout);
+    constexpr auto vdim = stride<0>(layout).mode();
+    constexpr auto slayout = take<1,R>(layout);
+    constexpr auto next_vmode = find_first_basis_mode<vdim, 0>(slayout);
+    if constexpr (next_vmode < R - 1)
+      return std::make_pair(replace<next_vmode>(slayout, coalesce(make_layout(vmode, get<next_vmode>(slayout)))), true);
+    else
+      return std::make_pair(append(layout,vmode), true);
+  } else
+    return std::make_pair(layout, false);
+}
+
+enum class Block2DTransform {N, T, V};
+
+template <int MemBits, int RegBits, bool Store = false,
+          class DesiredCoordLayout, class GlobalStride>
+CUTE_HOST_DEVICE
+constexpr Block2DTransform
+block_2d_transform_selector(DesiredCoordLayout const& layout,
+                            GlobalStride       const& gstride)
+{
+  // Stores are always non-transpose.
+  if constexpr (Store)
+      return Block2DTransform::N;
+
+  // Check if copy's consumer wants VNNI layout.
+  constexpr auto result = strip_vnni<RegBits>(DesiredCoordLayout{});
+  constexpr auto slayout = get<0>(result);
+  constexpr bool vnni = get<1>(result);
+  constexpr bool transpose = !is_constant_v<1, decltype(basis_get(stride<0>(slayout), gstride))>;
+
+  // If VNNI needed, use VNNI load for 8/16-bit types in memory, otherwise regular.
+  if constexpr (vnni && !transpose)
+      return (MemBits == 8 || MemBits == 16) ? Block2DTransform::V : Block2DTransform::N;
+
+  // Otherwise, use transpose load if significant transposition required.
+  if constexpr (transpose && decltype(size<0>(slayout))::value * MemBits >= 16)
+      return Block2DTransform::T;
+  else
+      return Block2DTransform::N;
+}
+
+// Heuristically select a block 2D copy operation.
+//      MemType: type of data in memory
+//      RegType: type of data in registers, as associated with CoordLayout
+//        Store: true for stores, false for loads (default)
+//  CoordLayout: desired subgroup coordinate layout in registers
+//                 (Note: a reorder may be required to achieve data in this layout)
+// GlobalStride: strides of data in memory
+template <typename MemType, typename RegType, bool Store = false,
+          typename CoordLayout, typename GlobalStride>
+CUTE_HOST_DEVICE
+constexpr auto
+block_2d_selector(CoordLayout const&, GlobalStride const&)
+{
+  static_assert(is_static_v<CoordLayout>, "Coordinate layout must be static");
+
+  auto layout = coalesce(CoordLayout{});
+  GlobalStride gstride{};
+
+  // Determine size of copy.
+  constexpr int MemBits = sizeof_bits_v<MemType>;
+  constexpr int RegBits = sizeof_bits_v<RegType>;
+
+  // Determine which kind of block 2D message to use (regular/VNNI/transpose)
+  constexpr auto kind = block_2d_transform_selector<MemBits, RegBits, Store>(layout, gstride);
+
+  // Strip off VNNI mode if present.
+  constexpr auto slayout = get<0>(strip_vnni<RegBits>(layout));
+
+  constexpr auto x_mode = find_x_mode(gstride);
+  constexpr auto y_mode = find_y_mode(gstride);
+
+  constexpr int grf_elems = 512 / RegBits;
+  constexpr bool resize = (MemBits != RegBits);
+
+  auto shape = atuple_coshape(layout);
+
+  if constexpr (kind != Block2DTransform::T) {
+    constexpr int CopyBits = cute::max(8, cute::min(64, MemBits));
+
+    // Determine block width.
+    // Get innermost stride in x dimension that is >= 1/2 GRF
+    //   Block width = highest power of 2 divisor (up to 64b)
+    //   Width = highest power of 2 divisor of full tile's width, up to 64b and 4x block width
+    constexpr int max_w = 64 * 8 / CopyBits;
+    constexpr int x_stride = get_block_size<x_mode(), grf_elems / 2>(slayout);
+    constexpr int block_width = cute::gcd(max_w, x_stride);
+    constexpr int load_width = cute::gcd(cute::min(max_w, 4 * block_width),
+                                          get<x_mode()>(shape));
+    constexpr int width = Store ? block_width : load_width;
+
+    // Determine block height.
+    // Get innermost stride in H dimension, besides VNNI stride if VNNI.
+    // However, if data resizing will occur, choose full tile height, up to block height limit.
+    //   (Rationale: we are already moving data, so layouts don't need to match)
+    constexpr int y_stride = get_block_size<y_mode()>(slayout);
+    constexpr int max_h = Store ? 8 : 32;
+    constexpr int height = cute::gcd(resize ? get<y_mode()>(shape) : y_stride, max_h);
+
+    if constexpr (Store)
+      return XE_STORE_2D    <CopyBits, height, width>{};
+    else if constexpr (kind == Block2DTransform::V)
+      return XE_LOAD_2D_VNNI<CopyBits, height, width, block_width>{};
+    else
+      return XE_LOAD_2D     <CopyBits, height, width, block_width>{};
+  } else {
+    // Similar process for transposing copies, but with width/height reversed.
+    constexpr int CopyBits = cute::max(32, cute::min(64, MemBits));
+
+    constexpr int y_stride = get_block_size<y_mode(), grf_elems / 2>(slayout);
+    constexpr int height = cute::gcd(32, y_stride);
+
+    constexpr int max_w = 32 * 8 / CopyBits;
+    constexpr int x_stride = get_block_size<x_mode()>(slayout);
+    constexpr int width = cute::gcd(resize ? get<x_mode()>(shape) : x_stride, max_w);
+
+    return XE_LOAD_2D_TRANSPOSE<CopyBits, height, width>{};
+  }
+}
+
+// Helper for make_block_2d_copy_* routines
+template <class ValType, class TiledMMA, class CopyOp, class... Strides,
+          class XMode, class YMode, class MMAShape, class SVLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_X(CopyOp             const& op,          // Copy operation
+                     TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride,     // Global memory strides
+                     XMode              const& x_mode,      // x, y modes
+                     YMode              const& y_mode,
+                     MMAShape           const& mma_shape,   // Coordinate space
+                     SVLayout           const& sv_layout)   // (SG,V) -> coord
+{
+  // Divide coordinate codomain into copy tiles.
+  constexpr int Width = CopyOp::AtomWidth * CopyOp::CopyBits / sizeof_bits_v<ValType>;
+  constexpr int Height = CopyOp::AtomHeight;
+  auto op_tile = Int<Width>{}  * E<XMode::value>{}
+               + Int<Height>{} * E<YMode::value>{};
+  auto atom_shape = shape_div(mma_shape, op_tile);
+
+  auto divide_by_op_tile = zip(make_layout(op_tile, make_stride(_0{}, _0{})),
+                               make_layout(atom_shape));                        // (M,K) -> (M tile, K tile)
+
+  auto sv_layout_t0 = composition(divide_by_op_tile, sv_layout);                // (SG,V) -> (M tile, K tile)
+
+  // Filter out value modes that are internal to copy tiles.
+  auto sv_layout_t = make_layout(get<0>(sv_layout_t0),
+                                 filter(get<1>(sv_layout_t0)));                // (SG,V') -> (M tile, K tile)
+
+  // Tile copy operation.
+  return make_block_2d_copy<ValType>(op, gstride, x_mode, y_mode, atom_shape, sv_layout_t);
+}
+
+// MMA-focused TiledCopy creation functions.
+template <class TiledMMA, class GEngine, class GLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_A(TiledMMA                 const& mma,   // TiledMMA instance
+                     Tensor<GEngine, GLayout> const& gmem)  // Global tensor
+{
+  using ValType = typename GEngine::value_type;
+  return make_block_2d_copy_A<ValType>(mma, gmem.stride()).with(gmem);
+}
+
+template <class TiledMMA, class CopyOp, class GEngine, class GLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_A(CopyOp                   const& op,    // Copy operation
+                     TiledMMA                 const& mma,   // TiledMMA instance
+                     Tensor<GEngine, GLayout> const& gmem)  // Global tensor
+{
+  using ValType = typename GEngine::value_type;
+  return make_block_2d_copy_A<ValType>(op, mma, gmem.stride()).with(gmem);
+}
+
+template <class ValType, class TiledMMA, class... Strides>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_A(TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride)     // Global memory strides
+{
+  using MMAType = typename TiledMMA::ValTypeA;
+  auto cA = make_identity_tensor(select<0,2>(mma.tile_mnk()));
+  auto op = block_2d_selector<ValType, MMAType>(mma.get_slice(0).atom_partition_A(cA).layout(), gstride);
+  return make_block_2d_copy_A<ValType>(op, mma, gstride);
+}
+
+template <class ValType, class TiledMMA, class CopyOp, class... Strides>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_A(CopyOp             const& op,          // Copy operation
+                     TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride)     // Global memory strides
+{
+  return make_block_2d_copy_A<ValType>(op, mma, gstride, find_x_mode(gstride), find_y_mode(gstride));
+}
+
+template <class ValType, class TiledMMA, class CopyOp, class... Strides, class XMode, class YMode>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_A(CopyOp             const& op,          // Copy operation
+                     TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride,     // Global memory strides
+                     XMode              const& x_mode,      // x, y modes
+                     YMode              const& y_mode)
+{
+  // Retrieve MMA atom's (subgroup, value) -> (M,K) layout
+  auto tile_mk = select<0,2>(mma.tile_mnk());
+
+  auto thr_vmnk = mma.get_thr_layout_vmnk();                                        // (ThrV,ThrM,ThrN,ThrK) -> thr
+  auto shape_vmnk = shape(thr_vmnk);                                                // (ThrV,ThrM,ThrN,ThrK)
+  auto drop_n = make_layout(shape_vmnk,
+      make_stride(_1{}, get<0>(shape_vmnk), _0{},
+                  get<0>(shape_vmnk) * get<1>(shape_vmnk)));                        // (ThrV,ThrM,ThrN,ThrK) -> (ThrV,ThrM,ThrK)
+
+  auto thr_to_vmk = composition(drop_n, right_inverse(thr_vmnk));                   // thr -> (ThrV,ThrM,ThrK)
+  auto sg_to_vmk = composition(thr_to_vmk,
+      make_layout(product(take<1,4>(shape_vmnk)), get<0>(shape_vmnk)));             // SG -> (0,ThrM,ThrK)
+
+  auto svA = composition(mma.thrfrg_A(make_layout(tile_mk)),
+                         make_tile(sg_to_vmk, _));                                  // (SG,V) -> (M,K)
+
+  // Derive copy tile layout and create TiledCopy
+  return make_block_2d_copy_X<ValType>(op, mma, gstride, x_mode, y_mode, tile_mk, svA);
+}
+
+template <class TiledMMA, class GEngine, class GLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_B(TiledMMA                 const& mma,   // TiledMMA instance
+                     Tensor<GEngine, GLayout> const& gmem)  // Global tensor
+{
+  using ValType = typename GEngine::value_type;
+  return make_block_2d_copy_B<ValType>(mma, gmem.stride()).with(gmem);
+}
+
+template <class TiledMMA, class CopyOp, class GEngine, class GLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_B(CopyOp                   const& op,    // Copy operation
+                     TiledMMA                 const& mma,   // TiledMMA instance
+                     Tensor<GEngine, GLayout> const& gmem)  // Global tensor
+{
+  using ValType = typename GEngine::value_type;
+  return make_block_2d_copy_B<ValType>(op, mma, gmem.stride()).with(gmem);
+}
+
+template <class ValType, class TiledMMA, class... Strides>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_B(TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride)     // Global memory strides
+{
+  using MMAType = typename TiledMMA::ValTypeB;
+  auto cB = make_identity_tensor(select<1,2>(mma.tile_mnk()));
+  auto op = block_2d_selector<ValType, MMAType>(mma.get_slice(0).atom_partition_B(cB).layout(), gstride);
+  return make_block_2d_copy_B<ValType>(op, mma, gstride);
+}
+
+template <class ValType, class TiledMMA, class CopyOp, class... Strides>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_B(CopyOp             const& op,          // Copy operation
+                     TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride)     // Global memory strides
+{
+  return make_block_2d_copy_B<ValType>(op, mma, gstride, find_x_mode(gstride), find_y_mode(gstride));
+}
+
+template <class ValType, class TiledMMA, class CopyOp, class... Strides, class XMode, class YMode>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_B(CopyOp             const& op,          // Copy operation
+                     TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride,     // Global memory strides
+                     XMode              const& x_mode,      // x, y modes
+                     YMode              const& y_mode)
+{
+  // Retrieve MMA atom's (subgroup, value) -> (N,K) layout
+  auto tile_nk = select<1,2>(mma.tile_mnk());
+
+  auto thr_vmnk = mma.get_thr_layout_vmnk();                                        // (ThrV,ThrM,ThrN,ThrK) -> thr
+  auto shape_vmnk = shape(thr_vmnk);                                                // (ThrV,ThrM,ThrN,ThrK)
+  auto drop_m = make_layout(shape_vmnk,
+      make_stride(_1{}, _0{}, get<0>(shape_vmnk), _0{},
+                  get<0>(shape_vmnk) * get<2>(shape_vmnk)));                        // (ThrV,ThrM,ThrN,ThrK) -> (ThrV,ThrN,ThrK)
+
+  auto thr_to_vnk = composition(drop_m, right_inverse(thr_vmnk));                   // thr -> (ThrV,ThrN,ThrK)
+  auto sg_to_vnk = composition(thr_to_vnk,
+      make_layout(product(take<1,4>(shape_vmnk)), get<0>(shape_vmnk)));             // SG -> (0,ThrN,ThrK)
+
+  auto svB = composition(mma.thrfrg_B(make_layout(tile_nk)),
+                         make_tile(sg_to_vnk, _));                                  // (SG,V) -> (N,K)
+
+  // Derive copy tile layout and create TiledCopy
+  return make_block_2d_copy_X<ValType>(op, mma, gstride, x_mode, y_mode, tile_nk, svB);
+}
+
+template <class TiledMMA, class GEngine, class GLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_C(TiledMMA                 const& mma,   // TiledMMA instance
+                     Tensor<GEngine, GLayout> const& gmem)  // Global tensor
+{
+  using ValType = typename GEngine::value_type;
+  return make_block_2d_copy_C<ValType>(mma, gmem.stride()).with(gmem);
+}
+
+template <class TiledMMA, class CopyOp, class GEngine, class GLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_C(CopyOp                   const& op,    // Copy operation
+                     TiledMMA                 const& mma,   // TiledMMA instance
+                     Tensor<GEngine, GLayout> const& gmem)  // Global tensor
+{
+  using ValType = typename GEngine::value_type;
+  return make_block_2d_copy_C<ValType>(op, mma, gmem.stride()).with(gmem);
+}
+
+template <class ValType, class TiledMMA, class... Strides>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_C(TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride)     // Global memory strides
+{
+  using MMAType = typename TiledMMA::ValTypeA;
+  auto cC = make_identity_tensor(select<0,1>(mma.tile_mnk()));
+  auto op = block_2d_selector<ValType, MMAType, true>(
+    mma.get_slice(0).atom_partition_C(cC).layout(), gstride
+  );
+  return make_block_2d_copy_C<ValType>(op, mma, gstride);
+}
+
+template <class ValType, class TiledMMA, class CopyOp, class... Strides>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_C(CopyOp             const& op,          // Copy operation
+                     TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride)     // Global memory strides
+{
+  return make_block_2d_copy_C<ValType>(op, mma, gstride, find_x_mode(gstride), find_y_mode(gstride));
+}
+
+template <class ValType, class TiledMMA, class CopyOp, class... Strides, class XMode, class YMode>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_C(CopyOp             const& op,          // Copy operation
+                     TiledMMA           const& mma,         // TiledMMA instance
+                     Stride<Strides...> const& gstride,     // Global memory strides
+                     XMode              const& x_mode,      // x, y modes
+                     YMode              const& y_mode)
+{
+  // Retrieve MMA atom's (subgroup, value) -> (M,N) layout
+  auto tile_mn = select<0,1>(mma.tile_mnk());
+
+  auto thr_vmnk = mma.get_thr_layout_vmnk();                                        // (ThrV,ThrM,ThrN,ThrK) -> thr
+  auto shape_vmnk = shape(thr_vmnk);                                                // (ThrV,ThrM,ThrN,ThrK)
+  auto drop_k = replace<3>(make_layout(shape_vmnk),
+                           make_layout(get<3>(shape_vmnk), _0{}));                  // (ThrV,ThrM,ThrN,ThrK) -> (ThrV,ThrM,ThrN)
+
+  auto thr_to_vmn = composition(drop_k, right_inverse(thr_vmnk));                   // thr -> (ThrV,ThrM,ThrN)
+  auto sg_to_vmn = composition(thr_to_vmn,
+      make_layout(product(take<1,4>(shape_vmnk)), get<0>(shape_vmnk)));             // SG -> (0,ThrM,ThrN)
+
+  auto svC = composition(mma.thrfrg_C(make_layout(tile_mn)),
+                         make_tile(sg_to_vmn, _));                                  // (SG,V) -> (M,N)
+
+  // Derive copy tile layout and create TiledCopy
+  return make_block_2d_copy_X<ValType>(op, mma, gstride, x_mode, y_mode, tile_mn, svC);
+}
+
 // Prefetch selection and creation.
 namespace detail {
   template <class Op, class XMode, class YMode, typename ValType, typename TiledStrides>
@@ -519,16 +958,19 @@ namespace detail {
   }
 };
 
-template <int SGCount, class Copy_Atom, class LayoutCopy_TV, class ShapeTiler_MN>
+template <class Copy_Atom, class LayoutCopy_TV, class ShapeTiler_MN>
 CUTE_HOST_DEVICE
 auto
 make_block_2d_prefetch(TiledCopy<Copy_Atom, LayoutCopy_TV, ShapeTiler_MN> const& tiled_copy)
 {
+  using TCopy = TiledCopy<Copy_Atom, LayoutCopy_TV, ShapeTiler_MN>;
+
+  constexpr auto sg_count = typename TCopy::TiledNumThr{} / typename TCopy::AtomNumThr{};
   auto &traits = detail::as_block_2d_traits(tiled_copy);
-  return make_block_2d_prefetch<typename Copy_Atom::ValType, SGCount>(
-    ShapeTiler_MN{}, traits.get_x_mode(), traits.get_y_mode(), traits.tiled_strides
-  );
-  // TODO: copy base_ptr/width/height/pitch to prefetch atom
+
+  return make_block_2d_prefetch<typename Copy_Atom::ValType, sg_count()>(
+    ShapeTiler_MN{}, traits.tiled_strides, traits.get_x_mode(), traits.get_y_mode()
+  ).with(traits);
 }
 
 template <int SGCount, class Shape, class Engine, class Layout>
@@ -545,13 +987,13 @@ CUTE_HOST_DEVICE
 auto
 make_block_2d_prefetch(const Shape& shape, Stride<Strides...> const& stride)
 {
-  return make_block_2d_prefetch<ValType, SGCount>(shape, find_x_mode(stride), find_y_mode(stride), stride);
+  return make_block_2d_prefetch<ValType, SGCount>(shape, stride, find_x_mode(stride), find_y_mode(stride));
 }
 
-template <typename ValType, int SGCount, class XMode, class YMode, class Shape, class... Strides>
+template <typename ValType, int SGCount, class Shape, class... Strides, class XMode, class YMode>
 CUTE_HOST_DEVICE
 auto
-make_block_2d_prefetch(const Shape&, const XMode& x_mode, const YMode& y_mode, Stride<Strides...> const& stride)
+make_block_2d_prefetch(const Shape&, Stride<Strides...> const& stride, const XMode& x_mode, const YMode& y_mode)
 {
   constexpr auto shape_x = get<XMode::value>(Shape{});
   constexpr auto shape_y = get<YMode::value>(Shape{});
@@ -572,14 +1014,19 @@ make_block_2d_prefetch(const Shape&, const XMode& x_mode, const YMode& y_mode, S
                                 height,
                                 ceil_div(width * sizeof_bits_v<ValType>, sizeof_bits_v<CopyType>)>;
 
-  return make_block_2d_prefetch<ValType, SGCount>(CopyOp{}, Shape{}, x_mode, y_mode, stride);
+  return make_block_2d_prefetch<ValType, SGCount>(CopyOp{}, Shape{}, stride, x_mode, y_mode);
 }
 
 // Low-level prefetch creation utility.
-template <typename ValType, int SGCount, class XMode, class YMode, class PrefetchOp, class Shape, class... Strides>
+template <typename ValType, int SGCount,
+          class PrefetchOp, class Shape, class... Strides, class XMode, class YMode>
 CUTE_HOST_DEVICE
 auto
-make_block_2d_prefetch(const PrefetchOp& op, const Shape& shape, const XMode& x_mode, const YMode& y_mode, Stride<Strides...> const& stride)
+make_block_2d_prefetch(PrefetchOp         const& op,
+                       Shape              const& shape,
+                       Stride<Strides...> const& stride,
+                       XMode              const& x_mode,
+                       YMode              const& y_mode)
 {
   constexpr auto all_1s = tuple_repeat<rank(Shape{})>(_1{});
   constexpr auto width = PrefetchOp::AtomWidth * PrefetchOp::CopyBits / sizeof_bits_v<ValType>;
@@ -602,18 +1049,109 @@ make_block_2d_prefetch(const PrefetchOp& op, const Shape& shape, const XMode& x_
   // Tile atom grid across collective op tile.
   auto sv_layout = logical_divide(make_layout(collective_op_tile), atom_shape);
 
-//  if (cute::thread0()) {
-//     #define XSHOW(x)               if (cute::thread0()) { print(#x ": "); print(x); print("\n"); }
-//
-//     XSHOW(op_tile)
-//     printf("n_sg=(%d,%d)\n", n_sg_x, n_sg_y);
-//     XSHOW(collective_op_tile)
-//     XSHOW(atom_shape)
-//     XSHOW(sv_layout)
-//  }
-
   // Create the TiledCopy object.
-  return make_block_2d_copy<ValType>(op, x_mode, y_mode, stride, atom_shape, sv_layout);
+  return make_block_2d_copy<ValType>(op, stride, x_mode, y_mode, atom_shape, sv_layout);
+}
+
+
+
+//
+// Display utilities
+//
+template <class Op, class XMode, class YMode, typename ValType, typename TiledStrides>
+CUTE_HOST_DEVICE
+void
+print_block_2d_traits(Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrides> const& traits)
+{
+  print("  Width:        "); print(Op::AtomWidth);                 print("\n");
+  print("  Height:       "); print(Op::AtomHeight);                print("\n");
+  print("  CopyType:     "); print(Op::CopyBits);                  print("b\n");
+  print("  ValueType:    "); print(sizeof_bits_v<ValType>);        print("b\n");
+  print("  XMode:        "); print(XMode{});                       print("\n");
+  print("  YMode:        "); print(YMode{});                       print("\n");
+  print("  TiledStrides: "); print(traits.tiled_strides);          print("\n");
+}
+
+template <typename ValType, class Traits, typename AtomValType>
+CUTE_HOST_DEVICE
+void
+print_block_2d_atom(Copy_Atom<Traits, AtomValType> const& atom)
+{
+  using Atom = remove_cvref_t<decltype(atom)>;
+  print("  ThrID:        "); print(typename Atom::ThrID{});        print("\n");
+  print("  ValLayoutSrc: "); print(typename Atom::ValLayoutSrc{}); print("\n");
+  print("  ValLayoutDst: "); print(typename Atom::ValLayoutDst{}); print("\n");
+  print("  ValLayoutRef: "); print(typename Atom::ValLayoutRef{}); print("\n");
+  if constexpr (sizeof_bits_v<ValType> != sizeof_bits_v<AtomValType>) {
+    print("  AtomValType:  "); print(sizeof_bits_v<AtomValType>);    print("b\n");
+  }
+}
+
+template <class XMode, class YMode, typename ValType, typename TiledStrides, typename AtomValType,
+          int CopyBits, int Height, int Width, int BlockWidth>
+CUTE_HOST_DEVICE
+void
+print(Copy_Atom<Copy_Traits<XE_LOAD_2D<CopyBits, Height, Width, BlockWidth>,
+                XMode, YMode, ValType, TiledStrides>, AtomValType> const& atom)
+{
+  print("Copy_Atom (XE_LOAD_2D)\n");
+  print("  BlockWidth:   "); print(BlockWidth);                    print("\n");
+  print_block_2d_traits(atom);
+  print("\n");
+  print_block_2d_atom<ValType>(atom);
+}
+
+template <class XMode, class YMode, typename ValType, typename TiledStrides, typename AtomValType,
+          int CopyBits, int Height, int Width, int BlockWidth>
+CUTE_HOST_DEVICE
+void
+print(Copy_Atom<Copy_Traits<XE_LOAD_2D_VNNI<CopyBits, Height, Width, BlockWidth>,
+                XMode, YMode, ValType, TiledStrides>, AtomValType> const& atom)
+{
+  print("Copy_Atom (XE_LOAD_2D_VNNI)\n");
+  print("  BlockWidth:   "); print(BlockWidth);                    print("\n");
+  print_block_2d_traits(atom);
+  print("\n");
+  print_block_2d_atom<ValType>(atom);
+}
+
+template <class XMode, class YMode, typename ValType, typename TiledStrides, typename AtomValType,
+          int CopyBits, int Height, int Width>
+CUTE_HOST_DEVICE
+void
+print(Copy_Atom<Copy_Traits<XE_LOAD_2D_TRANSPOSE<CopyBits, Height, Width>,
+                XMode, YMode, ValType, TiledStrides>, AtomValType> const& atom)
+{
+  print("Copy_Atom (XE_LOAD_2D_TRANSPOSE)\n");
+  print_block_2d_traits(atom);
+  print("\n");
+  print_block_2d_atom<ValType>(atom);
+}
+
+template <class XMode, class YMode, typename ValType, typename TiledStrides, typename AtomValType,
+          int CopyBits, int Height, int Width>
+CUTE_HOST_DEVICE
+void
+print(Copy_Atom<Copy_Traits<XE_STORE_2D<CopyBits, Height, Width>,
+                XMode, YMode, ValType, TiledStrides>, AtomValType> const& atom)
+{
+  print("Copy_Atom (XE_STORE_2D)\n");
+  print_block_2d_traits(atom);
+  print("\n");
+  print_block_2d_atom<ValType>(atom);
+}
+
+template <class XMode, class YMode, typename ValType, typename TiledStrides, typename AtomValType,
+          int CopyBits, int Height, int Width>
+CUTE_HOST_DEVICE
+void
+print(Copy_Atom<Copy_Traits<XE_PREFETCH_2D<CopyBits, Height, Width>,
+                XMode, YMode, ValType, TiledStrides>, AtomValType> const& atom)
+{
+  print("Copy_Atom (XE_PREFETCH_2D)\n");
+  print_block_2d_traits(atom);
+  print("\n");
+  print_block_2d_atom<ValType>(atom);
 }
 
 } // end namespace cute

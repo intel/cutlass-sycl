@@ -84,6 +84,9 @@ reorder(Tensor<SEngine,SLayoutWI> const& src,       // WI fragment
   using SType = typename SEngine::element_type;
   using DType = typename DEngine::element_type;
 
+  static_assert(is_static_v<SLayout>, "Reorder source layout must be static");
+  static_assert(is_static_v<DLayout>, "Reorder destination layout must be static");
+
   auto sl0 = detail::subbyte_sg_tv_swizzle<SType>(project_strides(slayout));
   auto dl0 = detail::subbyte_sg_tv_swizzle<DType>(project_strides(dlayout));
 

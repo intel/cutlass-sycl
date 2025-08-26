@@ -70,7 +70,6 @@ These messages also come with important restrictions to know about:
   - Buffer base address must be 64-byte-aligned
   - Stride must be 16-byte-aligned (in some cases on PVC, 4 or 8-byte alignment is OK)
   - Width (defined later) must be 4-byte-aligned
-  - _Note:_ Xe3p reduces all requirements to 4-byte-aligned
 * Size restrictions:
   - Width/pitch are restricted to 2^24 bytes
   - Height is restricted to 2^24 elements
@@ -151,50 +150,67 @@ Since it can be a tricky to correctly choose block 2D parameters and set up an a
 The high-level APIs `make_block_2d_copy_{A,B,C}` automatically create TiledCopy objects for use with an existing `TiledMMA`. They choose the copy operation and trait template parameters heuristically.
 
 ```c++
-template <class CopyOp, class Engine, class Layout, /*...*/>
+template <class Engine, class Layout, /*...*/>
 CUTE_DEVICE
-TiledCopy
-make_block_2d_copy_A(const Tensor<Engine, Layout>& gmem,        // (M,K,...)
-                     const TiledMMA<...>&);
+TiledCopy<...>
+make_block_2d_copy_A(const TiledMMA<...>&,
+                     const Tensor<Engine, Layout>& gmem);       // (M,K,...)
 
-template <class CopyOp, class Engine, class Layout, /*...*/>
+template <class Engine, class Layout, /*...*/>
 CUTE_DEVICE
-TiledCopy
-make_block_2d_copy_B(const Tensor<Engine, Layout>& gmem,        // (N,K,...)
-                     const TiledMMA<...>&);
+TiledCopy<...>
+make_block_2d_copy_B(const TiledMMA<...>&,
+                     const Tensor<Engine, Layout>& gmem);       // (N,K,...)
 
-template <class CopyOp, class Engine, class Layout, /*...*/>
+template <class Engine, class Layout, /*...*/>
 CUTE_DEVICE
-TiledCopy
-make_block_2d_copy_C(const Tensor<Engine, Layout>& gmem,        // (M,N,...)
-                     const TiledMMA<...>&);
+TiledCopy<...>
+make_block_2d_copy_C(const TiledMMA<...>&,
+                     const Tensor<Engine, Layout>& gmem);       // (M,N,...)
 ```
 
-If the user would like to override the choice of copy operation, the lower-level `make_block_2d_copy` API will construct the tiling and trait template parameters automatically.
+The user may also override the choice of copy operation:
 
 ```c++
-// Create tiled block 2D copy for a global memory tensor.
+template <class TiledMMA, class CopyOp, class GEngine, class GLayout>
+CUTE_HOST_DEVICE
+auto
+make_block_2d_copy_A(CopyOp                   const& op,     // Copy operation
+                     TiledMMA                 const& mma,    // TiledMMA instance
+                     Tensor<GEngine, GLayout> const& gmem);  // Global tensor
+
+/* Similarly for B/C */
+```
+
+The `make_block_2d_copy_*` family of functions create TiledCopy objects that match the scope of the TiledMMA. That is, the set of threads participating in the TiledMMA will also participate in the TiledCopy.
+
+By contrast, the `make_block_2d_copy` API creates a TiledCopy object in which a single subgroup participates:
+
+```c++
+// Create tiled block 2D copy (scope = single subgroup) for a global memory tensor.
 template <class CopyOp, class Engine, class Layout>
 CUTE_DEVICE
 TiledCopy
 make_block_2d_copy(const CopyOp& op, const Tensor<Engine, Layout>& gmem);
 ```
 
-As the `CUTE_DEVICE` decorators imply, the APIs above should be called from device code only, as they set up internal state that cannot be transferred from host to device.
+For advanced usage, there are additional overloads of `make_block_2d_copy` that allow more general work distributions for copies (see `include/cute/atom/copy_traits_xe_2d.hpp`).
+
+As the `CUTE_DEVICE` decorators imply, all the APIs above should be called from device code only, as they set up internal state that cannot be transferred from host to device.
 
 Alternately, these APIs have variants that take strides and an optional data type override. The resulting TiledCopy objects are uninitialized.
 
 ```c++
-template <class OptionalValType = void, class CopyOp, class... Strides>
+template <class ValType, class CopyOp, class... Strides>
 TiledCopy
-make_block_2d_copy(const CopyOp& op, const Stride<Strides...>&);
+make_block_2d_copy_A(TiledMMA<...> const& mma, Stride<Strides...> const& strides);
 ```
 
-After this _placeholder_ TiledCopy is created, it can be initialized on the device in the standard CuTe fashion using `with`:
+After this _placeholder_ TiledCopy is created, it can be initialized on the device in the standard CuTe fashion, using `with`:
 
 ```c++
 /* host code */
-TiledCopy copy_a_placeholder = make_block_2d_copy<float>(...);
+TiledCopy copy_a_placeholder = make_block_2d_copy_A<float>(...);
 ...
 
 /* device code */
@@ -204,12 +220,25 @@ TiledCopy copy_a = copy_a_placeholder.with(gA);     /* copy_a is now ready to us
 
 ### Using Block 2D Atoms
 
-Block 2D copy atoms follow a pattern similar to the NVIDIA TMA copy atoms.
+Block 2D copy atoms follow a "proxy copy" pattern, somewhat akin to the NVIDIA TMA copy atoms.
 
-At creation time, a block 2D copy atom is constructed with a global tensor, which is part of the atom's state. When copying, instead of partitioning the global tensor, the user partitions a corresponding coordinate (counting) tensor instead, providing the coordinates (within that global tensor) that should be copied.
+At creation time, a block 2D copy atom is constructed with a global tensor, which becomes part of the atom's state. When copying, instead of partitioning the global tensor, the user partitions a corresponding coordinate tensor instead, providing the coordinates (within that global tensor) that should be copied.
 
 ```c++
-/* TODO example here */
+Tensor gA = make_tensor(make_gmem_ptr(...), ...);
+
+/* Construct TiledCopy with global tensor */
+TiledCopy copy_a = make_block_2d_copy_A(mma, gA);
+ThrCopy thr_copy_a = copy_a.get_slice(...);
+
+/* Create a proxy coordinate tensor and use it for actual copy operations */
+Tensor cA = make_identity_tensor(gA.shape());
+Tensor tAcA = thr_copy_a.partition_S(cA);
+
+Tensor tArA = thr_copy_a.partition_fragment_D(cA);
+
+/* Copy from global (via coordinate tensor) to registers */
+copy(copy_a, tAcA, tArA);
 ```
 
 
@@ -291,9 +320,6 @@ The DPAS B matrix follows the same pattern.
 
 ## Subgroup Reorders
 
-> [!NOTE]
-> This section is WIP.
-
 Each subgroup-scope operation (MMA atom, copy atom) requires specific logical layouts. For, instance the DPAS B matrix needs to be in VNNI format, in blocks of Kx16 (for some specific value of K). In many cases, we can use block 2D copy atoms to load data in exactly the right layout. In other cases, we can't, because:
 
 * The copy/MMA atoms are tiled and these tilings don't match.
@@ -305,7 +331,7 @@ Each subgroup-scope operation (MMA atom, copy atom) requires specific logical la
 * Data needs to be broadcast/duplicated in special patterns (e.g. scales/zero points).
 
 
-A flexible and powerful way to handle all these situations is via a subgroup-scope _reorder_ operation that allows arbitrary layout changes in registers. In addition to layout changes, reorders may include data type conversions, because these conversions can often be fused into the layout conversion for more efficient code.
+A flexible and powerful way to handle all these situations is via a subgroup-scope _reorder_ operation that allows arbitrary layout changes (shuffles) in registers. In addition to layout changes, reorders may include data type conversions, because these conversions can often be fused into the layout conversion for more efficient code.
 
 The general API for a reorder looks like:
 
@@ -316,11 +342,138 @@ reorder(Tensor<...> const& src_fragment,
         Layout<...>      & dst_sg_layout)       /* (T,V) -> coord */
 ```
 
-`reorder` performs a reorder operation between subgroup-owned tensors `src_fragment` and `dst_fragment`. The subgroup layouts map threads and values (across the subgroup) to logical coordinates in the subgroup-shared tensor of interest. Coordinate tensors are a convenient way to get these layouts out of a TiledCopy or TiledMMA instance (TODO: describe in more detail).
+`reorder` copies subgroup-scoped data between subgroup-owned fragments `src_fragment` and `dst_fragment`. The subgroup layouts map a subgroup's threads and values to logical coordinates in the tensor of interest; `reorder` uses them to determine the mapping from source values to destination values. If src/dst come from a TiledCopy or TiledMMA instance, you can use the `atom_fragment_*` family of methods to generate the subgroup layouts (see the next section for an example).
 
 `reorder` acts as a "pipe" connecting copy and MMA operations (or any other subgroup-scope operations). With reorders, the kernel writer does not need to worry about perfectly matching layouts between copy and MMA atoms. In case the layouts do match perfectly (as `make_block_2d_copy_{A,B,C}` try to do), the compiler is able to remove the reorder entirely, making it a no-op.
 
-TODO: larger example here.
+
+## Example CuTe GEMM
+
+Let's combine the pieces here to make a complete CuTe-level Xe GEMM kernel.
+
+```c++
+template <class ATensor, class BTensor, class CTensor,
+          class TiledMMA>
+void
+gemm_device(ATensor   const& A,         // (M,K)
+            BTensor   const& B,         // (N,K)
+            CTensor        & C,         // (M,N)
+            TiledMMA const & mma)
+{
+  using namespace cute;
+
+  // -----
+  // Setup
+  // -----
+
+  /* Create proxy coordinate tensors for each global tensor */
+  Tensor cA = make_identity_tensor(A.shape());   // (M,K)
+  Tensor cB = make_identity_tensor(B.shape());   // (N,K)
+  Tensor cC = make_identity_tensor(C.shape());   // (M,N)
+
+  /* Split GEMM into workgroup tiles, and identify our workgroup's tile (wg_coord) */
+  auto wg_tile = mma.tile_mnk();
+  auto wg_coord = make_coord(BlockIdxX(), BlockIdxY(), 0);
+
+  Tensor gA = local_tile(cA, select<0,2>(wg_tile), make_coord(BlockIdxX(),_));  // (BLK_M,BLK_K,k)
+  Tensor gB = local_tile(cB, select<1,2>(wg_tile), make_coord(BlockIdxY(),_));  // (BLK_N,BLK_K,k)
+  Tensor gC = local_tile(cC, wg_tile, wg_coord, Step<_1,_1, X>{});              // (BLK_M,BLK_N)
+
+  /* Create block 2D TiledCopies */
+  auto copy_a = make_block_2d_copy_A(mma, A);
+  auto copy_b = make_block_2d_copy_B(mma, B);
+  auto copy_c = make_block_2d_copy_C(mma, C);
+
+  /* Partition workgroup tiles into subgroup/thread fragments */
+  int thread_idx = int(ThreadIdxX());
+
+  auto thr_mma    =    mma.get_slice(thread_idx);
+  auto thr_copy_a = copy_a.get_slice(thread_idx);
+  auto thr_copy_b = copy_b.get_slice(thread_idx);
+
+  /* Register fragments for MMA */
+  Tensor tCrA = thr_mma.partition_fragment_A(gA(_,_,0));
+  Tensor tCrB = thr_mma.partition_fragment_B(gB(_,_,0));
+
+  /* Register fragments for copies */
+  Tensor tArA = thr_copy_a.partition_fragment_D(gA(_,_,0));
+  Tensor tBrB = thr_copy_b.partition_fragment_D(gB(_,_,0));
+
+  /* Partition global tensor (proxies) for copies */
+  Tensor tAgA = thr_copy_a.partition_S(gA);
+  Tensor tBgB = thr_copy_b.partition_S(gB);
+
+  /* Partition C */
+  Tensor tCrC = partition_fragment_C(mma, select<0,1>(wg_tile));
+  Tensor tCgC = thr_mma.partition_C(gC);    /* also matches copy_c's source layout */
+
+  /* Subgroup-value layouts for MMA/copy fragments */
+  /* In the future, may embed these inside tCrA/etc. for ease of use */
+  auto sg_layout_A = thr_mma.atom_partition_A(gA(_,_,0)).layout();
+  auto sg_layout_B = thr_mma.atom_partition_B(gB(_,_,0)).layout();
+
+  auto sg_layout_A_copy = thr_copy_a.atom_partition_D(gA(_,_,0)).layout();
+  auto sg_layout_B_copy = thr_copy_b.atom_partition_D(gB(_,_,0)).layout();
+
+  /* Create prefetch TiledCopy instances */
+  auto prefetch_a = make_block_2d_prefetch(copy_a);
+  auto prefetch_b = make_block_2d_prefetch(copy_b);
+
+  auto thr_prefetch_A = prefetch_a.get_slice(thread_idx);
+  auto thr_prefetch_B = prefetch_b.get_slice(thread_idx);
+
+  /* Partition global tensor (proxies) for prefetch */
+  auto pAgA = thr_prefetch_A.partition_S(gA);
+  auto pBgB = thr_prefetch_B.partition_S(gB);
+
+  // ------
+  // Kernel
+  // ------
+
+  constexpr int barrier_scope = 2;
+
+  int k_tile_count = ceil_div(get<2>(shape_MNK), get<2>(cta_tiler));
+  int k_tile_prefetch = 0;
+
+  /* Clear the accumulators */
+  clear(tCrC);
+
+  /* Warm up loops with prefetch to L1 */
+  CUTLASS_PRAGMA_UNROLL
+  for (; k_tile_prefetch < stages; k_tile_prefetch++) {
+    prefetch(prefetch_a, pAgA(_,_,k_tile_prefetch));
+    prefetch(prefetch_b, pBgB(_,_,k_tile_prefetch));
+  }
+
+  /* Main loop */
+  CUTLASS_PRAGMA_UNROLL
+  for (int k_tile = 0; k_tile < k_tile_count; k_tile++, k_tile_prefetch++) {
+    /* Split barrier keeping threads loosely together */
+    barrier_arrive(barrier_scope);
+
+    /* Copy A/B from global memory (ideally L1 cache) to registers */
+    copy(copy_a, tAgA(_,_,k_tile), tArA);
+    copy(copy_b, tBgB(_,_,k_tile), tBrB);
+
+    /* Prefetch A/B tiles to L1 */
+    prefetch(prefetch_a, pAgA(_,_,k_tile_prefetch));
+    prefetch(prefetch_b, pBgB(_,_,k_tile_prefetch));
+
+    /* Shuffle data from copy fragments to MMA fragments */
+    reorder(tArA, tCrA, sg_layout_A_copy, sg_layout_A);
+    reorder(tBrB, tCrB, sg_layout_B_copy, sg_layout_B);
+
+    /* Accumulate C += A * B */
+    gemm(tiled_mma, tCrA, tCrB, tCrC);
+
+    /* Other half of split barrier */
+    barrier_wait(barrier_scope);
+  }
+
+  /* Write C to global memory */
+  copy(copy_c, tCrC, tCgC);
+}
+```
 
 
 ## New Collective MMAs

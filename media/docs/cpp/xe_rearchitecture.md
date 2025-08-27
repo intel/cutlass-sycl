@@ -384,7 +384,7 @@ gemm_device(ATensor   const& A,         // (M,K)
   auto copy_b = make_block_2d_copy_B(mma, B);
   auto copy_c = make_block_2d_copy_C(mma, C);
 
-  /* Partition workgroup tiles into subgroup/thread fragments */
+  /* Slice TiledCopy/TiledMMA operations to thread (work-item) level */
   int thread_idx = int(ThreadIdxX());
 
   auto thr_mma    =    mma.get_slice(thread_idx);
@@ -464,7 +464,7 @@ gemm_device(ATensor   const& A,         // (M,K)
     reorder(tBrB, tCrB, sg_layout_B_copy, sg_layout_B);
 
     /* Accumulate C += A * B */
-    gemm(tiled_mma, tCrA, tCrB, tCrC);
+    gemm(mma, tCrA, tCrB, tCrC);
 
     /* Other half of split barrier */
     barrier_wait(barrier_scope);

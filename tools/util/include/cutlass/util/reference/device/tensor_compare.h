@@ -333,6 +333,8 @@ bool BlockCompareRelativelyEqual(
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+template<template<class> class, class> class BlockElementwiseOpKernelName; 
+
 /// Performs an elementwise function of two blocks
 template <template <class> class BinaryOp, typename Element>
 void BlockElementwiseOp(
@@ -369,7 +371,7 @@ void BlockElementwiseOp(
 #if defined(CUTLASS_ENABLE_SYCL)
   const auto sycl_block = cutlasscompat::dim3(block_size, 1, 1);
   const auto sycl_grid = cutlasscompat::dim3(grid_size, 1, 1);
-  cutlasscompat::launch<kernel::BlockElementwiseOp<BinaryOp, Element>>(
+  cutlasscompat::launch<kernel::BlockElementwiseOp<BinaryOp, Element>, BlockElementwiseOpKernelName<BinaryOp, Element>>(
       sycl_grid, sycl_block, ptr_dst, ptr_A, ptr_B, capacity);
 #else
   dim3 grid(grid_size, 1, 1);

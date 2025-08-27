@@ -125,7 +125,7 @@ public:
   static constexpr int ATOM_N = CollectiveMainloop::ATOM_N;
   static constexpr int ATOM_K = CollectiveMainloop::ATOM_K;
 
-  static constexpr auto Num_SGs = ATOM_N * ATOM_M * ATOM_K;
+  static constexpr int Num_SGs = ATOM_N * ATOM_M * ATOM_K;
   static constexpr int Vec = CollectiveMainloop::Vec; // 8
   static constexpr int FragsM = CollectiveMainloop::FragsM;  // 1
   static constexpr int FragsN = CollectiveMainloop::FragsNS; // 4

@@ -36,7 +36,7 @@
 #include "cutlass/util/reference/device/kernel/tensor_foreach.h"
 #include "cutlass/kernel_hardware_info.h"
 
-template<class, class, class> class TensorForEachhKernelName;
+template<class, class> class TensorForEachKernelName;
 
 namespace cutlass  {
 namespace reference {
@@ -80,7 +80,7 @@ struct TensorForEach {
 #if defined(CUTLASS_ENABLE_SYCL)
     const auto sycl_block = cutlasscompat::dim3(block_size, 1, 1);
     const auto sycl_grid = cutlasscompat::dim3(grid_size, 1, 1);
-    cutlasscompat::launch<kernel::TensorForEach<Func, Rank, Params>, TensorForEachhKernelName<Func, decltype(Rank), Params>>(sycl_grid, sycl_block, size, params);
+    cutlasscompat::launch<kernel::TensorForEach<Func, Rank, Params>, TensorForEachKernelName<Func, decltype(Rank)>>(sycl_grid, sycl_block, size, params);
 #else
     dim3 grid(grid_size, 1, 1);
     dim3 block(block_size, 1, 1);

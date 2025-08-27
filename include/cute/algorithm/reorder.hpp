@@ -95,6 +95,16 @@ reorder(Tensor<SEngine,SLayoutWI> const& src,       // WI fragment
   reorder_impl(impl, src, dst, sl0, dl0);
 }
 
+template <class SEngine, class SLayoutWI, class SLayout,
+          class DEngine, class DLayoutWI, class DLayout>
+CUTE_HOST_DEVICE
+void
+reorder(SubgroupTensor<SEngine,SLayoutWI,SLayout> const& src,
+        SubgroupTensor<DEngine,DLayoutWI,DLayout> &      dst)
+{
+  reorder(src, dst, SLayout{}, DLayout{});
+}
+
 // Base case for reorders: loop over reorder atoms
 template <class ReorderAtom,
           class SEngine, class SLayoutWI, class SLayout,

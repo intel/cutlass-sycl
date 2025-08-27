@@ -603,6 +603,33 @@ struct ThrMMA : TiledMMA
   {
     return TiledMMA::make_fragment_B(partition_B(btensor));
   }
+
+  template <class CTensor>
+  CUTE_HOST_DEVICE constexpr
+  auto
+  sg_partition_fragment_C(CTensor&& ctensor) const
+  {
+    return make_subgroup_tensor(partition_fragment_C(ctensor),
+                                layout(atom_partition_C(ctensor)));
+  }
+
+  template <class ATensor>
+  CUTE_HOST_DEVICE constexpr
+  auto
+  sg_partition_fragment_A(ATensor&& atensor) const
+  {
+    return make_subgroup_tensor(partition_fragment_A(atensor),
+                                layout(atom_partition_A(atensor)));
+  }
+
+  template <class BTensor>
+  CUTE_HOST_DEVICE constexpr
+  auto
+  sg_partition_fragment_B(BTensor&& btensor) const
+  {
+    return make_subgroup_tensor(partition_fragment_B(btensor),
+                                layout(atom_partition_B(btensor)));
+  }
 };
 
 //

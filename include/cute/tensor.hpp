@@ -31,6 +31,7 @@
 #pragma once
 
 #include <cute/tensor_impl.hpp>
+#include <cute/tensor_sg.hpp>
 
 //
 // Extended Engines

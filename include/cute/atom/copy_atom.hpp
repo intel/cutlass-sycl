@@ -435,7 +435,7 @@ struct ThrCopy
   template <class STensor>
   CUTE_HOST_DEVICE
   auto
-  sg_partition_fragment_S(STensor&& stensor) const {
+  partition_sg_fragment_S(STensor&& stensor) const {
     return make_subgroup_tensor(partition_fragment_S(stensor),
                                 layout(atom_partition_S(stensor)));
   }
@@ -443,7 +443,7 @@ struct ThrCopy
   template <class DTensor>
   CUTE_HOST_DEVICE
   auto
-  sg_partition_fragment_D(DTensor&& dtensor) const {
+  partition_sg_fragment_D(DTensor&& dtensor) const {
     return make_subgroup_tensor(partition_fragment_D(dtensor),
                                 layout(atom_partition_D(dtensor)));
   }

@@ -318,6 +318,35 @@ As a more complicated example, let's consider a 16-bit VNNI load, with height = 
 The DPAS B matrix follows the same pattern.
 
 
+### The SubgroupTensor Class
+
+A new `SubgroupTensor` class represents a subgroup-scope tensor (fragment). SubgroupTensor wraps a standard CuTe rmem Tensor holding the current work-item's slice of the tensor. It implicitly decays to this fragment, so it can be used as a regular rmem Tensor.
+
+In addition to tensor data, a SubgroupTensor holds a thread-value layout identifying logical coordinates for each element of the tensor. The interpretation of the logical coordinates is user-defined.
+
+```c++
+template <class Engine,
+          class Layout,               // fragment coord -> V
+          class SubgroupTVLayout>     // (T,V) -> coord in subgroup
+struct SubgroupTensor;
+
+// Create a SubgroupTensor from an existing rmem Tensor
+template <...>
+auto make_subgroup_tensor(Tensor<Engine, Layout> const&, SubgroupTVLayout const&);
+```
+
+To create a `SubgroupTensor`, use the new `partition_sg_fragment_*` methods of the `ThrCopy` and `ThrMMA` classes:
+```c++
+  template <class ATensor>
+  CUTE_HOST_DEVICE constexpr auto
+  ThrMMA::partition_sg_fragment_A(ATensor&& atensor) const;     // Similarly for B/C
+
+  template <class STensor>
+  CUTE_HOST_DEVICE auto
+  ThrCopy::partition_sg_fragment_S(STensor&& stensor) const;    // Similarly for D
+```
+
+
 ## Subgroup Reorders
 
 Each subgroup-scope operation (MMA atom, copy atom) requires specific logical layouts. For, instance the DPAS B matrix needs to be in VNNI format, in blocks of Kx16 (for some specific value of K). In many cases, we can use block 2D copy atoms to load data in exactly the right layout. In other cases, we can't, because:
@@ -336,15 +365,22 @@ A flexible and powerful way to handle all these situations is via a subgroup-sco
 The general API for a reorder looks like:
 
 ```c++
+reorder(SubgroupTensor<...> const& src_fragment,
+        SubgroupTensor<...>      & dst_fragment);
+```
+
+`reorder` copies subgroup-scoped data between subgroup-owned fragments `src_fragment` and `dst_fragment`. `reorder` uses the subgroup TV layout (part of the SubgroupTensor) to determine which source values map to which destination values. These are computed automatically by the `partition_sg_fragment_*` family of methods.
+
+`reorder` acts as a "pipe" connecting copy and MMA operations (or any other subgroup-scope operations). With reorders, the kernel writer does not need to worry about perfectly matching layouts between copy and MMA atoms. In case the layouts do match perfectly (as `make_block_2d_copy_{A,B,C}` try to do), the compiler is able to remove the reorder entirely, making it a no-op.
+
+A longer version of the reorder API takes the source and destination fragments as ordinary `Tensor` objects, in which case the subgroup TV-layouts must be passed in as auxiliary parameters.
+
+```c++
 reorder(Tensor<...> const& src_fragment,
         Tensor<...>      & dst_fragment,
         Layout<...>      & src_sg_layout,       /* (T,V) -> coord */
         Layout<...>      & dst_sg_layout)       /* (T,V) -> coord */
 ```
-
-`reorder` copies subgroup-scoped data between subgroup-owned fragments `src_fragment` and `dst_fragment`. The subgroup layouts map a subgroup's threads and values to logical coordinates in the tensor of interest; `reorder` uses them to determine the mapping from source values to destination values. If src/dst come from a TiledCopy or TiledMMA instance, you can use the `atom_fragment_*` family of methods to generate the subgroup layouts (see the next section for an example).
-
-`reorder` acts as a "pipe" connecting copy and MMA operations (or any other subgroup-scope operations). With reorders, the kernel writer does not need to worry about perfectly matching layouts between copy and MMA atoms. In case the layouts do match perfectly (as `make_block_2d_copy_{A,B,C}` try to do), the compiler is able to remove the reorder entirely, making it a no-op.
 
 
 ## Example CuTe GEMM
@@ -392,12 +428,12 @@ gemm_device(ATensor   const& A,         // (M,K)
   auto thr_copy_b = copy_b.get_slice(thread_idx);
 
   /* Register fragments for MMA */
-  Tensor tCrA = thr_mma.partition_fragment_A(gA(_,_,0));
-  Tensor tCrB = thr_mma.partition_fragment_B(gB(_,_,0));
+  auto tCrA = thr_mma.partition_sg_fragment_A(gA(_,_,0));
+  auto tCrB = thr_mma.partition_sg_fragment_B(gB(_,_,0));
 
   /* Register fragments for copies */
-  Tensor tArA = thr_copy_a.partition_fragment_D(gA(_,_,0));
-  Tensor tBrB = thr_copy_b.partition_fragment_D(gB(_,_,0));
+  auto tArA = thr_copy_a.partition_sg_fragment_D(gA(_,_,0));
+  auto tBrB = thr_copy_b.partition_sg_fragment_D(gB(_,_,0));
 
   /* Partition global tensor (proxies) for copies */
   Tensor tAgA = thr_copy_a.partition_S(gA);
@@ -406,14 +442,6 @@ gemm_device(ATensor   const& A,         // (M,K)
   /* Partition C */
   Tensor tCrC = partition_fragment_C(mma, select<0,1>(wg_tile));
   Tensor tCgC = thr_mma.partition_C(gC);    /* also matches copy_c's source layout */
-
-  /* Subgroup-value layouts for MMA/copy fragments */
-  /* In the future, may embed these inside tCrA/etc. for ease of use */
-  auto sg_layout_A = thr_mma.atom_partition_A(gA(_,_,0)).layout();
-  auto sg_layout_B = thr_mma.atom_partition_B(gB(_,_,0)).layout();
-
-  auto sg_layout_A_copy = thr_copy_a.atom_partition_D(gA(_,_,0)).layout();
-  auto sg_layout_B_copy = thr_copy_b.atom_partition_D(gB(_,_,0)).layout();
 
   /* Create prefetch TiledCopy instances */
   auto prefetch_a = make_block_2d_prefetch(copy_a);
@@ -460,8 +488,8 @@ gemm_device(ATensor   const& A,         // (M,K)
     prefetch(prefetch_b, pBgB(_,_,k_tile_prefetch));
 
     /* Shuffle data from copy fragments to MMA fragments */
-    reorder(tArA, tCrA, sg_layout_A_copy, sg_layout_A);
-    reorder(tBrB, tCrB, sg_layout_B_copy, sg_layout_B);
+    reorder(tArA, tCrA);
+    reorder(tBrB, tCrB);
 
     /* Accumulate C += A * B */
     gemm(mma, tCrA, tCrB, tCrC);

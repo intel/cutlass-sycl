@@ -40,6 +40,8 @@
 #include "cutlass/util/sycl_event_manager.hpp"
 #include "cutlass/util/GPU_Clock.hpp"
 
+template<class...> class GemmDeviceName;
+
 template <class ProblemShape, class CtaTiler,
           class TA, class AStride, class ASmemLayout, class TiledCopyA,
           class TB, class BStride, class BSmemLayout, class TiledCopyB,
@@ -312,6 +314,10 @@ gemm_nt(int m, int n, int k,
                   TA, decltype(dA), decltype(sA), decltype(copyA),
                   TB, decltype(dB), decltype(sB), decltype(copyB),
                   TC, decltype(dC), decltype(sC), decltype(mmaC),
+                  Alpha, Beta>, GemmDeviceName<decltype(prob_shape), decltype(cta_tiler),
+                  TA, decltype(dA), decltype(sA), decltype(copyA),
+                  TB, decltype(dB), decltype(sB), decltype(copyB),
+                  TC, decltype(dC), decltype(sC), decltype(mmaC),
                   Alpha, Beta>>(dimGrid, dimBlock, prob_shape, cta_tiler,
                     A, dA, sA, copyA,
                     B, dB, sB, copyB,
@@ -393,6 +399,10 @@ gemm_tn(int m, int n, int k,
   auto dimGrid  = cutlasscompat::dim3(size(ceil_div(M, bM)), size(ceil_div(N, bN)));
   auto event = cutlasscompat::launch<
       gemm_device<decltype(prob_shape), decltype(cta_tiler),
+                  TA, decltype(dA), decltype(sA), decltype(copyA),
+                  TB, decltype(dB), decltype(sB), decltype(copyB),
+                  TC, decltype(dC), decltype(sC), decltype(mmaC),
+                  Alpha, Beta>, GemmDeviceName<decltype(prob_shape), decltype(cta_tiler),
                   TA, decltype(dA), decltype(sA), decltype(copyA),
                   TB, decltype(dB), decltype(sB), decltype(copyB),
                   TC, decltype(dC), decltype(sC), decltype(mmaC),

@@ -164,6 +164,7 @@ struct Xe2DTraitsBase
   CUTE_DEVICE
   void update_payload(const Coord &coord) const
   {
+#ifdef __SYCL_DEVICE_ONLY__
     // Update x/y offsets in payload
     int32_t x = get<XMode::value>(coord) * Bits / Op::CopyBits;
     int32_t y = get<YMode::value>(coord);
@@ -184,6 +185,7 @@ struct Xe2DTraitsBase
       assert((byte_offset % 64 == 0) && "CuTe runtime error: misaligned block 2D base pointer");
 #endif
     }
+#endif /* __SYCL_DEVICE_ONLY__ */
   }
 
   static constexpr auto get_x_mode() { return XMode{}; }
@@ -1047,7 +1049,7 @@ make_block_2d_prefetch(PrefetchOp         const& op,
                                                   Int<n_sg_x>{});
 
   // Tile atom grid across collective op tile.
-  auto sv_layout = logical_divide(make_layout(collective_op_tile), atom_shape);
+  auto sv_layout = zipped_divide(make_layout(collective_op_tile), atom_shape);
 
   // Create the TiledCopy object.
   return make_block_2d_copy<ValType>(op, stride, x_mode, y_mode, atom_shape, sv_layout);

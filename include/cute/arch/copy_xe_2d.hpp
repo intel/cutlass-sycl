@@ -55,7 +55,7 @@ template <int Bits, int Height, int Width, int Count = 1, bool Transpose = false
 struct XE_Copy_Op_2D_Base
 {
   static_assert(Height <= 32, "Height exceeds hardware limits");
-  static_assert(Width <= 64, "Total width exceeds hardware limits");
+  static_assert(Bits * Width <= 8 * 64, "Total width exceeds hardware limits");
   static_assert(Bits * Count <= 64 && Count <= 4 && Count != 3, "Unsupported block count");
   static_assert(Bits == 8 || Bits == 16 || Bits == 32 || Bits == 64, "Unsupported data size");
 

@@ -462,7 +462,7 @@ public:
       const auto sycl_grid = cutlasscompat::dim3(grid.x, grid.y, grid.z);
 
       sycl::queue q = stream ? *stream : cutlasscompat::get_default_queue();
-      cutlasscompat::experimental::launch<Kernel2<GemmKernel>>(
+      cutlasscompat::experimental::launch<Kernel2<GemmKernel>, GemmKernel>(
         cutlasscompat::experimental::launch_policy{
           sycl_grid, sycl_block,
 #if defined(SYCL_EXT_ONEAPI_WORK_GROUP_SCRATCH_MEMORY)

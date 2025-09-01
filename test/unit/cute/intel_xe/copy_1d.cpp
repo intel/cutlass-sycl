@@ -43,6 +43,8 @@ using namespace cutlasscompat::experimental;
 
 #define SUBGROUP_SIZE (16)
 
+template<class...> class CopyKernelVectorizedName;
+
 template <class TensorS, class TensorD>
 void copy_kernel_vectorized(TensorS tile_S, TensorD tile_D) {
   using namespace cute;
@@ -182,7 +184,7 @@ TEST(PVC_1d_copy, copy_double) {
     static constexpr auto subgroup_size = 16;
     auto blockDim = cutlasscompat::dim3(subgroup_size);
 
-    launch<copy_kernel_vectorized<decltype(S), decltype(D)>>(
+    launch<copy_kernel_vectorized<decltype(S), decltype(D)>, CopyKernelVectorizedName<decltype(S), decltype(D)>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
@@ -225,7 +227,7 @@ TEST(PVC_1d_copy, copy_double) {
     //
     // Launch the kernel
     //
-    launch<copy_kernel_vectorized<decltype(S), decltype(D)>>(
+    launch<copy_kernel_vectorized<decltype(S), decltype(D)>, CopyKernelVectorizedName<decltype(S), decltype(D)>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
@@ -267,7 +269,7 @@ TEST(PVC_1d_copy, copy_double) {
     //
     // Launch the kernel
     //
-    launch<copy_kernel_vectorized<decltype(S), decltype(D)>>(
+    launch<copy_kernel_vectorized<decltype(S), decltype(D)>, CopyKernelVectorizedName<decltype(S), decltype(D)>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},

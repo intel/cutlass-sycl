@@ -43,6 +43,8 @@ using namespace cutlasscompat::experimental;
 
 #define SUBGROUP_SIZE (16)
 
+template<class...> class CopyKernelGlobalName;
+
 template <class TensorS, class TensorD, class TiledLoad, class TiledStore>
 void copy_kernel_global(TensorS S, TensorD D, TiledLoad load,
                         TiledStore store) {
@@ -130,6 +132,7 @@ TEST(PVC_2d_copy, load_store_global) {
     // Launch the kernel
     //
     launch<copy_kernel_global<decltype(S), decltype(D), decltype(tiled_copy),
+                              decltype(tiled_copy)>, CopyKernelGlobalName<decltype(S), decltype(D), decltype(tiled_copy),
                               decltype(tiled_copy)>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
@@ -179,6 +182,7 @@ TEST(PVC_2d_copy, load_store_global_V) {
     // Launch the kernel
     //
     launch<copy_kernel_global<decltype(S), decltype(D), decltype(tiled_copy),
+                              decltype(tiled_copy)>, CopyKernelGlobalName<decltype(S), decltype(D), decltype(tiled_copy),
                               decltype(tiled_copy)>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
@@ -192,6 +196,8 @@ TEST(PVC_2d_copy, load_store_global_V) {
     }
   }
 }
+
+template<class...> class CopyKernelLocalName;
 
 template <class TensorS, class TensorD, class TiledCopy>
 void copy_kernel_local(TensorS S, TensorD D, TiledCopy Op) {
@@ -254,7 +260,7 @@ TEST(PVC_2d_copy, load_store_local) {
     //
     // Launch the kernel
     //
-    launch<copy_kernel_local<decltype(S), decltype(D), decltype(tiled_copy)>>(
+    launch<copy_kernel_local<decltype(S), decltype(D), decltype(tiled_copy)>, CopyKernelLocalName<decltype(S), decltype(D), decltype(tiled_copy)>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
@@ -267,6 +273,8 @@ TEST(PVC_2d_copy, load_store_local) {
     }
   }
 }
+
+template<class...> class CopyKernelAtomicName;
 
 template <class TensorS, class TensorD, class TiledLoad, class TiledStore>
 void copy_kernel_atomic(TensorS S, TensorD D, TiledLoad load,
@@ -351,7 +359,8 @@ TEST(PVC_2d_copy, load_store_stomic_float) {
     // Launch the kernel
     //
     launch<copy_kernel_atomic<decltype(S), decltype(D), decltype(tiled_load),
-                              decltype(tiled_atom)>>(
+                              decltype(tiled_atom)>, CopyKernelAtomicName<decltype(S), decltype(D), decltype(tiled_load), decltype(tiled_atom)>>(
+
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
@@ -403,7 +412,7 @@ TEST(PVC_2d_copy, load_store_stomic_int) {
     // Launch the kernel
     //
     launch<copy_kernel_atomic<decltype(S), decltype(D), decltype(tiled_load),
-                              decltype(tiled_atom)>>(
+                              decltype(tiled_atom)>, CopyKernelAtomicName<decltype(S), decltype(D), decltype(tiled_load), decltype(tiled_atom)>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},

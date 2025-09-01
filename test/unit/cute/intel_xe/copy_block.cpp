@@ -44,6 +44,8 @@ using namespace cutlasscompat::experimental;
 #define SUBGROUP_SIZE (16)
 constexpr int row_alignment = 16; // Alignment requirement for Xe 2D Block Copy Instructions
 
+template<class...> class CopyKernelVectorizedName;
+
 template <class TensorS, class TensorD, class TiledLoad, class TiledStore,
           class CopyOp = void>
 void copy_kernel_vectorized(TensorS S, TensorD D, TiledLoad load,
@@ -139,6 +141,7 @@ struct copy_op<dtype, load, store, M, N, false> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
                                decltype(tiled_store), load>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
@@ -191,6 +194,7 @@ struct copy_op<char, load, XE_2D_U8x2x32_ST_N, M, N, false> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
                                decltype(tiled_store), load>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
@@ -243,6 +247,7 @@ struct copy_op<uint16_t, load, XE_2D_U16x2x16_ST_N, M, N, false> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
                                decltype(tiled_store), load>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
@@ -305,6 +310,7 @@ struct copy_op<uint32_t, load, store, M_, N_, true> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
                                decltype(tiled_store), load>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,

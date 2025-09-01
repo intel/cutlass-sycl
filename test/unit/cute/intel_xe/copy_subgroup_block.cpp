@@ -41,6 +41,8 @@ using namespace cutlasscompat::experimental;
 
 #define SUBGROUP_SIZE (16)
 
+template<class, class, uint32_t, uint32_t, uint32_t, uint32_t> class CopyKernelVectorizedName;
+
 template <class TensorS, class TensorD, uint32_t wg_tile_m, uint32_t wg_tile_n,
           uint32_t sg_tile_m, uint32_t sg_tile_n>
 void copy_kernel_vectorized(TensorS S, TensorD D) {
@@ -214,8 +216,11 @@ bool copy(uint32_t M, uint32_t N) {
   //
   // Launch the kernel
   //
-  launch<copy_kernel_vectorized<decltype(tensor_S), decltype(tensor_D),
-                                wg_tile_m, wg_tile_n, sg_tile_m, sg_tile_n>>(
+  cutlasscompat::experimental::launch<
+      copy_kernel_vectorized<decltype(tensor_S), decltype(tensor_D), wg_tile_m,
+                             wg_tile_n, sg_tile_m, sg_tile_n>,
+      CopyKernelVectorizedName<decltype(tensor_S), decltype(tensor_D),
+                               wg_tile_m, wg_tile_n, sg_tile_m, sg_tile_n>>(
       launch_policy{gridDim, blockDim,
                     kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
       tensor_S, tensor_D);

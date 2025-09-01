@@ -461,7 +461,7 @@ public:
           sycl::ext::oneapi::experimental::work_group_scratch_size(smem_size)
         };
         cutlasscompat::experimental::launch_properties launch_props{smem_prop};
-        auto event = cutlasscompat::experimental::launch<device_kernel<GemmKernel>>(cutlasscompat::experimental::launch_policy{
+        auto event = cutlasscompat::experimental::launch<device_kernel<GemmKernel>, GemmKernel>(cutlasscompat::experimental::launch_policy{
           sycl_grid,
           sycl_block,
           launch_props
@@ -475,7 +475,7 @@ public:
         };
         const cutlasscompat::dim3 sycl_grid_finalize(grid_finalize.x, grid_finalize.y, grid_finalize.z);
         const cutlasscompat::dim3 sycl_block_finalize(block_finalize.x, block_finalize.y, block_finalize.z);
-        auto event_finalize = cutlasscompat::experimental::launch<device_kernel<SoftmaxFinalizeKernel>>(cutlasscompat::experimental::launch_policy{
+        auto event_finalize = cutlasscompat::experimental::launch<device_kernel<SoftmaxFinalizeKernel>, SoftmaxFinalizeKernel>(cutlasscompat::experimental::launch_policy{
             sycl_grid_finalize,
             sycl_block_finalize,
             kernel_launch_props_finalize,

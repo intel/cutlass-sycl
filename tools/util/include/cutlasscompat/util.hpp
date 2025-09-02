@@ -1008,7 +1008,7 @@ public:
   }
 
 protected:
-  logical_group<dimensions> logical_group;
+  experimental::logical_group<dimensions> logical_group;
   sycl::nd_item<dimensions> nd_item;
   group_type type;
 };

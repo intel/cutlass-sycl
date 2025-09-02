@@ -485,22 +485,6 @@ struct XE_2D_Packed_U8x32x64_LD_N {
 
 
 
-struct XE_2D_U8x16x32_LD_V {
-  using BlockShape = Shape<_16, _32>;
-
-  template <class T>
-  CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
-                                    int height, int pitch, intel::coord_t coord,
-                                    T *dst) {
-#if defined(CUTE_ARCH_COPY_XE_ENABLED)
-    static_assert(sizeof(T) == 1, "Expected T to have size 1");
-    detail::XeSubgroup2DBlockLoadTransform<1, 16, 16, 2>{}(baseoffset, width, height, pitch, coord, dst);
-#else
-    CUTE_INVALID_CONTROL_PATH("Trying to use block loads on non-Xe hardware");
-#endif
-  }
-};
-
 struct XE_2D_U8x32x16_LD_V {
   using BlockShape = Shape<_32, _16>;
 

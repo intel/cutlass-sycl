@@ -177,14 +177,6 @@ SYCL_DEVICE_BUILTIN(
     cute::intel::uint32 __builtin_IB_subgroup_block_read_flat_transform_u8_k32v4(
         intptr_t baseoffset, int width_minus_one, int height_minus_one,
         int pitch_minus_one, cute::intel::coord_t coord));
-// SYCL_DEVICE_BUILTIN(
-//     cute::intel::uint16 __builtin_IB_subgroup_block_read_flat_transform_u8_m32k16v1(
-//         intptr_t baseoffset, int width_minus_one, int height_minus_one,
-//         int pitch_minus_one, cute::intel::coord_t coord));
-SYCL_DEVICE_BUILTIN(
-    cute::intel::uint16 __builtin_IB_subgroup_block_read_flat_transform_u8_m16k16v2(
-        intptr_t baseoffset, int width_minus_one, int height_minus_one,
-        int pitch_minus_one, cute::intel::coord_t coord));
 
 // 8bits No transform Transpose
 SYCL_DEVICE_BUILTIN(
@@ -713,28 +705,6 @@ struct XeSubgroup2DBlockLoadTransform<1, 16, 32, 4> {
     operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
             cute::intel::coord_t coordinate, T* dstPointer) {
         *reinterpret_cast<intel::uint32 *>(dstPointer) =  __builtin_IB_subgroup_block_read_flat_transform_u8_k32v4(
-           (intptr_t)(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
-    }
-};
-
-// template<>
-// struct XeSubgroup2DBlockLoadTransform<1, 32, 16, 1> {
-//     template<typename T>
-//     CUTE_HOST_DEVICE void 
-//     operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
-//             cute::intel::coord_t coordinate, T* dstPointer) {
-//         *reinterpret_cast<intel::uint16 *>(dstPointer) =  __builtin_IB_subgroup_block_read_flat_transform_u8_m32k16v1(
-//            (intptr_t)(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
-//     }
-// };
-
-template<>
-struct XeSubgroup2DBlockLoadTransform<1, 16, 16, 2> {
-    template<typename T>
-    CUTE_HOST_DEVICE void 
-    operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
-            cute::intel::coord_t coordinate, T* dstPointer) {
-        *reinterpret_cast<intel::uint16 *>(dstPointer) =  __builtin_IB_subgroup_block_read_flat_transform_u8_m16k16v2(
            (intptr_t)(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
     }
 };

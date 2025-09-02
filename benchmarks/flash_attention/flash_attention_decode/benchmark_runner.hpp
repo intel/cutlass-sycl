@@ -630,7 +630,7 @@ template <class FMHADecodeConfiguration> struct BenchmarkRunnerFMHADecode {
       sycl::ext::oneapi::experimental::sub_group_size<FMHADecodeKernel::DispatchPolicy::SubgroupSize>
     };
     cutlasscompat::experimental::launch_policy policy{sycl_grid, sycl_block, launch_props, kernel_props};
-    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FMHADecodeKernel>>(policy, params);
+    auto event = cutlasscompat::experimental::launch<cutlass::device_kernel<FMHADecodeKernel>, FMHADecodeKernel>(policy, params);
 #endif
 
     EventManager::getInstance().addEvent(event);

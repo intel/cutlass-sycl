@@ -265,7 +265,7 @@ struct copy_op<uint16_t, load, XE_2D_U16x2x16_ST_N, M, N, false> {
   }
 };
 
-template <class load, class store, int32_t M_, int32_t N_>
+template <class load, class store, uint32_t M_, uint32_t N_>
 struct copy_op<uint32_t, load, store, M_, N_, true> {
   void operator()() {
     //

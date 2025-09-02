@@ -28,7 +28,7 @@
 
 cutlass_test_unit_add_executable(
   cutlass_test_unit_cute_core
-  WITHOUT_CUDA
+  # WITHOUT_CUDA
   array_subbyte.cpp
   bitfield.cpp
   coalesce.cpp

@@ -95,8 +95,8 @@ function(cutlass_test_unit_add_executable NAME)
       PUBLIC
       GTest::gtest 
       # TODO: This change works for resolving 'cutlasscompat.hpp' not found issue, fix this if it blocks merging
-      cutlass_test_unit_infra
-      cutlass_test_unit_infra_lib
+      # cutlass_test_unit_infra
+      # cutlass_test_unit_infra_lib
     )
   else()
     target_link_libraries(

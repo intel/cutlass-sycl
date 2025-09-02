@@ -89,7 +89,6 @@ int main(int argc, const char **argv) {
   using MMAOperation = XE_8x16x16_F32F16F16F32_TT;
   using GmemTiledCopyQ = XE_2D_U8x8x32_LD_N;
   using GmemTiledCopyK = XE_2D_U8x16x16_LD_T; // _T designates a transposed block load operation
-  // using GmemTiledCopyV = XE_2D_U8x16x32_LD_V;
   using GmemTiledCopyV = XE_2D_U8x32x32_LD_V;
   constexpr int PipelineStages = 2;
 #if HEAD_DIM == 64

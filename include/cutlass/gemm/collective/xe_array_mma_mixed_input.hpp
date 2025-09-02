@@ -569,7 +569,7 @@ CUTLASS_DEVICE auto create_copies(LoadTensors const& load_tensors) {
 
     // Instantiate the MMA object and get thread slice
     TiledMma tiled_mma;
-    auto sg = syclcompat::get_nd_item<1>().get_sub_group();
+    auto sg = cutlasscompat::get_nd_item<1>().get_sub_group();
     auto first_thread_in_sg_idx = sg.get_group_linear_id() * DispatchPolicy::SubgroupSize;
     auto thr_mma = tiled_mma.get_slice(first_thread_in_sg_idx);
 

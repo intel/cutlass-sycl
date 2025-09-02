@@ -141,8 +141,7 @@ struct copy_op<dtype, load, store, M, N, false> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>>(
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<load, Int<M>>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
@@ -194,8 +193,7 @@ struct copy_op<char, load, XE_2D_U8x2x32_ST_N, M, N, false> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>>(
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<load>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
@@ -247,8 +245,7 @@ struct copy_op<uint16_t, load, XE_2D_U16x2x16_ST_N, M, N, false> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>>(
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<load>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
@@ -265,7 +262,7 @@ struct copy_op<uint16_t, load, XE_2D_U16x2x16_ST_N, M, N, false> {
   }
 };
 
-template <class load, class store, int32_t M_, int32_t N_>
+template <class load, class store, uint32_t M_, uint32_t N_>
 struct copy_op<uint32_t, load, store, M_, N_, true> {
   void operator()() {
     //
@@ -310,8 +307,7 @@ struct copy_op<uint32_t, load, store, M_, N_, true> {
     //
     launch<
         copy_kernel_vectorized<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>, CopyKernelVectorizedName<decltype(S), decltype(D), decltype(tiled_load),
-                               decltype(tiled_store), load>>(
+                               decltype(tiled_store), load>, CopyKernelVectorizedName<load, Int<M>>>(
         launch_policy{
             cutlasscompat::dim3(1), blockDim,
             kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},

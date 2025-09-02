@@ -125,7 +125,7 @@ bool verify(
   }
 
 
-  // CUTLASS on SYCL uses the compatibility library syclcompat for e.g. default in-order queue
+  // CUTLASS on SYCL uses the compatibility library cutlasscompat for e.g. default in-order queue
   cutlasscompat::wait();
 
   // Check if output from CUTLASS kernel and reference kernel are equal or not

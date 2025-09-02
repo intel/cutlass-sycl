@@ -225,11 +225,11 @@ struct TestbedImpl {
   //
   // Methods
   //
-  template <class, class, class> class convert_fp8_to_fp16_name;
+  template <class, class> class convert_fp8_to_fp16_name;
 
-  template <typename SrcT, typename DstT, typename Runner>
+  template <typename SrcT, typename DstT>
   void convert_fp8_to_fp16(const SrcT* d_src, DstT* d_dst, size_t size) {
-    cutlasscompat::get_default_queue().parallel_for<convert_fp8_to_fp16_name<SrcT, DstT, Runner>>(size, [=](auto indx) {
+    cutlasscompat::get_default_queue().parallel_for<convert_fp8_to_fp16_name<SrcT, DstT>>(size, [=](auto indx) {
       d_dst[indx] = static_cast<DstT>(d_src[indx]);
     }).wait();
   }
@@ -241,7 +241,7 @@ struct TestbedImpl {
     using outType = cute::conditional_t<is_fp8_v<Tin>, half_t, Tin>;
     if constexpr(is_fp8_v<Tin>) {
       cutlass::DeviceAllocation<outType> out(in.size());
-      convert_fp8_to_fp16<Tin, outType, TestbedImpl>(in.get(), out.get(), in.size());
+      convert_fp8_to_fp16<Tin, outType>(in.get(), out.get(), in.size());
       return out;
     } else { 
       return in;
@@ -625,7 +625,7 @@ struct TestbedImpl {
 
 #if !defined(SYCL_EXT_ONEAPI_WORK_GROUP_SCRATCH_MEMORY)
     using namespace cutlasscompat::experimental;
-    auto event = launch<cutlass::device_kernel<FlashAttention>, FlashAttention>(
+    auto event = launch<cutlass::device_kernel<FlashAttention>>(
         launch_policy{sycl_grid, sycl_block, local_mem_size{static_cast<std::size_t>(smem_size)},
                       kernel_properties{sycl_exp::sub_group_size<FlashAttention::DispatchPolicy::SubgroupSize>}},
         params);
@@ -680,8 +680,9 @@ template <
   typename FlashAttention
 >
 struct Testbed3x {
-  using TestBedImpl = typename detail::TestbedImpl<FlashAttention>;
-  TestBedImpl impl_;
+  // using TestBedImp = typename detail::TestbedImpl<FlashAttention>;
+  // TestBedImp impl_;
+  detail::TestbedImpl<FlashAttention> impl_;
 
   //
   // Methods

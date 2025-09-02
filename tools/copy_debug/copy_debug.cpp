@@ -34,7 +34,7 @@
 #include <cutlasscompat.hpp>
 
 #include <cutlass/util/device_memory.h>
-#include <syclcompat/syclcompat.hpp>
+#include <cutlasscompat/cutlasscompat.hpp>
 #include <cutlass/cutlass.h>
 
 using namespace cutlasscompat::experimental;

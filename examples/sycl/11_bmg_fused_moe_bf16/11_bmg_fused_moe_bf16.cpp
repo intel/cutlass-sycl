@@ -637,12 +637,10 @@ int main(int argc, const char **argv) {
   uint64_t seed = 2023;
   initialize_block(activations_data, seed + 2023);
   initialize_block(weights_data, seed + 2022);
-  syclcompat::wait();
-  printf("\n\nWeight-allocation done\n");
   initialize_block(output_data, seed + 2021);
   MoEGEMM(activations_data.get(), weights_data.get(), output_data.get(), n_moe,
           k_moe, total_rows_for_each_expert, num_experts);
-  // Figure out how cutlass::DeviceAllocation API & prevent double free
+  // prevent double free
   activations_data.release();
   weights_data.release();
   output_data.release();

@@ -488,22 +488,47 @@ int main(int argc, char** argv)
 
   sycl::queue Q;
 
+  // Native compute
+
   test_case<half_t, half_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<half_t, half_t, float, 'R', 'C'>(Q, m, n, k);
   test_case<half_t, half_t, float, 'C', 'R'>(Q, m, n, k);
 
+  test_case<bfloat16_t, bfloat16_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<bfloat16_t, bfloat16_t, float, 'R', 'C'>(Q, m, n, k);
+  test_case<bfloat16_t, bfloat16_t, float, 'C', 'R'>(Q, m, n, k);
+
+  // Upconversion cases
+
   test_case<half_t, float_e5m2_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<half_t, float_e5m2_t, float, 'R', 'C'>(Q, m, n, k);
 
+  test_case<float_e5m2_t, float_e5m2_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<float_e5m2_t, float_e5m2_t, float, 'R', 'C'>(Q, m, n, k);
+
+  test_case<half_t, float_e4m3_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<half_t, float_e4m3_t, float, 'R', 'C'>(Q, m, n, k);
+
+  test_case<float_e4m3_t, float_e4m3_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<float_e4m3_t, float_e4m3_t, float, 'R', 'C'>(Q, m, n, k);
+
+  test_case<half_t, float_e2m1_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<half_t, float_e2m1_t, float, 'R', 'C'>(Q, m, n, k);
 
+  test_case<half_t, uint8_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<half_t, uint8_t, float, 'R', 'C'>(Q, m, n, k);
 
-//  test_case<half_t, uint4_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<half_t, int8_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<half_t, int8_t, float, 'R', 'C'>(Q, m, n, k);
+
+  test_case<half_t, uint4_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<half_t, uint4_t, float, 'R', 'C'>(Q, m, n, k);
+
+  test_case<half_t, int4_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<half_t, int4_t, float, 'R', 'C'>(Q, m, n, k);
 
   test_case<bfloat16_t, uint8_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<bfloat16_t, uint8_t, float, 'R', 'C'>(Q, m, n, k);
 
-//  test_case<bfloat16_t, float_e2m1_t, float, 'R', 'C'>(Q, m, n, k);
+  test_case<bfloat16_t, float_e2m1_t, float, 'R', 'C'>(Q, m, n, k);
 }

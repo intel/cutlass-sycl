@@ -493,7 +493,8 @@ template <class Gemm> struct ExampleRunner {
     bool passed = verify(options);
     std::cout << "Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
 
-    if(!passed) return cutlass::Status::kErrorInternal;
+    if (!passed)
+      return cutlass::Status::kErrorInternal;
 
     if (options.iterations > 0) {
       GPU_Clock timer;
@@ -604,7 +605,7 @@ void MoEGEMM(const bfloat16_t *activations, const bfloat16_t *weights,
 }
 
 int main(int argc, const char **argv) {
-  int total_rows_for_each_expert[] = {
+  int total_rows_for_each_expert[128] = {
       23, 16, 15, 4,  9,  36, 20, 20, 26, 26, 9,  31, 36, 3,  30, 15, 12, 6,
       28, 18, 3,  12, 16, 9,  18, 17, 38, 14, 36, 16, 24, 34, 22, 4,  27, 21,
       16, 39, 30, 19, 6,  35, 23, 29, 1,  11, 29, 13, 6,  25, 27, 26, 19, 8,
@@ -613,14 +614,16 @@ int main(int argc, const char **argv) {
       23, 36, 29, 14, 4,  28, 5,  1,  36, 5,  31, 36, 26, 32, 6,  21, 32, 39,
       27, 12, 37, 6,  6,  39, 0,  16, 39, 34, 19, 13};
 
-  const int num_experts = 32;
+  const size_t num_experts = 128;
 
   int num_tokens_incl_duplicated = 0;
   for (int i = 0; i < num_experts; i++) {
     num_tokens_incl_duplicated += total_rows_for_each_expert[i];
   }
-  const int n_moe = 4096;
-  const int k_moe = 3072;
+  printf("\n\nThe number of tokens (after duplication) are %u\n\n",
+         num_tokens_incl_duplicated);
+  const int n_moe = 3072;
+  const int k_moe = 4096;
 
   cutlass::DeviceAllocation<bfloat16_t> activations_data;
   cutlass::DeviceAllocation<bfloat16_t> weights_data;
@@ -634,6 +637,8 @@ int main(int argc, const char **argv) {
   uint64_t seed = 2023;
   initialize_block(activations_data, seed + 2023);
   initialize_block(weights_data, seed + 2022);
+  syclcompat::wait();
+  printf("\n\nWeight-allocation done\n");
   initialize_block(output_data, seed + 2021);
   MoEGEMM(activations_data.get(), weights_data.get(), output_data.get(), n_moe,
           k_moe, total_rows_for_each_expert, num_experts);
@@ -641,7 +646,5 @@ int main(int argc, const char **argv) {
   activations_data.release();
   weights_data.release();
   output_data.release();
-  printf(
-      "\n\nComputation done. The memory error seen doesn't affect accuracy\n");
   return 0;
 }

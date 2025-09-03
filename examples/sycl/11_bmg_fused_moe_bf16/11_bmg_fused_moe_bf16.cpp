@@ -129,7 +129,7 @@ struct GroupGEMMOptions {
     n = moe_n;
     k = moe_k;
     groups = num_experts;
-    iterations = 100;
+    iterations = 1;
 
     assert(groups > 0);
     problem_sizes_host.clear();
@@ -480,7 +480,6 @@ template <class Gemm> struct ExampleRunner {
 
     size_t workspace_size = Gemm::get_workspace_size(arguments);
     cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
-
     CUTLASS_CHECK(gemm_op.can_implement(arguments));
 
     CUTLASS_CHECK(gemm_op.initialize(arguments, workspace.get()));
@@ -494,7 +493,7 @@ template <class Gemm> struct ExampleRunner {
     bool passed = verify(options);
     std::cout << "Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
 
-    // if(!passed) return cutlass::Status::kErrorInternal;
+    if(!passed) return cutlass::Status::kErrorInternal;
 
     if (options.iterations > 0) {
       GPU_Clock timer;
@@ -614,14 +613,14 @@ int main(int argc, const char **argv) {
       23, 36, 29, 14, 4,  28, 5,  1,  36, 5,  31, 36, 26, 32, 6,  21, 32, 39,
       27, 12, 37, 6,  6,  39, 0,  16, 39, 34, 19, 13};
 
-  const int num_experts = 8;
+  const int num_experts = 32;
 
   int num_tokens_incl_duplicated = 0;
   for (int i = 0; i < num_experts; i++) {
     num_tokens_incl_duplicated += total_rows_for_each_expert[i];
   }
-  int n_moe = 32;
-  int k_moe = 32;
+  const int n_moe = 4096;
+  const int k_moe = 3072;
 
   cutlass::DeviceAllocation<bfloat16_t> activations_data;
   cutlass::DeviceAllocation<bfloat16_t> weights_data;
@@ -636,9 +635,12 @@ int main(int argc, const char **argv) {
   initialize_block(activations_data, seed + 2023);
   initialize_block(weights_data, seed + 2022);
   initialize_block(output_data, seed + 2021);
-
   MoEGEMM(activations_data.get(), weights_data.get(), output_data.get(), n_moe,
           k_moe, total_rows_for_each_expert, num_experts);
+  // Figure out how cutlass::DeviceAllocation API & prevent double free
+  activations_data.release();
+  weights_data.release();
+  output_data.release();
   printf(
       "\n\nComputation done. The memory error seen doesn't affect accuracy\n");
   return 0;

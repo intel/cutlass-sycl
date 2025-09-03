@@ -41,11 +41,11 @@ namespace detail {
 
 // Modify subgroup TV layout for subbyte types.
 //
-// In general on Xe successive elements in registers are assigned to threads in
+// In general on Xe successive elements in registers are assigned to work-items in
 //   round-robin order (interleaved at element granularity). However, subbyte types are
 //   only interleaved at byte granularity.
 //
-// This routine modifies the incoming layout to appear as though thread ownership for subbyte
+// This routine modifies the incoming layout to appear as though work-item ownership for subbyte
 //   types is also at element granularity, to uniformize later logic.
 template <class T, class InLayout>
 CUTE_HOST_DEVICE
@@ -102,7 +102,7 @@ void
 reorder(SubgroupTensor<SEngine,SLayoutWI,SLayout> const& src,
         SubgroupTensor<DEngine,DLayoutWI,DLayout> &      dst)
 {
-  reorder(src, dst, SLayout{}, DLayout{});
+  reorder(src, dst, src.tv_layout(), dst.tv_layout());
 }
 
 // Base case for reorders: loop over reorder atoms
@@ -166,7 +166,7 @@ reorder_impl(ReorderDispatchConvertRelayout const&,
 {
   using SrcType = typename SEngine::element_type;
   using DstType = typename DEngine::element_type;
-  using NewSrcType = conditional_t<is_same_v<SrcType, DstType>, upcast_subbyte_t<SrcType>, DstType>;
+  using NewSrcType = conditional_t<is_subbyte_v<SrcType>, upcast_subbyte_t<SrcType>, DstType>;
   auto src_c = make_fragment_like<NewSrcType>(src);
 
   reorder(src, src_c, slayout, slayout);

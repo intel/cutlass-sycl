@@ -87,7 +87,7 @@ constexpr ReorderKind classify_xe_reorder()
     // Check for unit <-> VNNI reorders.
     //   unit->VNNI:  (_16, _DV, ...):(_DV, _1, ...)
     //   VNNI->unit:  (_SV, _16, ...):(_16, _1, ...)
-    if constexpr (is_same_v<Modes01, Layout<Shape<_16, _DV>, Stride<_SV, _16>>>) {
+    if constexpr (is_same_v<Modes01, Layout<Shape<_16, _DV>, Stride<_DV, _1>>>) {
       return ReorderKind::UV;
     }
     if constexpr (is_same_v<Modes01, Layout<Shape<_SV, _16>, Stride<_16, _1>>>) {
@@ -135,6 +135,22 @@ constexpr auto choose_xe_reorder_impl(SLayout const& slayout,   // (src thr, src
     return ReorderDispatchRelayoutConvert{};
   else
     return ReorderDispatchXeGeneric{};
+}
+
+//
+// Display utilities
+//
+CUTE_HOST_DEVICE
+void
+print(ReorderKind kind) {
+#define CASE(x) if (kind == ReorderKind::x) print(#x);
+  CASE(UU_Universal)
+  CASE(UU)
+  CASE(UV)
+  CASE(VU)
+  CASE(VV)
+  CASE(Generic)
+#undef CASE
 }
 
 } // end namespace cute

@@ -82,6 +82,12 @@ struct SubgroupTensor : Tensor<Engine, Layout>
   tensor() const {
     return *static_cast<const Base*>(this);
   }
+
+  CUTE_HOST_DEVICE constexpr
+  auto
+  tv_layout() const {
+    return SubgroupTVLayout{};
+  }
 };
 
 template <class Engine, class Layout, class SubgroupTVLayout>

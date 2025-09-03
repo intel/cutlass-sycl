@@ -664,12 +664,14 @@ block_2d_selector(CoordLayout const&, GlobalStride const&)
     // Get innermost stride in x dimension that is >= 1/2 GRF
     //   Block width = highest power of 2 divisor (up to 64b)
     //   Width = highest power of 2 divisor of full tile's width, up to 64b and 4x block width
-    constexpr int max_w = 64 * 8 / CopyBits;
+    constexpr int max_w = 64 * 8 / MemBits;
     constexpr int x_stride = get_block_size<x_mode(), grf_elems / 2>(slayout);
     constexpr int block_width = cute::gcd(max_w, x_stride);
     constexpr int load_width = cute::gcd(cute::min(max_w, 4 * block_width),
                                           get<x_mode()>(shape));
     constexpr int width = Store ? block_width : load_width;
+    constexpr int block_cwidth = block_width * MemBits / CopyBits;
+    constexpr int cwidth = width * MemBits / CopyBits;
 
     // Determine block height.
     // Get innermost stride in H dimension, besides VNNI stride if VNNI.
@@ -680,11 +682,11 @@ block_2d_selector(CoordLayout const&, GlobalStride const&)
     constexpr int height = cute::gcd(resize ? get<y_mode()>(shape) : y_stride, max_h);
 
     if constexpr (Store)
-      return XE_STORE_2D    <CopyBits, height, width>{};
+      return XE_STORE_2D    <CopyBits, height, cwidth>{};
     else if constexpr (kind == Block2DTransform::V)
-      return XE_LOAD_2D_VNNI<CopyBits, height, width, block_width>{};
+      return XE_LOAD_2D_VNNI<CopyBits, height, cwidth, block_cwidth>{};
     else
-      return XE_LOAD_2D     <CopyBits, height, width, block_width>{};
+      return XE_LOAD_2D     <CopyBits, height, cwidth, block_cwidth>{};
   } else {
     // Similar process for transposing copies, but with width/height reversed.
     constexpr int CopyBits = cute::max(32, cute::min(64, MemBits));
@@ -692,11 +694,12 @@ block_2d_selector(CoordLayout const&, GlobalStride const&)
     constexpr int y_stride = get_block_size<y_mode(), grf_elems / 2>(slayout);
     constexpr int height = cute::gcd(32, y_stride);
 
-    constexpr int max_w = 32 * 8 / CopyBits;
+    constexpr int max_w = 32 * 8 / MemBits;
     constexpr int x_stride = get_block_size<x_mode()>(slayout);
     constexpr int width = cute::gcd(resize ? get<x_mode()>(shape) : x_stride, max_w);
+    constexpr int cwidth = width * MemBits / CopyBits;
 
-    return XE_LOAD_2D_TRANSPOSE<CopyBits, height, width>{};
+    return XE_LOAD_2D_TRANSPOSE<CopyBits, height, cwidth>{};
   }
 }
 

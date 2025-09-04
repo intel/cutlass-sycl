@@ -579,7 +579,7 @@ bool initialize_block(Element* block, std::size_t size, uint64_t seed, Args_t&&.
     }
   }
 
-  syclcompat::wait();
+  cutlasscompat::wait();
   return true;
 }
 
@@ -657,7 +657,7 @@ void initialize_mixed_dtype_block(cutlass::DeviceAllocation<T1>& block_device,
     }
   }
 
-  syclcompat::wait();
+  cutlasscompat::wait();
 }
 
 #undef CUDA_CHECK

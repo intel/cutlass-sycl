@@ -37,7 +37,7 @@
 #include <cute/arch/copy_sm90.hpp>
 
 #if defined(CUTLASS_ENABLE_SYCL)
-namespace sc = syclcompat;
+namespace sc = cutlasscompat;
 namespace sc_exp = cutlasscompat::experimental;
 namespace sycl_ext = sycl::ext::oneapi::experimental;
 #endif

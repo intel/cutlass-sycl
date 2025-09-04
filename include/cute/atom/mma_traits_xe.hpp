@@ -38,6 +38,28 @@
 namespace cute
 {
 
+namespace detail
+{
+
+template <typename ValType, typename LayoutIn>
+CUTE_HOST_DEVICE
+constexpr auto
+wi_interleave(LayoutIn const&)
+{
+  constexpr LayoutIn layout{};
+  constexpr int per_byte = ceil_div(8, sizeof_bits_v<ValType>);
+  constexpr int vals = ceil_div(size(layout), 16);
+  auto tv_interleaved = Layout<Shape<_16, Shape<C<per_byte>, C<vals/per_byte>>>,
+                               Stride<C<per_byte>, Stride<_1, C<16*per_byte>>>>{};
+  return coalesce(composition(layout, tv_interleaved), Step<_1,_1>{});
+}
+
+template <typename ValType, typename LayoutIn>
+using wi_interleave_t = remove_cvref_t<decltype(wi_interleave<ValType>(LayoutIn{}))>;
+
+} // end namespace detail
+
+
 template <int M, typename TD, typename TA, typename TB, typename TC>
 struct MMA_Traits<XE_DPAS_TT<M, TD, TA, TB, TC>>
 {
@@ -58,13 +80,12 @@ struct MMA_Traits<XE_DPAS_TT<M, TD, TA, TB, TC>>
 
   // A layout: (T,V) -> (M,K)
   //   M x K row major, work-items interleaved.
-  using ALayout = decltype(composition(make_layout(make_shape(_K{}, _M{}), LayoutRight{}),
-                                       make_layout(make_shape(_16{}, Int<M*K/16>{}))));
+  using ALayout = detail::wi_interleave_t<TA, Layout<Shape<_K, _M>, Stride<_M, _1>>>;
 
   // B layout: (T,V) -> (N,K)
   //   K x 16 VNNI-transformed row major, work-items interleaved.
-  using BLayout = Layout<Shape<Shape<Int<BV>, Int<16/BV>>, Shape<Int<BV>, Int<16/BV>>>,
-                         Stride<Stride<_16, _1>, Stride<Int<16/BV>, Int<16*BV>>>>;
+  using BLayout = detail::wi_interleave_t<TB, Layout<Shape<Int<BV>, _16, Int<K/BV>>,
+                                                     Stride<_16, _1, Int<16*BV>>>>;
 
   // C layout: (T,V) -> (M,N)
   //   M x 16 row major, work-items interleaved.

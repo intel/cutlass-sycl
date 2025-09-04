@@ -194,19 +194,24 @@ choose_mma_op()
 
 template <class ATensor, class BTensor, class CTensor>
 auto
-choose_tiled_mma(ATensor const& A, BTensor const&, CTensor const&)
+choose_tiled_mma(ATensor const& A, BTensor const& B, CTensor const&)
 {
   using TA = typename ATensor::element_type;
   using TB = typename BTensor::element_type;
   using TC = typename CTensor::element_type;
 
-  using _K = conditional_t<is_constant_v<1, decltype(stride<0>(A))>,  // Use k = 16 chunks for A^T case
-                          _16, _32>;                                  //   pending compiler improvements
+  auto op = choose_mma_op<TA,TB,TC>();
+
+  constexpr bool byte = (cute::max(sizeof_bits_v<TA>, sizeof_bits_v<TB>) <= 8);
+  constexpr bool use_1x_dpas = is_constant_v<1, decltype(stride<0>(A))>             // Use single-DPAS chunks for A^T case
+                            || (byte && is_constant_v<1, decltype(stride<0>(B))>);  //  pending compiler improvements (also int8 B^N)
+
+  using _K = conditional_t<use_1x_dpas,
+                           C<op.K>, C<op.K*2>>;
 
   using WGTile = Shape<_256, _256, _K>;                               // 256x256 WG tile size
   using SGLayout = Layout<Shape<_8, _4, _1>, Stride<_4, _1, _0>>;     // 8x4 SG tiling, n-major
 
-  auto op = choose_mma_op<TA,TB,TC>();
   using MMA = typename TiledMMAHelper<MMA_Atom<decltype(op)>, Layout<WGTile>, SGLayout>::TiledMMA;
 
   return MMA{};
@@ -242,6 +247,17 @@ gemm_cute(sycl::queue &Q,
   EventManager::getInstance().addEvent(event);
 }
 
+template <typename T>
+auto ensure_signed_helper_t() {
+  if constexpr (is_unsigned_v<T>)
+    return make_signed_t<T>{};
+  else
+    return T{};
+}
+
+template <typename T>
+using ensure_signed_t = decltype(ensure_signed_helper_t<T>());
+
 template <class ATensor, class BTensor, class CTensor>
 bool
 gemm_verify(sycl::queue &Q,
@@ -260,13 +276,14 @@ gemm_verify(sycl::queue &Q,
     int i = id[0], j = id[1];
 
     using AccType = typename CTensor::element_type;
+    using SignedAccType = ensure_signed_t<AccType>;
 
     auto c = AccType(0);
     for (int h = 0; h < k; h++)
       c += AccType(A(i,h)) * AccType(B(j,h));
 
-    AccType tol{1e-5f * k};
-    if (std::abs(c - AccType(C(i,j))) > tol) {
+    auto tol = AccType(1e-5f * k);
+    if (std::abs(SignedAccType(c - AccType(C(i,j)))) > tol) {
 #ifdef SHOW_DIFF
       printf("Error at (%d,%d): got %f, expected %f\n", i, j, double(C(i,j)), double(c));
 #endif
@@ -372,12 +389,14 @@ const char *type_str() {
 #define ICASE(x) CASE(x, x)
   ICASE(double)
   ICASE(float)
+  CASE(tfloat32_t, tf32)
   CASE(half_t, half)
-  CASE(bfloat16_t, bfloat16)
+  CASE(bfloat16_t, bf16)
   CASE(float_e5m2_t, e5m2)
   CASE(float_e4m3_t, e4m3)
   CASE(float_e2m1_t, e2m1)
   CASE(int32_t, int32)
+  CASE(uint32_t, uint32)
   CASE(int8_t, int8)
   CASE(uint8_t, uint8)
   CASE(int4_t, int4)
@@ -489,6 +508,9 @@ int main(int argc, char** argv)
   sycl::queue Q;
 
   // Native compute
+  test_case<tfloat32_t, tfloat32_t, float, 'R', 'R'>(Q, m, n, k);
+  test_case<tfloat32_t, tfloat32_t, float, 'R', 'C'>(Q, m, n, k);
+  test_case<tfloat32_t, tfloat32_t, float, 'C', 'R'>(Q, m, n, k);
 
   test_case<half_t, half_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<half_t, half_t, float, 'R', 'C'>(Q, m, n, k);
@@ -497,6 +519,15 @@ int main(int argc, char** argv)
   test_case<bfloat16_t, bfloat16_t, float, 'R', 'R'>(Q, m, n, k);
   test_case<bfloat16_t, bfloat16_t, float, 'R', 'C'>(Q, m, n, k);
   test_case<bfloat16_t, bfloat16_t, float, 'C', 'R'>(Q, m, n, k);
+
+  test_case<int8_t, int8_t, int32_t, 'R', 'R'>(Q, m, n, k);
+  test_case<uint8_t, uint8_t, int32_t, 'R', 'C'>(Q, m, n, k);
+  test_case<uint8_t, int8_t, int32_t, 'C', 'R'>(Q, m, n, k);
+
+  test_case<int8_t, uint4_t, int32_t, 'R', 'C'>(Q, m, n, k);
+  test_case<int4_t, uint8_t, int32_t, 'R', 'C'>(Q, m, n, k);
+
+  test_case<uint4_t, uint4_t, uint32_t, 'R', 'C'>(Q, m, n, k);
 
   // Upconversion cases
 

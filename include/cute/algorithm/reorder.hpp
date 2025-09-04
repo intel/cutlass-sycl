@@ -105,6 +105,29 @@ reorder(SubgroupTensor<SEngine,SLayoutWI,SLayout> const& src,
   reorder(src, dst, src.tv_layout(), dst.tv_layout());
 }
 
+// Accept mutable temporaries
+template <class SEngine, class SLayoutWI, class SLayout,
+          class DEngine, class DLayoutWI, class DLayout>
+CUTE_HOST_DEVICE
+void
+reorder(Tensor<SEngine,SLayoutWI> const& src,       // WI fragment
+        Tensor<DEngine,DLayoutWI>     && dst,       // WI fragment
+        SLayout                   const& slayout,   // (src thr, src val) -> coord
+        DLayout                   const& dlayout)   // (dst thr, dst val) -> coord
+{
+  reorder(src, dst, slayout, dlayout);
+}
+
+template <class SEngine, class SLayoutWI, class SLayout,
+          class DEngine, class DLayoutWI, class DLayout>
+CUTE_HOST_DEVICE
+void
+reorder(SubgroupTensor<SEngine,SLayoutWI,SLayout> const& src,
+        SubgroupTensor<DEngine,DLayoutWI,DLayout>     && dst)
+{
+  reorder(src, dst);
+}
+
 // Base case for reorders: loop over reorder atoms
 template <class ReorderAtom,
           class SEngine, class SLayoutWI, class SLayout,

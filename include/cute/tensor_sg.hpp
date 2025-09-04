@@ -72,7 +72,7 @@ struct SubgroupTensor : Tensor<Engine, Layout>
 
   CUTE_HOST_DEVICE constexpr explicit
   SubgroupTensor(Base const& base) {
-    *this = reinterpret_cast<SubgroupTensor const&>(base);
+    *this = static_cast<SubgroupTensor const&>(base);
   }
 
   static constexpr int rank  = Layout::rank;

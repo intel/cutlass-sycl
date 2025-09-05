@@ -244,10 +244,7 @@ copy(copy_a, tAcA, tArA);
 
 ## Subgroup Scope and Thread-Local Data
 
-DPAS and block 2D copy atoms are _subgroup_ operations, meaning that all 16 threads of the subgroup collectively execute these operations, and collectively own all input/output data. This "subgroupness" reflects the underlying SIMD nature of Intel GPUs: the 16 "threads" are in reality a single thread of execution in HW. (In a SIMT language like SYCL, one pretends these threads have separate lives of their own, but that is not the case.)
-
-> [!NOTE]
-> We often think of SIMT threads as loosely representing SIMD lanes in HW. It's important, however, to note that Xe is a variable-length SIMD architecture -- individual instructions have their own SIMD length -- so a SIMD lane is local to each instruction, unlike a SIMT thread, whose lifetime spans the entire kernel.
+DPAS and block 2D copy atoms are _subgroup_ operations, meaning that all 16 threads of the subgroup collectively execute these operations, and collectively own all input/output data. This "subgroupness" reflects the underlying SIMD nature of Intel GPUs: the 16 "threads" are in reality a single thread of execution in HW.
 
 In order to perform thread-level operations on subgroup-shared data, it's important to understand how the compiler splits ownership of subgroup-scoped private arrays (including register-resident data) among threads. Fortunately, there is a very simple rule for this:
 ```math

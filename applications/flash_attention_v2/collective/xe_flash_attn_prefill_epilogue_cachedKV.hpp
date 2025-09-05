@@ -197,17 +197,16 @@ public:
     auto thread_xe_store_o = params.xe_store_o.get_thread_slice(ThreadIdxX());
     Tensor tOgO = thread_xe_store_o.partition_D(gO);
 
-    Tensor final_out_reg = make_fragment_like<ElementOutput>(out_reg);
-    // iff ElementOutput == ElementAccumulator, then convert_type doesn't do the right conversion
-    // so we call copy() which internally performs a static_cast op on the data.
-    // for ElementOutput == bf16 | fp16, convert_type calls relevant NumericConverter specialization.    
+    // iff ElementOutput == ElementAccumulator, call copy directly.
+    // for ElementOutput == bf16 | fp16, convert_type calls relevant NumericConverter specialization.
+    // iff ElementOutput == fp8, there is no NumericConverter specialization available so convert_type
+    // performs static_cast under the hood.
     if constexpr (cute::is_same_v<ElementOutput, ElementCompute>) {
-      copy(out_reg, final_out_reg);
+      copy(params.xe_store_o, out_reg, tOgO);
     } else {
-      Tensor temp = convert_type<ElementOutput>(out_reg);
-      copy(temp, final_out_reg);
+      Tensor final_out_reg = convert_type<ElementOutput>(out_reg);
+      copy(params.xe_store_o, final_out_reg, tOgO);
     }
-    copy(params.xe_store_o, final_out_reg, tOgO);
   }
 
   // SequenceLengthShapeType = Shape<int, int, int>

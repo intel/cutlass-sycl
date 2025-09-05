@@ -61,6 +61,71 @@
 namespace test {
 namespace flash_attention {
 
+using namespace cute;
+
+using MMAOperationBF16 = XE_8x16x16_F32BF16BF16F32_TT;
+using MMAOperationFP16 = XE_8x16x16_F32F16F16F32_TT;
+
+struct Shape_h64 {
+  using ShapeQK = Shape<_128, _64, _64>;
+  using ShapePV = Shape<_128, _32, _64>;
+  using ShapeOutput = Shape<_128, _64, _64>;
+  using SubgroupLayout = Layout<Shape<_8, _1, _1>, Stride<_1, _1, _1>>;
+};
+
+struct Shape_h96 {
+  using ShapeQK = Shape<_128, _64, _32>;
+  using ShapePV = Shape<_128, _32, _64>;
+  using ShapeOutput = Shape<_128, _96, _64>;
+  using SubgroupLayout = Layout<Shape<_8, _1, _1>, Stride<_1, _1, _1>>; 
+};
+
+struct Shape_h128 {
+  using ShapeQK = Shape<_128, _64, _64>;
+  using ShapePV = Shape<_128, _32, _64>;
+  using ShapeOutput = Shape<_128, _128, _64>;
+  using SubgroupLayout = Layout<Shape<_16, _1, _1>, Stride<_1, _1, _1>>;
+};
+
+struct Shape_h192 {
+  using ShapeQK = Shape<_256, _64, _64>;
+  using ShapePV = Shape<_256, _32, _64>;
+  using ShapeOutput = Shape<_256, _192, _64>;
+  using SubgroupLayout = Layout<Shape<_32, _1, _1>, Stride<_1, _1, _1>>; 
+};
+
+/////////////////////////////////////////////////////////////////////
+  template <int input_bits, int output_bits> struct TiledCopyConfig;
+// TODO (Codeplay): enable this once fp8 support is added
+/*   template <> struct TiledCopyConfig<8, 32> {
+    using GmemTiledCopyQ = XE_2D_U8x8x32_LD_N;
+    using GmemTiledCopyK = XE_2D_U8x16x16_LD_T;
+    using GmemTiledCopyV = XE_2D_U8x32x32_LD_V;
+    using GmemTiledCopyO = XE_2D_U32x8x16_ST_N;
+  };
+
+  template <> struct TiledCopyConfig<8, 8> {
+    using GmemTiledCopyQ = XE_2D_U8x8x32_LD_N;
+    using GmemTiledCopyK = XE_2D_U8x16x16_LD_T;
+    using GmemTiledCopyV = XE_2D_U8x32x32_LD_V;
+    using GmemTiledCopyO = XE_2D_U8x8x16_ST_N;
+  }; */
+
+  template <> struct TiledCopyConfig<16, 32> {
+    using GmemTiledCopyQ = XE_2D_U16x8x32_LD_N;
+    using GmemTiledCopyK = XE_2D_U16x16x16_LD_T;
+    using GmemTiledCopyV = XE_2D_U16x16x32_LD_V;
+    using GmemTiledCopyO = XE_2D_U32x8x16_ST_N;
+  };
+
+  template <> struct TiledCopyConfig<16, 16> {
+    using GmemTiledCopyQ = XE_2D_U16x8x32_LD_N;
+    using GmemTiledCopyK = XE_2D_U16x16x16_LD_T;
+    using GmemTiledCopyV = XE_2D_U16x16x32_LD_V;
+    using GmemTiledCopyO = XE_2D_U16x8x16_ST_N;
+  };
+/////////////////////////////////////////////////////////////////////
+
 /////////////////////////////////////////////////////////////////////////////////////////////////
 template<typename ElementInputType, typename ElementAccumulatorType, typename ElementOutputType,  
          typename TileShapeQK, typename TileShapePV, typename TileShapeOutput, typename SubgroupLayout, 
@@ -72,7 +137,7 @@ struct XE_Flash_Attention_Prefill_CachedKV {
   using LayoutO = cutlass::layout::RowMajor;
 
   using ElementAccumulator = ElementAccumulatorType;
-  using ElementComputeEpilogue = ElementOutputType;
+  using ElementComputeEpilogue = ElementAccumulatorType;
   using ElementInputQ = ElementInputType;
   using ElementInputKV = ElementInputType;
   using ElementOutput = ElementOutputType;
@@ -86,10 +151,10 @@ struct XE_Flash_Attention_Prefill_CachedKV {
   using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16<PipelineStages>;
   using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeXMX16;
 
-  using GmemTiledCopyQ = cute::XE_2D_U16x8x32_LD_N;
-  using GmemTiledCopyK = cute::XE_2D_U16x16x16_LD_T; // _T designates a transposed block load operation
-  using GmemTiledCopyV = cute::XE_2D_U16x16x32_LD_V;
-  using GmemTiledCopyStore = cute::XE_2D_U32x8x16_ST_N;
+  using GmemTiledCopyQ = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputQ>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyQ;
+  using GmemTiledCopyK = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputKV>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyK;
+  using GmemTiledCopyV = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputKV>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyV;
+  using GmemTiledCopyStore = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputQ>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyO;
   using CollectiveEpilogue = cutlass::flash_attention::collective::FlashPrefillCachedEpilogue<
         EpilogueDispatchPolicy, MMAOperation, TileShapeOutput, SubgroupLayout, ElementAccumulator, ElementOutput, cutlass::gemm::TagToStrideC_t<LayoutO>, ElementOutput,
         GmemTiledCopyStore>;

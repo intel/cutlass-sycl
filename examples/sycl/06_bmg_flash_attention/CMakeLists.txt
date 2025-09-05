@@ -61,9 +61,14 @@ foreach(HEAD_DIM 64 96 128 192)
 )
 
 
-    cutlass_example_add_executable(
+  cutlass_example_add_executable(
     06_bmg_decode_attention_fp8_hdim${HEAD_DIM}
     06_bmg_decode_attention_fp8.cpp
+  )
+  
+  cutlass_example_add_executable(
+    06_bmg_chunk_prefill_hdim${HEAD_DIM}
+    06_bmg_chunk_prefill.cpp
     TEST_COMMAND_OPTIONS
     TEST_NO_PAGED
     TEST_PAGED
@@ -73,4 +78,5 @@ foreach(HEAD_DIM 64 96 128 192)
   target_compile_definitions(06_bmg_decode_attention_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM})
   target_compile_definitions(06_bmg_prefill_attention_fp8_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM})
   target_compile_definitions(06_bmg_decode_attention_fp8_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM})
+  target_compile_definitions(06_bmg_chunk_prefill_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM})
 endforeach()

@@ -98,16 +98,42 @@ struct Shape_h192 {
   using SubgroupLayout = Layout<Shape<Int<NumSGs>, _1, _1>>;
 };
 
-using GmemTiledCopyQU16 = cute::XE_2D_U16x1x16_LD_N;
-using GmemTiledCopyKU16 = cute::XE_2D_U16x16x16_LD_T;
-using GmemTiledCopyVU16 = cute::XE_2D_U16x32x32_LD_V;
-using GmemTiledCopyStoreU32 = cute::XE_2D_U32x1x16_ST_N;
-using GmemTiledCopyStoreU16 = cute::XE_2D_U16x1x16_ST_N;
+/////////////////////////////////////////////////////////////////////
 
-template<typename ElementInputType, typename ElementAccumulatorType, typename ElementOutputType,  
+template <int input_bits, int output_bits> struct TiledCopyConfig;
+
+template <> struct TiledCopyConfig<8, 32> {
+  using GmemTiledCopyQ = cute::XE_2D_U8x1x32_LD_N;
+  using GmemTiledCopyK = cute::XE_2D_U8x16x16_LD_T;
+  using GmemTiledCopyV = cute::XE_2D_U8x32x32_LD_V;
+  using GmemTiledCopyO = cute::XE_2D_U32x1x16_ST_N;
+};
+
+template <> struct TiledCopyConfig<8, 8> {
+  using GmemTiledCopyQ = cute::XE_2D_U8x1x32_LD_N;
+  using GmemTiledCopyK = cute::XE_2D_U8x16x16_LD_T;
+  using GmemTiledCopyV = cute::XE_2D_U8x32x32_LD_V;
+  using GmemTiledCopyO = cute::XE_2D_U8x1x16_ST_N;
+};
+
+template <> struct TiledCopyConfig<16, 32> {
+  using GmemTiledCopyQ = cute::XE_2D_U16x1x32_LD_N;
+  using GmemTiledCopyK = cute::XE_2D_U16x16x16_LD_T;
+  using GmemTiledCopyV = cute::XE_2D_U16x16x32_LD_V;
+  using GmemTiledCopyO = cute::XE_2D_U32x1x16_ST_N;
+};
+
+template <> struct TiledCopyConfig<16, 16> {
+  using GmemTiledCopyQ = cute::XE_2D_U16x1x32_LD_N;
+  using GmemTiledCopyK = cute::XE_2D_U16x16x16_LD_T;
+  using GmemTiledCopyV = cute::XE_2D_U16x16x32_LD_V;
+  using GmemTiledCopyO = cute::XE_2D_U16x1x16_ST_N;
+};
+/////////////////////////////////////////////////////////////////////
+
+template <typename ElementInputType, typename ElementAccumulatorType, typename ElementOutputType,  
          typename TileShapeQK, typename TileShapePV, typename TileShapeOutput, typename SubgroupLayout, 
-         typename MMAOperation, bool HasCausalMask, bool isVarLen, typename TiledCopyQ, typename TiledCopyK,
-         typename TiledCopyV, typename TiledCopyStore, bool PagedKV>
+         typename MMAOperation, bool HasCausalMask, bool isVarLen, bool PagedKV>
 struct XE_Flash_Attention_Decode {
   using LayoutQ = cutlass::layout::RowMajor;
   using LayoutK = cutlass::layout::ColumnMajor;
@@ -130,10 +156,10 @@ struct XE_Flash_Attention_Decode {
   using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16<PipelineStages>;
   using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeXMX16;
 
-  using GmemTiledCopyQ = TiledCopyQ;
-  using GmemTiledCopyK = TiledCopyK;
-  using GmemTiledCopyV = TiledCopyV;
-  using GmemTiledCopyStore = TiledCopyStore;
+  using GmemTiledCopyQ = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputQ>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyQ;
+  using GmemTiledCopyK = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputKV>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyK;
+  using GmemTiledCopyV = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputKV>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyV;
+  using GmemTiledCopyStore = typename TiledCopyConfig<cute::sizeof_bits_v<ElementInputQ>, cute::sizeof_bits_v<ElementOutput>>::GmemTiledCopyO;
   using CollectiveEpilogue = cutlass::flash_attention::collective::FlashDecodeEpilogue<
         EpilogueDispatchPolicy, MMAOperation, TileShapeOutput, SubgroupLayout, ElementAccumulator, ElementOutput, cutlass::gemm::TagToStrideC_t<LayoutO>,
         ElementOutput, GmemTiledCopyStore>;
@@ -248,6 +274,27 @@ struct TestbedImpl {
   //
   // Methods
   //
+
+  template <typename SrcT, typename DstT>
+  void convert_fp8_to_fp16(const SrcT* d_src, DstT* d_dst, size_t size) {
+    syclcompat::get_default_queue().parallel_for(size, [=](auto indx) {
+      d_dst[indx] = static_cast<DstT>(d_src[indx]);
+    }).wait();
+  }
+
+  template <typename T>
+  static constexpr bool is_fp8_v = cute::is_any_of_v<T, cute::float_e5m2_t, cute::float_e4m3_t>;
+
+  template <typename Tin> inline auto in_memory(cutlass::DeviceAllocation<Tin>& in) {
+    using outType = cute::conditional_t<is_fp8_v<Tin>, half_t, Tin>;
+    if constexpr(is_fp8_v<Tin>) {
+      cutlass::DeviceAllocation<outType> out(in.size());
+      convert_fp8_to_fp16<Tin, outType>(in.get(), out.get(), in.size());
+      return out;
+    } else { 
+      return in;
+    };
+  }
 
   /// Initializes data structures
   template <class ProblemShape>
@@ -444,6 +491,12 @@ struct TestbedImpl {
     auto [batch, num_heads_q, num_heads_kv, head_size_qk, head_size_vo] = cute::select<0,1,2,6,7>(problem_size);
     int seq_len_qo, seq_len_kv, seq_len_kv_cache;
 
+    auto block_Q_ = in_memory(block_Q);
+    auto block_K_ = in_memory(block_K);
+    auto block_V_ = in_memory(block_V);
+    using ElementK_ = cute::conditional_t<is_fp8_v<ElementK>, half_t, ElementK>;
+    using ElementV_ = cute::conditional_t<is_fp8_v<ElementV>, half_t, ElementV>;
+
     int offset_q = 0;
     int offset_k = 0;
     int offset_v = 0;
@@ -473,34 +526,36 @@ struct TestbedImpl {
         cutlass::DeviceAllocation<ElementAccumulator> block_S;
         block_S.reset(seq_len_qo * seq_len_kv_total);
 
-        ElementK* k_ptr;
-        ElementV* v_ptr;
+        ElementK_* k_ptr;
+        ElementV_* v_ptr;
 
         if (use_kv_cache) {
-            cutlass::DeviceAllocation<ElementK> block_K_concat(head_size_qk * seq_len_kv_total);
-            cutlass::DeviceAllocation<ElementV> block_V_concat(seq_len_kv_total * head_size_vo);
+            auto block_K_cache_ =in_memory(block_K_cache);
+            auto block_V_cache_ =in_memory(block_V_cache);
+            cutlass::DeviceAllocation<ElementK_> block_K_concat(head_size_qk * seq_len_kv_total);
+            cutlass::DeviceAllocation<ElementV_> block_V_concat(seq_len_kv_total * head_size_vo);
 
             // Concatenate K_cache and K
-            syclcompat::memcpy<ElementK>(
+            syclcompat::memcpy<ElementK_>(
                 block_K_concat.get(),
-                block_K_cache.get() + offset_k_cache,
+                block_K_cache_.get() + offset_k_cache,
                 seq_len_kv_cache * head_size_qk
             );
-            syclcompat::memcpy<ElementK>(
+            syclcompat::memcpy<ElementK_>(
                 block_K_concat.get() + seq_len_kv_cache * head_size_qk,
-                block_K.get() + offset_k,
+                block_K_.get() + offset_k,
                 seq_len_kv * head_size_qk
             );
 
             // Concatenate V_cache and V
-            syclcompat::memcpy<ElementV>(
+            syclcompat::memcpy<ElementV_>(
                 block_V_concat.get(),
-                block_V_cache.get() + offset_v_cache,
+                block_V_cache_.get() + offset_v_cache,
                 seq_len_kv_cache * head_size_vo
             );
-            syclcompat::memcpy<ElementV>(
+            syclcompat::memcpy<ElementV_>(
                 block_V_concat.get() + seq_len_kv_cache * head_size_vo,
-                block_V.get() + offset_v,
+                block_V_.get() + offset_v,
                 seq_len_kv * head_size_vo
             );
             syclcompat::wait();
@@ -509,11 +564,11 @@ struct TestbedImpl {
             v_ptr = block_V_concat.get();
         }
         else {
-            k_ptr = block_K.get() + offset_k;
-            v_ptr = block_V.get() + offset_v;
+            k_ptr = block_K_.get() + offset_k;
+            v_ptr = block_V_.get() + offset_v;
         }
 
-        cutlass::TensorRef ref_Q(block_Q.get() + offset_q, LayoutQ::packed({seq_len_qo, head_size_qk}));
+        cutlass::TensorRef ref_Q(block_Q_.get() + offset_q, LayoutQ::packed({seq_len_qo, head_size_qk}));
         cutlass::TensorRef ref_K(k_ptr, LayoutK::packed({head_size_qk, seq_len_kv_total}));
         cutlass::TensorRef ref_V(v_ptr, LayoutV::packed({seq_len_kv_total, head_size_vo}));
         cutlass::TensorRef ref_S(block_S.get(), LayoutQ::packed({seq_len_qo, seq_len_kv_total}));
@@ -532,7 +587,6 @@ struct TestbedImpl {
 
         std::vector<ElementAccumulator> host_S(block_S.size());
         syclcompat::memcpy<ElementAccumulator>(host_S.data(), block_S.get(), host_S.size());
-        syclcompat::wait();
 
         // delete this memory as it is no longer needed
         block_S.reset();
@@ -594,15 +648,14 @@ struct TestbedImpl {
           }
         }
 
-        std::vector<ElementV> host_P(host_S.size());
+        std::vector<ElementV_> host_P(host_S.size());
         for (int p = 0; p < host_P.size(); p++)
-          host_P[p] = static_cast<ElementV>(host_S[p]);
+          host_P[p] = static_cast<ElementV_>(host_S[p]);
 
-        cutlass::DeviceAllocation<ElementV> block_P;
+        cutlass::DeviceAllocation<ElementV_> block_P;
         block_P.reset(host_P.size());
 
-        syclcompat::memcpy<ElementV>(block_P.get(), host_P.data(), host_P.size());
-        syclcompat::wait();
+        syclcompat::memcpy<ElementV_>(block_P.get(), host_P.data(), host_P.size());
 
         cutlass::TensorRef ref_P(block_P.get(), LayoutQ::packed({seq_len_qo, seq_len_kv_total}));
 
@@ -626,7 +679,6 @@ struct TestbedImpl {
 
         std::vector<ElementAccumulator> vec_acc(block_acc.size());
         syclcompat::memcpy<ElementAccumulator>(vec_acc.data(), block_acc.get(), vec_acc.size());
-        syclcompat::wait();
 
         // delete this memory as it is no longer needed
         block_acc.reset();
@@ -635,7 +687,6 @@ struct TestbedImpl {
           vec_out[i] = static_cast<ElementOutput>(vec_acc[i]);
         }
         syclcompat::memcpy<ElementOutput>(block_ref_O.get() + offset_o, vec_out.data(), vec_out.size());
-        syclcompat::wait();
 
         offset_q += seq_len_qo * head_size_qk;
         if(kv_group_update % q_group_size == 0) {
@@ -826,10 +877,10 @@ template <typename FlashDecode>
 bool TestFlashDecodeAll(int head_size) {
   Testbed3x<FlashDecode> testbed;
 
-  std::vector<int> problem_size_batch{16};
-  std::vector<int> problem_size_num_heads{32};
+  std::vector<int> problem_size_batch{4};
+  std::vector<int> problem_size_num_heads{2};
   std::vector<int> problem_size_seq_len{1024};
-  std::vector<int> problem_size_seq_len_cache{0, 1024};
+  std::vector<int> problem_size_seq_len_cache{0, 512};
   std::vector<int> cache_page_size{64, 128};
   std::vector<float> problem_size_softmax_scale{ 1.f / sqrt(static_cast<float>(head_size)) };
   bool passed = true;

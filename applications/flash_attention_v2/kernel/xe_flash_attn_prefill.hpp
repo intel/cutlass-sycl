@@ -317,7 +317,7 @@ public:
       // different for each subgroup due to triangular nature of causal based operation
       static constexpr int barrier_scope = CausalMask ? 3 : 2;
       // MAIN LOOP: loop over K and V, perform fused attention + online softmax
-      for (int nblock = 0; nblock < nblock_limit - static_cast<int>(CausalMask); nblock++) {
+      for (int nblock = 0; nblock < nblock_limit - 1; nblock++) {
         barrier_arrive(barrier_scope);
         // 1) Load K (performed inside mmaQK)
         // 2) Create Tensor S
@@ -371,6 +371,40 @@ public:
             for (int row = 0; row < Vec; row++, row_idx++) { // 8
               if (col_idx - full_tile_offset > row_idx - discard_seq_coord) {
                 tSr(row, m, n) = ElementAccumulator{-INFINITY};
+              }
+            }
+          }
+        }
+
+        CollectiveSoftmaxEpilogue softmax(params.softmax);
+        softmax((nblock_limit - 1) == 0, tSr, max_reg, sum_reg, out_reg);
+
+        collective_mma.template mmaPV<VSlicer>(out_reg, tSr,  gV(_, _ , nblock_limit - 1), out_reg, mainloop_params);
+      }
+
+      if constexpr (!CausalMask) {
+        Tensor tSr = make_tensor<ElementAccumulator>(Shape<Int<Vec>, Int<FragsM>, Int<FragsN>>{});
+        clear(tSr);
+
+        collective_mma.mmaQK(tSr, gQ,  gK(_, _, nblock_limit - 1, _), tSr, ceil_div(head_size_qk, QK_BLK_K), mainloop_params);
+
+        for(int i=0; i< size<1>(pVgV); i++) {
+          prefetch(tiled_prefetch_v, pVgV(_, i, _ , nblock_limit - 1));
+        }
+        // Add masking for partial tiles at the end block
+        if (seq_len % QK_BLK_N != 0) {
+          const int remainder = seq_len % QK_BLK_N;
+          const int item_id = thread_idx % SubgroupSize;
+          int col_idx = item_id + (nblock_limit - 1) * QK_BLK_N;
+          CUTLASS_PRAGMA_UNROLL
+          for (int n = 0; n < FragsN; ++n, col_idx += get<1>(MmaAtomShape())) {
+            CUTLASS_PRAGMA_UNROLL
+            for (int m = 0; m < FragsM; ++m) {
+              CUTLASS_PRAGMA_UNROLL
+              for (int row = 0; row < Vec; ++row) {
+                if (col_idx >= remainder) {
+                  tSr(row, m, n) = ElementAccumulator{-INFINITY};
+                }
               }
             }
           }

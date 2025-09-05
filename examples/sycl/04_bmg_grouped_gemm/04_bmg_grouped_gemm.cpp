@@ -190,7 +190,6 @@ struct ExampleRunner {
 
   using ElementA = typename Gemm::ElementA;
   using ElementB = typename Gemm::ElementB;
-  using ElementC = typename Gemm::ElementC;
 
   using LayoutA = typename Gemm::LayoutA;
   using LayoutB = typename Gemm::LayoutB;
@@ -199,7 +198,8 @@ struct ExampleRunner {
 
   using CollectiveEpilogue = typename Gemm::CollectiveEpilogue;
   using ElementOutput = typename CollectiveEpilogue::ElementOutput;
-  using ElementAccumulator = ElementOutput;
+  using ElementAccumulator = ElementAccumulator;
+  using ElementC = typename CollectiveEpilogue::ElementOutput;
 
   using StrideA = typename Gemm::GemmKernel::InternalStrideA;
   using StrideB = typename Gemm::GemmKernel::InternalStrideB;
@@ -585,7 +585,7 @@ int main(int argc, const char** argv)
   using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeXMX16Group;
 
   using EpilogueOp = cutlass::epilogue::fusion::LinearCombination<ElementOutput, ElementComputeEpilogue,
-          ElementAccumulator, ElementAccumulator, cutlass::FloatRoundStyle::round_to_nearest>;
+          ElementOutput, ElementAccumulator, cutlass::FloatRoundStyle::round_to_nearest>;
 
   using FusionCallBacks = cutlass::epilogue::fusion::FusionCallbacks<EpilogueDispatchPolicy, EpilogueOp, TileShape,
           decltype(tile_shape(TiledMma()))>;

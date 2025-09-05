@@ -89,7 +89,7 @@ public:
   using DispatchPolicy = IntelXeXMX16;
   using CtaTileMNK = CtaTileMNK_;
   using FusionCallbacks = FusionCallbacks_;
-  using ElementC = ElementC_;
+  using ElementC = typename FusionCallbacks::ElementSource;;
   using ElementAccumulator = ElementC_;
   using StrideC = StrideC_;
   using ElementD = ElementD_;
@@ -350,6 +350,7 @@ public:
     Tensor tCgD = thread_xe_store_d.partition_D(gD);
 
     Tensor trC = make_tensor<typename TiledMma::ValTypeC>(Shape<Int<FragmentSize>>{});
+    auto trC_frag = recast<Array<typename TiledMma::ValTypeC, FragmentSize>>(trC);
     Tensor trD_compute = make_tensor<ElementCompute>(Shape<Int<FragmentSize>>{});
 
     // Because Sm90 uses shared memory, they are not tied to using the same accumulator values
@@ -398,7 +399,9 @@ public:
       FragsM * FragsN * FragmentSize * SubgroupSize * ATOM_M * ATOM_N * ATOM_K;
     constexpr int MN = get<0>(CtaTileMNK{}) * get<1>(CtaTileMNK{});
     static_assert(ValuesLoaded == MN, "the total elements loaded by all threads should be the same as MxN" );
-    
+
+    constexpr bool is_same_dtype_accum_and_output = std::is_same_v<typename TiledMma::ValTypeC, ElementC>;
+
     auto synchronize = [&] () {};
     CUTLASS_PRAGMA_UNROLL
     for (int epi_n = 0; epi_n < FragsN; epi_n++) {
@@ -407,7 +410,14 @@ public:
         cst_callbacks.begin_loop(epi_m, epi_n);
 
         if (is_C_load_needed) {
-          copy(params.xe_load_c, tCgC(_, epi_m, epi_n), trC);
+          if constexpr (is_same_dtype_accum_and_output) {
+            copy(params.xe_load_c, tCgC(_, epi_m, epi_n), trC);
+          } else {
+            Tensor trC_ori = make_tensor<ElementC>(Shape<Int<FragmentSize>>{});
+            copy(params.xe_load_c, tCgC(_, epi_m, epi_n), trC_ori);
+            auto trC_ori_frag = recast<Array<ElementC, FragmentSize>>(trC_ori);
+            *(trC_frag.data()) = cutlass::NumericArrayConverter<typename TiledMma::ValTypeC, ElementC, FragmentSize>{}(*(trC_ori_frag.data()));
+          }
         }
 
         cst_callbacks.previsit(epi_m, epi_n, 0, is_C_load_needed);
@@ -416,7 +426,13 @@ public:
 
         CUTLASS_PRAGMA_UNROLL
         for (int epi_v = 0; epi_v < size<0>(trD_compute_frag); ++epi_v) {
-          trD_compute_frag(epi_v) = cst_callbacks.visit(acc_frag_mn(epi_v), epi_v, epi_m, epi_n);
+          if constexpr (is_same_dtype_accum_and_output) {
+            trD_compute_frag(epi_v) = cst_callbacks.visit(acc_frag_mn(epi_v), epi_v, epi_m, epi_n);
+          } else {
+            // align dtypes firstly
+            auto tmp = cst_callbacks.visit(acc_frag_mn(epi_v), epi_v, epi_m, epi_n);
+            trD_compute_frag(epi_v) = cutlass::NumericArrayConverter<ElementCompute, ElementOutput, FragmentSize>{}(tmp);
+          }
         }
         cst_callbacks.reduce(nullptr, synchronize, epi_m, epi_n, (epi_m == FragsM - 1 && epi_n == FragsN - 1), trD_compute_frag);
         

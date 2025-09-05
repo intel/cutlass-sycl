@@ -166,11 +166,11 @@ void verify_gemm_correctness(cute::Tensor<EngineC, CLayout> const& h_c_out_tenso
 
 #if defined(CUTLASS_ENABLE_SYCL)
 #include <sycl/sycl.hpp>
-#include <syclcompat/syclcompat.hpp>
+#include <cutlasscompat/cutlasscompat.hpp>
 #include <cutlass/sycl_vector_types.h>
 
-namespace sc = syclcompat;
-namespace sc_exp = syclcompat::experimental;
+namespace sc = cutlasscompat;
+namespace sc_exp = cutlasscompat::experimental;
 namespace sycl_ext = sycl::ext::oneapi::experimental;
 
 template<uint32_t ThreadBlockSize,

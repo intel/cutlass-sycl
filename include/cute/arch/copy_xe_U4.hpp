@@ -124,7 +124,7 @@ struct XE_2D_U4x32x64_LD_N {
     static constexpr auto copy_W = decltype(size<1>(BlockShape{}))::value / subgroup_size;
     static constexpr auto copy_H = decltype(size<0>(BlockShape{}))::value;
 
-    auto sg = syclcompat::get_nd_item<1>().get_sub_group();
+    auto sg = cutlasscompat::get_nd_item<1>().get_sub_group();
     auto id = int(ThreadIdxX()) % subgroup_size;
 
     cute::subbyte_iterator<int4_t> dst_iter(dst);
@@ -174,7 +174,7 @@ struct XE_2D_U4x16x64_LD_N {
     static constexpr auto copy_W = decltype(size<1>(BlockShape{}))::value / subgroup_size;
     static constexpr auto copy_H = decltype(size<0>(BlockShape{}))::value;
 
-    auto sg = syclcompat::get_nd_item<1>().get_sub_group();
+    auto sg = cutlasscompat::get_nd_item<1>().get_sub_group();
     auto id = int(ThreadIdxX()) % subgroup_size;
 
     cute::subbyte_iterator<int4_t> dst_iter(dst);

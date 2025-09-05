@@ -230,16 +230,16 @@ CUTE_HOST_DEVICE auto prefetch_selector(Tensor const& tensor) {
 
   // block here is what is prefetched in one atom execution
   // min(32,32)-> 32 (256, 32) -> 32
-  static constexpr auto block_contig_size = cute::min(tile_contig_size, cacheline_bytes * sizeof_bits_v<int8_t> / sizeof_bits_v<dtype>);
+  static constexpr int block_contig_size = cute::min(tile_contig_size, cacheline_bytes * sizeof_bits_v<int8_t> / sizeof_bits_v<dtype>);
   // A: 1 -> trans or B 256/32 = 8
-  static constexpr auto nums_blocks_contig = ceil_div(tile_contig_size, block_contig_size);
+  static constexpr int nums_blocks_contig = ceil_div(tile_contig_size, block_contig_size);
   
   // layout of sub groups
   // A shape<32,1> / trans or B shape<4,8>
   constexpr int sgs_contig = cute::gcd(Num_SGs, nums_blocks_contig);
   constexpr int sgs_non_contig = Num_SGs / sgs_contig;
 
-  constexpr auto block_non_contig_size = tile_non_contig_size / sgs_non_contig;
+  constexpr int block_non_contig_size = tile_non_contig_size / sgs_non_contig;
 
   using PrefetchTilingLayout = std::conditional_t<is_tensor_M_major,
            Layout<Shape<Shape<Int<SubgroupSize >, Int<sgs_contig>>, Int<sgs_non_contig>>,
@@ -517,7 +517,7 @@ CUTE_HOST_DEVICE constexpr auto make_fragment_layout(TiledCopy &tiled_copy,
                                                 decltype(prepend<2>(mma_atom_regs_shape, _1{})), 
                                                 decltype(append<2>(mma_atom_regs_shape, _1{}))>;
 
-  using ThreadLayout_ = Shape<Int<size(typename TiledCopy::Traits_LD_t::ThrID{})>, _1>;
+  using ThreadLayout_ = Shape<decltype(size(typename TiledCopy::Traits_LD_t::ThrID{})), _1>;
   using ThreadLayoutRegs = std::conditional_t<TiledCopy::is_matrix_B,
                                               ThreadLayout_, 
                                               decltype(cute::reverse(ThreadLayout_{}))>;

@@ -392,7 +392,7 @@ struct ExampleRunner {
     std::vector<uint8_t> zero(size(zero_layout) * sizeof_bits_v<ElementZero> / 8, 0);
     cutlass::device_memory::copy_to_host(zero.data(), (uint8_t*)zero_buffer, zero.size());
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     auto dst_tensor = make_tensor(make_gmem_ptr(reinterpret_cast<DequantizedElement*>(dst.data())), operand_layout);
 
@@ -446,7 +446,7 @@ struct ExampleRunner {
     }
 
     cutlass::device_memory::copy_to_device(dq_buffer, (DequantizedElement*)(raw_pointer_cast(dst_tensor.data())), dst_tensor.size());
-    syclcompat::wait();
+    cutlasscompat::wait();
   }
 
 
@@ -550,7 +550,7 @@ struct ExampleRunner {
     // Run the GEMM
     CUTLASS_CHECK(gemm_op.run());
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Verify that the result is correct
     bool passed = verify(options);
@@ -570,7 +570,7 @@ struct ExampleRunner {
       for (int i = 0; i < options.iterations; ++i) {
         gemm_op.run();
       }
-      syclcompat::wait();
+      cutlasscompat::wait();
 
       float cute_time = timer.seconds() / options.iterations;
       double tflops = (2.0 * options.m * options.n * options.k * options.l) * 1e-12;

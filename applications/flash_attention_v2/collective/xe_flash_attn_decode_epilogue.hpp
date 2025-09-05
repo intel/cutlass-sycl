@@ -167,8 +167,8 @@ public:
     using namespace cute;
     static constexpr bool is_var_len = cutlass::fmha::collective::is_variable_length_v<tuple_element_t<2, ProblemShape>>;
 
-    auto sg = syclcompat::get_nd_item<1>().get_sub_group();
-    auto group = syclcompat::get_nd_item<1>().get_group();
+    auto sg = cutlasscompat::get_nd_item<1>().get_sub_group();
+    auto group = cutlasscompat::get_nd_item<1>().get_group();
     const int sg_local_id = sg.get_local_id()[0];
     const int sg_group_id = sg.get_group_id()[0];
 

@@ -125,13 +125,13 @@ public:
   static constexpr int ATOM_N = CollectiveMainloop::ATOM_N;
   static constexpr int ATOM_K = CollectiveMainloop::ATOM_K;
 
-  static constexpr auto Num_SGs = ATOM_N * ATOM_M * ATOM_K;
+  static constexpr int Num_SGs = ATOM_N * ATOM_M * ATOM_K;
   static constexpr int Vec = CollectiveMainloop::Vec; // 8
   static constexpr int FragsM = CollectiveMainloop::FragsM;  // 1
   static constexpr int FragsN = CollectiveMainloop::FragsNS; // 4
 
   static constexpr int VSlicer = get<1>(TileShapeOutput{}) / (get<1>(TileShapePV{}) * ATOM_N);
-  using AccumShape =  decltype(make_shape(Int<Vec>{}, Int<FragsM>{}, Int<get<1>(TileShapePV{}) / get<1>(MmaAtomShape())>{}, Int<VSlicer>{}));
+  using AccumShape =  decltype(make_shape(Int<Vec>{}, Int<FragsM>{}, get<1>(TileShapePV{}) / get<1>(MmaAtomShape()), Int<VSlicer>{}));
 
   static_assert(FragsM == 1, "Limit the seq_len_qo to 1 MMA Atom worth of data per work-group.");
 
@@ -343,7 +343,7 @@ public:
       Tensor out_reg = make_tensor<ElementAccumulator>(AccumShape{});
       clear(out_reg);
 
-      auto smem = syclcompat::local_mem<ElementAccumulator[((Int<size(AccumShape{}) + 1>{}) * Num_SGs * SubgroupSize)]>();
+      auto smem = cutlasscompat::local_mem<ElementAccumulator[((Int<size(AccumShape{}) + 1>{}) * Num_SGs * SubgroupSize)]>();
       Tensor shmem_max_tensor = make_tensor(make_smem_ptr(smem), make_shape(Int<Num_SGs * FragsM>{}));
 
       bool is_KV_cache = seq_len_kv_cache != 0;
@@ -447,7 +447,7 @@ public:
       }
 
       // need to apply barrier here to avoid race condition
-      auto group = syclcompat::get_nd_item<1>().get_group();
+      auto group = cutlasscompat::get_nd_item<1>().get_group();
       sycl::group_barrier(group);
 
       Tensor shmem_out_tensor = make_tensor(make_smem_ptr(smem), make_shape(Int<(size(AccumShape{})) * SubgroupSize * Num_SGs>{}));

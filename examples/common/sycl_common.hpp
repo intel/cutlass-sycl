@@ -55,16 +55,18 @@ void random_fill(T *src, int seed, size_t N, float max, float min) {
     for (size_t i = 0; i < N; ++i) {
       buff[i] = (T)(dis(gen));
     }
-    syclcompat::memcpy<T>(src, buff.data(), N);
-    syclcompat::wait();
+    cutlasscompat::memcpy<T>(src, buff.data(), N);
+    cutlasscompat::wait();
   } else {
-    assert(0 & "Not supported dtype");
+    assert(0 && "Not supported dtype");
   }
 }
 
-template <typename SrcT, typename DstT>
+template <class, class, class> class convert_dtype_name;
+
+template <typename SrcT, typename DstT, typename Runner>
 void convert_dtype(const SrcT* d_src, DstT* d_dst, size_t size) {
-  syclcompat::get_default_queue().parallel_for(size, [=](auto indx) {
+  cutlasscompat::get_default_queue().parallel_for<convert_dtype_name<SrcT, DstT, Runner>>(size, [=](auto indx) {
     d_dst[indx] = static_cast<DstT>(d_src[indx]);
   }).wait();
 }

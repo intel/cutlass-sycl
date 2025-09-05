@@ -33,13 +33,15 @@
 
 #include <cute/tensor.hpp>
 #include <sycl/sycl.hpp>
-#include <syclcompat.hpp>
+#include <cutlasscompat.hpp>
 
 #include "cutlass_unit_test.h"
 
-using namespace syclcompat::experimental;
+using namespace cutlasscompat::experimental;
 
 #define SUBGROUP_SIZE (16)
+
+template<class, class, uint32_t, uint32_t, uint32_t, uint32_t> class CopyKernelVectorizedName;
 
 template <class TensorS, class TensorD, uint32_t wg_tile_m, uint32_t wg_tile_n,
           uint32_t sg_tile_m, uint32_t sg_tile_n>
@@ -144,8 +146,8 @@ void copy_kernel_vectorized(TensorS S, TensorD D) {
 #endif
 
   // onlt run first subgroup
-  if (syclcompat::global_id::x() < 16 && !syclcompat::global_id::y() &&
-      !syclcompat::global_id::z()) {
+  if (cutlasscompat::global_id::x() < 16 && !cutlasscompat::global_id::y() &&
+      !cutlasscompat::global_id::z()) {
     copy(tiled_copy_store, fragment, thr_tile_store_D);
   }
 }
@@ -207,20 +209,23 @@ bool copy(uint32_t M, uint32_t N) {
   // Determine grid and block dimensions
   //
 
-  auto gridDim = syclcompat::dim3(cute::ceil_div(M, wg_tile_m),
+  auto gridDim = cutlasscompat::dim3(cute::ceil_div(M, wg_tile_m),
                                   cute::ceil_div(N, wg_tile_n));
-  auto blockDim = syclcompat::dim3(size(thr_layout));
+  auto blockDim = cutlasscompat::dim3(size(thr_layout));
 
   //
   // Launch the kernel
   //
-  launch<copy_kernel_vectorized<decltype(tensor_S), decltype(tensor_D),
-                                wg_tile_m, wg_tile_n, sg_tile_m, sg_tile_n>>(
+  cutlasscompat::experimental::launch<
+      copy_kernel_vectorized<decltype(tensor_S), decltype(tensor_D), wg_tile_m,
+                             wg_tile_n, sg_tile_m, sg_tile_n>,
+      CopyKernelVectorizedName<decltype(tensor_S), decltype(tensor_D),
+                               wg_tile_m, wg_tile_n, sg_tile_m, sg_tile_n>>(
       launch_policy{gridDim, blockDim,
                     kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
       tensor_S, tensor_D);
 
-  syclcompat::wait_and_throw();
+  cutlasscompat::wait_and_throw();
 
   //
   // Verify

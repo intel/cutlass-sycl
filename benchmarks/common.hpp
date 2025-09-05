@@ -39,7 +39,7 @@
 namespace cutlass {
   static inline std::size_t get_llc_size() {
     #if defined(CUTLASS_ENABLE_SYCL)
-      return syclcompat::get_default_queue().get_device().get_info<sycl::info::device::global_mem_cache_size>();   
+      return cutlasscompat::get_default_queue().get_device().get_info<sycl::info::device::global_mem_cache_size>();   
     #else
       cudaDeviceProp prop_struct;
       auto result = cudaGetDeviceProperties(&prop_struct, 0);

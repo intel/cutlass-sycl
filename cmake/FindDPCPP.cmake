@@ -106,6 +106,11 @@ function(add_sycl_to_target)
   get_target_property(target_type ${CUTLASS_ADD_SYCL_TARGET} TYPE)
   if (NOT target_type STREQUAL "OBJECT_LIBRARY")
     target_link_options(${CUTLASS_ADD_SYCL_TARGET} PUBLIC ${DPCPP_FLAGS})
+    if("${DPCPP_SYCL_TARGET}" STREQUAL "intel_gpu_pvc" OR
+       "${DPCPP_SYCL_TARGET}" STREQUAL "spir64" OR
+       "${DPCPP_SYCL_TARGET}" STREQUAL "intel_gpu_bmg_g21")
+      target_link_options(${CUTLASS_ADD_SYCL_TARGET} PRIVATE -Xs "-options -ze-opt-large-register-file")
+    endif()
   endif()
 endfunction()
 

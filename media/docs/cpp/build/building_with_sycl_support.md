@@ -69,14 +69,7 @@ $ CC=clang CXX=clang++ cmake .. -G Ninja \
 
 CMake will check that DPC++ compiler is available in the system,
 and it will download the MKL library if it cannot find it.
-To get better performance result we require the following combinations of the environment variables flags to provide better performance hints for generating optimised code. For ahead of time (AOT) compilation, the following options have to be set during compilation and for Just in time (JIT) Compilation  when running
 
-```
-export SYCL_PROGRAM_COMPILE_OPTIONS="-ze-opt-large-register-file" 
-export IGC_VISAOptions="-perfmodel"
-export IGC_VectorAliasBBThreshold=10000
-export IGC_ExtraOCLOptions="-cl-intel-256-GRF-per-thread"  
-```
 To build and run a simple PVC gemm example run the commands below.
 
 ```

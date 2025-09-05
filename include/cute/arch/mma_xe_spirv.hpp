@@ -44,7 +44,7 @@ SYCL_EXTERNAL               int __spirv_SubgroupMatrixMultiplyAccumulateINTEL(in
 SYCL_EXTERNAL cute::intel::int8 __spirv_SubgroupMatrixMultiplyAccumulateINTEL(int32_t, cute::intel::ushort8, cute::intel::uint8, cute::intel::int8, int32_t);
 SYCL_EXTERNAL cute::intel::int4 __spirv_SubgroupMatrixMultiplyAccumulateINTEL(int32_t, cute::intel::ushort4, cute::intel::uint8, cute::intel::int4, int32_t);
 SYCL_EXTERNAL cute::intel::int2 __spirv_SubgroupMatrixMultiplyAccumulateINTEL(int32_t, cute::intel::ushort2, cute::intel::uint8, cute::intel::int2, int32_t);
-SYCL_EXTERNAL               int __spirv_SubgroupMatrixMultiplyAccumulateINTEL(int32_t,               ushort, cute::intel::uint8,               int, int32_t);
+SYCL_EXTERNAL               int __spirv_SubgroupMatrixMultiplyAccumulateINTEL(int32_t, cute::intel::ushort , cute::intel::uint8,               int, int32_t);
 
 SYCL_EXTERNAL cute::intel::float8 __spirv_SubgroupMatrixMultiplyAccumulateINTEL(int32_t, cute::intel::float4, cute::intel::float8, cute::intel::float8, int32_t);
 SYCL_EXTERNAL cute::intel::float4 __spirv_SubgroupMatrixMultiplyAccumulateINTEL(int32_t, cute::intel::float2, cute::intel::float8, cute::intel::float4, int32_t);

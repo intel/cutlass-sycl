@@ -36,12 +36,12 @@
 // TODO(Codeplay): These builtins are not available on SPIRV
 SYCL_EXTERNAL extern "C"
 cute::intel::uchar __builtin_IB_subgroup_block_read_flat_u8_m1k16v1(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord);
 
 SYCL_EXTERNAL extern "C"
 cute::intel::uchar64 __builtin_IB_subgroup_block_read_flat_u8_m32k16v2(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord);
 
 SYCL_EXTERNAL extern "C"
@@ -123,32 +123,32 @@ void __builtin_IB_subgroup_block_read_prefetch_u16_m32k16v2(
 
 SYCL_EXTERNAL extern "C"
 void __builtin_IB_subgroup_block_read_prefetch_u8_m1k16v1(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control);
 
 SYCL_EXTERNAL extern "C"
 void __builtin_IB_subgroup_block_read_prefetch_u8_m1k32v1(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control);
 
 SYCL_EXTERNAL extern "C"
 void __builtin_IB_subgroup_block_read_prefetch_u8_m2k32v1(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control);
 
 SYCL_EXTERNAL extern "C"
 void __builtin_IB_subgroup_block_read_prefetch_u8_m4k32v1(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control);
 
 SYCL_EXTERNAL extern "C"
 void __builtin_IB_subgroup_block_read_prefetch_u8_m8k32v1(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control);
 
 SYCL_EXTERNAL extern "C"
 void __builtin_IB_subgroup_block_read_prefetch_u8_m32k32v1(
-  long baseoffset, int width_minus_one, int height_minus_one,
+  intptr_t baseoffset, int width_minus_one, int height_minus_one,
   int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control);
 
 SYCL_EXTERNAL
@@ -378,7 +378,7 @@ struct XeSubgroup2DBlockLoadTranspose<4, 2, 16, 1> {
   void operator()(const void *srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
                   cute::intel::coord_t coordinate, T *dstPointer) {
     *reinterpret_cast<intel::uint2 *>(dstPointer) = __builtin_IB_subgroup_block_read_flat_transpose_u32_k2(
-      reinterpret_cast<long>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
+      reinterpret_cast<intptr_t>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
   }
 };
 
@@ -389,7 +389,7 @@ struct XeSubgroup2DBlockLoadTranspose<4, 4, 16, 1> {
   operator()(const void *srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
              cute::intel::coord_t coordinate, T *dstPointer) {
     *reinterpret_cast<intel::uint4 *>(dstPointer) = __builtin_IB_subgroup_block_read_flat_transpose_u32_k4(
-      reinterpret_cast<long>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
+      reinterpret_cast<intptr_t>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
   }
 };
 
@@ -401,7 +401,7 @@ struct XeSubgroup2DBlockLoadTranspose<1, 4, 32, 1> {
     operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
             cute::intel::coord_t coordinate, T* dstPointer) {
         *reinterpret_cast<intel::ushort4 *>(dstPointer) =  __builtin_IB_subgroup_block_read_cacheopts_transpose_u8_m32k4(
-           reinterpret_cast<long>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
+           reinterpret_cast<intptr_t>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
     }
 };
 
@@ -412,7 +412,7 @@ struct XeSubgroup2DBlockLoadTranspose<1, 8, 32, 1> {
     operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
             cute::intel::coord_t coordinate, T* dstPointer) {
         *reinterpret_cast<intel::ushort8 *>(dstPointer) =  __builtin_IB_subgroup_block_read_cacheopts_transpose_u8_m32k8(
-           reinterpret_cast<long>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
+           reinterpret_cast<intptr_t>(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
     }
 };
 

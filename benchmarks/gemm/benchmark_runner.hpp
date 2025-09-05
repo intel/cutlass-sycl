@@ -61,18 +61,16 @@ namespace cutlass::benchmark {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#if defined(SYCL_INTEL_TARGET)
-template <class T, int Stages = 0>
+template <class T>
 static constexpr auto is_mixed_dtype = false;
 
+#if defined(SYCL_INTEL_TARGET)
 template <int Stages>
 static constexpr auto is_mixed_dtype<cutlass::gemm::MainloopIntelXeXMX16MixedPrecision<Stages>> = true;
-#else
-template <class T, int Stages = 0>
-static constexpr auto is_mixed_dtype = false;
 #endif
 
-template <class T, class = void>
+// ScaleType
+template <class, class = void>
 struct ScaleType {
   using type = int;
 };
@@ -81,7 +79,8 @@ struct ScaleType<T, cute::void_t<typename T::ElementScale>> {
   using type = typename T::ElementScale;
 };
 
-template <class T, class = void>
+// ZeroType
+template <class, class = void>
 struct ZeroType {
   using type = int;
 };
@@ -90,7 +89,8 @@ struct ZeroType<T, cute::void_t<typename T::ElementZero>> {
   using type = typename T::ElementZero;
 };
 
-template <class T, class = void>
+// ScaleStride
+template <class, class = void>
 struct ScaleStride {
   using type = int;
 };
@@ -99,7 +99,8 @@ struct ScaleStride<T, cute::void_t<typename T::StrideScale>> {
   using type = typename T::StrideScale;
 };
 
-template <class T, class = void>
+// ZeroStride
+template <class, class = void>
 struct ZeroStride {
   using type = int;
 };

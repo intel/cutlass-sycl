@@ -340,6 +340,7 @@ TEST(PVC_CuTe_Xe, block_2d_32bits_n) {
 
 TEST(PVC_CuTe_Xe, block_2d_8bits_n) {
   copy_op<char, XE_2D_U8x1x16_LD_N, XE_2D_U8x1x16_ST_N, 1, 16>{}();
+  copy_op<char, XE_2D_Packed_U8x1x32_LD_N, XE_2D_U8x1x32_ST_N, 1, 32>{}();
   copy_op<char, XE_2D_Packed_U8x2x32_LD_N, XE_2D_U8x2x32_ST_N, 2, 32>{}();
   copy_op<char, XE_2D_Packed_U8x4x32_LD_N, XE_2D_U8x2x32_ST_N, 4, 32>{}();
   copy_op<char, XE_2D_Packed_U8x8x32_LD_N, XE_2D_U8x2x32_ST_N, 8, 32>{}();

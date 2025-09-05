@@ -141,6 +141,23 @@ struct XE_2D_Packed_U8x2x32_LD_N {
   };
 };
 
+struct XE_2D_U8x1x32_ST_N {
+  using BlockShape = Shape<_1, _32>;
+  using inst_dtype = uint16_t;
+
+  template <class T>
+  CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
+                                    int height, int pitch, intel::coord_t coord,
+                                    T *src) {
+#if defined(CUTE_ARCH_COPY_XE_ENABLED)
+    static_assert(sizeof(T) == 1, "Expected T to have size 1");
+    detail::XeSubgroup2DBlockStore<2, 16, 1, 1>{}(baseoffset, width, height, pitch, coord, src);
+#else
+    CUTE_INVALID_CONTROL_PATH("Trying to use block loads on non-PVC hardware");
+#endif
+  }
+};
+
 struct XE_2D_U8x2x32_ST_N {
   using BlockShape = Shape<_2, _32>;
 
@@ -151,6 +168,23 @@ struct XE_2D_U8x2x32_ST_N {
 #if defined(CUTE_ARCH_COPY_XE_ENABLED)
     static_assert(sizeof(T) == 1, "Expected T to have size 1");
     detail::XeSubgroup2DBlockStore<2, 16, 2, 1>{}(baseoffset, width, height, pitch, coord, src);
+#else
+    CUTE_INVALID_CONTROL_PATH("Trying to use block loads on non-PVC hardware");
+#endif
+  }
+};
+
+struct XE_2D_U8x1x64_ST_N {
+  using BlockShape = Shape<_1, _64>;
+  using inst_dtype = uint32_t;
+
+  template <class T>
+  CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
+                                    int height, int pitch, intel::coord_t coord,
+                                    T *src) {
+#if defined(CUTE_ARCH_COPY_XE_ENABLED)
+    static_assert(sizeof(T) == 1, "Expected T to have size 1");
+    detail::XeSubgroup2DBlockStore<4, 16, 1, 1>{}(baseoffset, width, height, pitch, coord, src);
 #else
     CUTE_INVALID_CONTROL_PATH("Trying to use block loads on non-PVC hardware");
 #endif
@@ -311,7 +345,7 @@ struct XE_2D_U8x8x32_LD_N {
 
 struct XE_2D_Packed_U8x1x64_LD_N {
   using BlockShape = Shape<_1, _64>;
-  
+
   template <class T>
   CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                     int height, int pitch, intel::coord_t coord,

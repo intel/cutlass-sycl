@@ -46,6 +46,26 @@ using namespace cute;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
+template <class T, class = void>
+struct general_same_bits {
+  using type = T;
+};
+
+template <class T>
+struct general_same_bits<T, std::enable_if_t<sizeof_bits_v<T> == 8>> {
+  using type = int8_t;
+};
+
+template <class T>
+struct general_same_bits<T, std::enable_if_t<sizeof_bits_v<T> == 16>> {
+  using type = int16_t;
+};
+
+template <class T>
+struct general_same_bits<T, std::enable_if_t<sizeof_bits_v<T> == 32>> {
+  using type = int32_t;
+};
+
 template <class datatype, size_t N, class Stride = cute::Stride<_1, int64_t, int64_t>, class = void>
 struct scale_zero_copy_traits {
   static_assert(cute::dependent_false<cute::tuple<datatype, Int<N>, Stride>>, "scale_zero_copy_traits not defined");
@@ -191,8 +211,8 @@ public:
   using TransformB = TransformB_;
   using ArchTag = typename DispatchPolicy::ArchTag;
 
-  static_assert(std::is_same_v<TransformA, cute::identity>, "Transformation for A is not currently supported on Intel PVC");
-  static_assert(std::is_same_v<TransformB, cute::identity>, "Transformation for B is not currently supported on Intel PVC");
+  static_assert(cute::is_same_v<TransformA, cute::identity>, "Transformation for A is not currently supported on Intel PVC");
+  static_assert(cute::is_same_v<TransformB, cute::identity>, "Transformation for B is not currently supported on Intel PVC");
   
 private:
    
@@ -413,20 +433,20 @@ public:
   transform_quant(
     Tensor<EngineIn, LayoutIn> const& in,
     Tensor<EngineOut, LayoutOut>& out,
-    Tensor<EngineScales, LayoutScales>& tCrS_input,
-    Tensor<EngineZeros, LayoutZeros>& tCrZ_input
+    Tensor<EngineScales, LayoutScales> const& tCrS_input,
+    Tensor<EngineZeros, LayoutZeros> const& tCrZ_input
   ) {
     static_assert(is_rmem<EngineIn>::value, "Input tensor for conversion must come from registers");
     static_assert(size_v<LayoutIn> == cosize_v<LayoutIn>);
-    static_assert(std::is_same_v<LayoutOut, LayoutIn>);
+    static_assert(cute::is_same_v<LayoutOut, LayoutIn>);
 
     using SrcType = typename EngineIn::value_type;
     using DstType = typename EngineOut::value_type;
     using ZeroType = typename EngineZeros::value_type;
     using ScaleType = typename EngineScales::value_type;
 
-    static constexpr bool is_quantization = !((cutlass::platform::numeric_limits<SrcType>::is_integer && cutlass::platform::numeric_limits<DstType>::is_integer)
-                                       || (cutlass::platform::is_floating_point<SrcType>::value && cutlass::platform::is_floating_point<DstType>::value));
+    static constexpr bool is_quantization = cutlass::platform::numeric_limits<SrcType>::is_integer
+                                              ^ cutlass::platform::numeric_limits<DstType>::is_integer;
 
     static constexpr auto DPAS = decltype(size<0>(in))::value;
     static constexpr auto N = decltype(size<1>(in))::value;
@@ -443,9 +463,7 @@ public:
     static constexpr auto splits = loop_cnt / vec_size;
     static_assert(vec_size <= scalar);
 
-    if (std::is_same_v<SrcType, DstType>) {
-      return;
-    }
+    static_assert(!cute::is_same_v<SrcType, DstType>);
 
     // reshape tensors for easy access
     auto s_tensor = make_tensor((format_type*)(raw_pointer_cast(in.data())), Shape<Int<loop_cnt / scalar>, Int<N>>{});
@@ -453,27 +471,30 @@ public:
 
     CUTLASS_PRAGMA_UNROLL
     for (int n = 0; n < N; n++) {
-      const auto ts = tCrS_input(n);
-      const auto tz = [&](){
+      const auto scale = tCrS_input(n);
+      const auto zero = [&]() {
         if constexpr (sizeof_bits_v<ZeroType> >= 8) {
           return tCrZ_input(n);
         } else {
-          return tCrZ_input(n).get();
+          return (int8_t)(tCrZ_input(n).get());
         }
       }();
 
-      auto& src = *(cute::array<format_type, loop_cnt / scalar>*)(s_tensor(_, n).data());
+      auto& src = *(cute::intel::vector_t<format_type, loop_cnt / scalar>*)(s_tensor(_, n).data());
 
       CUTLASS_PRAGMA_UNROLL
       for (int s = 0; s < splits; s++) {
         auto idx =  vec_size * s / scalar;
         auto format_data = src[idx];
 
-        auto& dst = *(cute::array<DstType, vec_size>*)(d_tensor(_, s, n).data());
+        // for performance, _Float16 have better performance than half_t here
+        using vector_type = typename general_same_bits<DstType>::type;
+
+        auto& dst = *(cute::intel::vector_t<vector_type, vec_size>*)(d_tensor(_, s, n).data());
 
         CUTLASS_PRAGMA_UNROLL
         for (int i = 0; i < vec_size; i++) {
-          auto data = [&](){
+          auto data = [&]() {
             if constexpr (cutlass::platform::numeric_limits<SrcType>::is_signed) {
               return static_cast<SrcType>((format_data >> (src_bits * i)) & 0xf);
             } else {
@@ -485,15 +506,14 @@ public:
             if constexpr (IsATransformed) {
               static_assert(dependent_false<LayoutIn> && "ATransform not support now");
             } else {
-              using ret_type = cute::conditional_t<sizeof_bits_v<ZeroType> >= 8, ZeroType, int8_t>;
-              ret_type minus(data);
-              if constexpr (ModeScaleZero) {
-                minus = static_cast<ret_type>(data) - static_cast<ret_type>(tz);
+              if constexpr (ModeScale) {
+                dst[i] = cutlass::platform::bit_cast<vector_type>(static_cast<DstType>(data * scale));
+              } else if constexpr (ModeScaleZero) {
+                dst[i] = cutlass::platform::bit_cast<vector_type>(static_cast<DstType>((static_cast<decltype(zero)>(data) - zero) * scale));
               }
-              dst[i] = (static_cast<ScaleType>(minus)) * ts;
             }
           } else {
-            dst[i] = static_cast<DstType>(data);
+            dst[i] = cutlass::platform::bit_cast<vector_type>(static_cast<DstType>(data));
           }
         }
       }
@@ -514,25 +534,40 @@ public:
   transform_quant(
     Tensor<EngineIn, LayoutIn> const& in,
     Tensor<EngineOut, LayoutOut>& out,
-    Tensor<EngineScales, LayoutScales>& tCrS_input,
-    Tensor<EngineZeros, LayoutZeros>& tCrZ_input
+    Tensor<EngineScales, LayoutScales> const& tCrS_input,
+    Tensor<EngineZeros, LayoutZeros> const& tCrZ_input
   ) {
 
     static_assert(is_rmem<EngineIn>::value, "Input tensor for A conversion must come from registers");
     static_assert(size_v<LayoutIn> == cosize_v<LayoutIn>);
-    static_assert(std::is_same_v<LayoutOut, LayoutIn>);
+    static_assert(cute::is_same_v<LayoutOut, LayoutIn>);
 
     using SrcType = typename EngineIn::value_type;
     using DstType = typename EngineOut::value_type;
     using ZeroType = typename EngineZeros::value_type;
     using ScaleType = typename EngineScales::value_type;
-    using MmaType = DstType;
 
-    if constexpr (!std::is_same_v<SrcType, DstType>) {
-      if constexpr(cute::is_any_of_v<ElementA,bfloat16_t,half_t,float_e4m3_t,float_e5m2_t>
-                && cute::is_any_of_v<ElementB,bfloat16_t,half_t,float_e4m3_t,float_e5m2_t>) {
-        convert_FP8_to_FP16<ElementQuant>(make_tensor(reinterpret_cast<const uint8_t*>(in.data()), in.layout()), out);
-      } else {
+    static_assert(!cute::is_same_v<SrcType, DstType>);
+
+    if constexpr (cute::is_any_of_v<ElementA,bfloat16_t,half_t,float_e4m3_t,float_e5m2_t>
+                  && cute::is_any_of_v<ElementB,bfloat16_t,half_t,float_e4m3_t,float_e5m2_t>) {
+      convert_FP8_to_FP16<ElementQuant>(make_tensor(reinterpret_cast<const uint8_t*>(in.data()), in.layout()), out);
+    } else if constexpr (!ModeHasScales) {
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < decltype(size(in))::value; ++i) {
+        out[i] = static_cast<DstType>(in[i]);
+      }
+    } else if constexpr (IsATransformed) {
+      // The current scale load atom (1x32) gives 2 scale values to
+      // each thread. All threads need access to all other threads
+      // scale values, and each scale value is reused twice (unrolled)
+
+      static constexpr auto M = decltype(size<1>(in))::value;
+      static constexpr auto K = decltype(size(in))::value / 8 / M;
+
+      static constexpr auto is_dst_int = cutlass::platform::numeric_limits<DstType>::is_integer;
+
+      if constexpr (!is_dst_int) {
         auto const& src = in(_, _, _);
         auto const& dst = out(_, _, _);
         auto pSrc = const_cast<SrcType*>(raw_pointer_cast(src.data()));
@@ -546,77 +581,60 @@ public:
         using DstArray = cutlass::Array<DstType, pack>;
         constexpr int iters = num_elements / pack;
 
-        if constexpr (!cutlass::platform::numeric_limits<DstType>::is_integer) {
-          CUTLASS_PRAGMA_UNROLL
-          for (int i = 0; i < iters; ++i) {
-            SrcArray const* pSrcArr = reinterpret_cast<SrcArray const*>(pSrc) + i;
-            DstArray* pDstArr = reinterpret_cast<DstArray*>(pDst) + i;
-            *pDstArr = Converter::convert(*pSrcArr);
-          }
-        } else if constexpr (!ModeHasScales) {
-          CUTLASS_PRAGMA_UNROLL
-          for (int i = 0; i < decltype(size(in))::value; ++i) {
-            out[i] = static_cast<DstType>(in[i]);
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < iters; ++i) {
+          SrcArray const* pSrcArr = reinterpret_cast<SrcArray const*>(pSrc) + i;
+          DstArray* pDstArr = reinterpret_cast<DstArray*>(pDst) + i;
+          *pDstArr = Converter::convert(*pSrcArr);
+        }
+      }
+
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < 16 ; ++i) {
+        CUTLASS_PRAGMA_UNROLL
+        for (int m = 0; m < M / 2; ++m) {
+          const auto scale = shfl_sync(0xFFFFFFFF, tCrS_input(m), i);
+          const auto zero = [&]() {
+            if constexpr (sizeof_bits_v<ZeroType> >= 8) {
+              return shfl_sync(0xFFFFFFFF, tCrZ_input(m), i);
+            } else {
+              return shfl_sync(0xFFFFFFFF, tCrZ_input(m).get(), i);
+            }
+          }();
+
+          if constexpr (is_dst_int) { // quantization
+            CUTLASS_PRAGMA_UNROLL
+            for (int k = 0; k < K; k++) {
+              out[2 * (m * 16 + i) + k] = in[2 * (m * 16 + i) + k] / scale;
+              if constexpr (ModeScaleZero) {
+                out[2 * (m * 16 + i) + k] += zero;
+              }
+            }
+          } else { // dequantization
+            CUTLASS_PRAGMA_UNROLL
+            for (int k = 0; k < K; k++) {
+              if constexpr (ModeScaleZero) {
+                out(_, _, k)[m * 16 + i] -= zero;
+              }
+              out(_, _, k)[m * 16 + i] *= scale;
+            }
           }
         }
+      }
+    } else {
+      static constexpr auto N = decltype(size<1>(in))::value;
 
-        if constexpr (ModeHasScales) {
-          if constexpr(IsATransformed){
-            // The current scale load atom (1x32) gives 2 scale values to
-            // each thread. All threads need access to all other threads
-            // scale values, and each scale value is reused twice (unrolled)
+      CUTLASS_PRAGMA_UNROLL
+      for (int n = 0; n < N; ++n) {
+        auto [zero, scale] = (is_groupwise) ? cute::make_tuple(tCrZ_input(n), tCrS_input(n)) :  cute::make_tuple(tCrZ_input(0), tCrS_input(0));
 
-            static constexpr auto M = decltype(size<1>(in))::value;
-            static constexpr auto K = decltype(size(in))::value / 8 / M;
-
-            CUTLASS_PRAGMA_UNROLL
-            for (int i = 0; i < 16 ; ++i) {
-              CUTLASS_PRAGMA_UNROLL
-              for (int m = 0; m < M / 2; ++m) {
-                auto scale = shfl_sync(0xFFFFFFFF, tCrS_input(m), i);
-                auto zero = 
-                [&]() {
-                  if constexpr (sizeof_bits_v<ZeroType> >= 8) {
-                    return shfl_sync(0xFFFFFFFF, tCrZ_input(m), i);
-                  } else {
-                    return shfl_sync(0xFFFFFFFF, tCrZ_input(m).get(), i);
-                  }
-                }();
-
-                if constexpr (cutlass::platform::numeric_limits<MmaType>::is_integer) { // quantization
-                  for (int k = 0; k < K; k++) {
-                    out[2 * (m * 16 + i) + k] = in[2 * (m * 16 + i) + k] / scale;
-                    if constexpr (ModeScaleZero) {
-                      out[2 * (m * 16 + i) + k] += zero;
-                    }
-                  }
-                } else { // dequantization
-                  for (int k = 0; k < K; k++) {
-                    if constexpr (ModeScaleZero) {
-                      out(_, _, k)[m * 16 + i] -= zero;
-                    }
-                    out(_, _, k)[m * 16 + i] *= scale;
-                  }
-                }
-              }
-            }
-          } else {
-            static constexpr auto N = decltype(size<1>(in))::value;
-
-            CUTLASS_PRAGMA_UNROLL
-            for (int n = 0; n < N; ++n) {
-              auto [zero, scale] = (is_groupwise) ? cute::make_tuple(tCrZ_input(n), tCrS_input(n)) :  cute::make_tuple(tCrZ_input(0), tCrS_input(0));
-
-              CUTLASS_PRAGMA_UNROLL
-              for (int i = 0; i < decltype(size(in))::value / N; ++i) {
-                ZeroType minus_zp =  static_cast<ZeroType>(in(_, n, _)[i]);
-                if constexpr (ModeScaleZero) {
-                  minus_zp -= zero;
-                }
-                out(_, n, _)[i] = static_cast<DstType>(minus_zp) * scale;
-              }
-            }
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < decltype(size(in))::value / N; ++i) {
+          ZeroType minus_zp =  static_cast<ZeroType>(in(_, n, _)[i]);
+          if constexpr (ModeScaleZero) {
+            minus_zp -= zero;
           }
+          out(_, n, _)[i] = static_cast<DstType>(minus_zp) * scale;
         }
       }
     }
@@ -721,7 +739,7 @@ public:
     Tensor quant_frag_B = make_tensor<ElementB>(mma_B.layout());
 
     auto frag_copy_A = [&]() -> decltype(auto) {
-      if constexpr (std::is_same_v<ElementMMA, ElementA>) {
+      if constexpr (cute::is_same_v<ElementMMA, ElementA>) {
         return thr_copy_A.retile_D(mma_A);
       } else {
         return thr_copy_A.retile_D(quant_frag_A);
@@ -729,7 +747,7 @@ public:
     }();
 
     auto frag_copy_B = [&]() -> decltype(auto) {
-      if constexpr (std::is_same_v<ElementMMA, ElementB>) {
+      if constexpr (cute::is_same_v<ElementMMA, ElementB>) {
         return thr_copy_B.retile_D(mma_B);
       } else {
         return thr_copy_B.retile_D(quant_frag_B);
@@ -822,16 +840,24 @@ public:
     const int k_start_idx = crd2idx((*k_tile_iter), make_shape(K_start));
     int prefetch_k = k_start_idx;
 
-    CUTLASS_PRAGMA_UNROLL
-    for (int i = 0; i < DispatchPolicy::Stages; i++, prefetch_k++) {
-      prefetch(tiled_prefetch_a, pAgA(_,_,_,prefetch_k));
-      prefetch(tiled_prefetch_b, pBgB(_,_,_,prefetch_k));
+    // Prefetch does not always bring benefits in all scenarios,
+    // Use "DispatchPolicy::Stages" to control whether prefetching is needed.
+    static constexpr auto prefetch_enabled = (DispatchPolicy::Stages > 0);
+
+    if constexpr (prefetch_enabled) {
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < DispatchPolicy::Stages; i++, prefetch_k++) {
+        prefetch(tiled_prefetch_a, pAgA(_,_,_,prefetch_k));
+        prefetch(tiled_prefetch_b, pBgB(_,_,_,prefetch_k));
+      }
     }
 
-    for (int k_tile = k_start_idx; k_tile < k_tile_count + k_start_idx; k_tile++, prefetch_k++) {
+    for (int k_tile = k_start_idx; k_tile < k_tile_count + k_start_idx; k_tile++) {
       constexpr int barrier_scope = 2;
 
-      barrier_arrive(barrier_scope);
+      if constexpr (prefetch_enabled) {
+        barrier_arrive(barrier_scope);
+      }
 
       // Copy gmem to rmem for the first k_tile
       copy(mainloop.tiled_copy_a, tAgA(_,_,_,k_tile), frag_copy_A);
@@ -848,9 +874,10 @@ public:
         }
       }
 
-      if(prefetch_k < k_tile_count) {
+      if constexpr (prefetch_enabled) {
         prefetch(tiled_prefetch_a, pAgA(_,_,_,prefetch_k));
         prefetch(tiled_prefetch_b, pBgB(_,_,_,prefetch_k));
+        prefetch_k++;
       }
 
       auto quant_zero = [&]() -> decltype(auto) {
@@ -861,11 +888,19 @@ public:
         }
       }();
 
-      transform_quant(quant_frag_A, mma_A, fragment_scale, quant_zero);
-      transform_quant(quant_frag_B, mma_B, fragment_scale, quant_zero);
+      if constexpr (!cute::is_same_v<ElementA, ElementMMA>) {
+        transform_quant(quant_frag_A, mma_A, fragment_scale, quant_zero);
+      }
+
+      if constexpr (!cute::is_same_v<ElementB, ElementMMA>) {
+        transform_quant(quant_frag_B, mma_B, fragment_scale, quant_zero);
+      }
 
       cute::gemm(tiled_mma, mma_A, mma_B, accum);
-      barrier_wait(barrier_scope);
+
+      if constexpr (prefetch_enabled) {
+        barrier_wait(barrier_scope);
+      }
     }
   }
 };

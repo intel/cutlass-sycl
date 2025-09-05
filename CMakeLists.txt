@@ -26,6 +26,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# TODO(joe): fit this into existing cmake
+set(CMAKE_COMPILE_WARNING_AS_ERROR TRUE) # -Werror
+# TODO(joe): Deal w/ as many of these as practical
+set(CMAKE_CXX_FLAGS
+"-Wall \
+-Wno-unused-command-line-argument \
+-Wno-unused-variable \
+-Wno-unused-local-typedef \
+-Wno-unused-but-set-variable \
+-Wno-uninitialized \
+-Wno-reorder-ctor \
+-Wno-logical-op-parentheses \
+-Wno-unused-function \
+-Wno-unknown-pragmas \
+"
+)
+
 if(CUTLASS_ENABLE_SYCL)
   cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
 else()

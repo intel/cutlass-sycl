@@ -31,12 +31,12 @@
 
 #include "cutlass_unit_test.h"
 
-#include "../hopper/tma_load_testbed.hpp"
+#include "tma_load_testbed.hpp"
 
 using namespace cute;
 using namespace cutlass::test;
 
-#if CUDA_12_0_SM90_FEATURES_SUPPORTED
+#if 1 //CUDA_12_0_SM90_FEATURES_SUPPORTED
 
 template <class T, class TmaType = T, class GMEM_Layout, class SMEM_Layout, class CTA_Tile>
 auto

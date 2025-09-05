@@ -74,7 +74,7 @@ else()
     add_subdirectory(volta)
     add_subdirectory(turing)
     add_subdirectory(ampere)
-    # add_subdirectory(hopper) // Hopper test support to come later once complete support in DPCPP
+    add_subdirectory(hopper)
 
   endif()
 
@@ -87,7 +87,7 @@ else()
       cutlass_test_unit_cute_volta
       cutlass_test_unit_cute_turing
       cutlass_test_unit_cute_ampere
-      #cutlass_test_unit_cute_hopper
+      cutlass_test_unit_cute_hopper
       cutlass_test_unit_cute_msvc_compilation
       )
 
@@ -99,7 +99,7 @@ else()
       test_unit_cute_volta
       test_unit_cute_ampere
       test_unit_cute_turing
-      #test_unit_cute_hopper
+      test_unit_cute_hopper
       test_unit_cute_msvc_compilation
       )
   else()

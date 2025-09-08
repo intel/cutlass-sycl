@@ -98,6 +98,7 @@ struct XE_2D_Packed_U8x1x32_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -128,6 +129,7 @@ struct XE_2D_Packed_U8x2x32_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -173,6 +175,7 @@ struct XE_2D_Packed_U8x4x32_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -202,6 +205,7 @@ struct XE_2D_Packed_U8x8x32_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -231,6 +235,7 @@ struct XE_2D_Packed_U8x16x32_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -325,6 +330,7 @@ struct XE_2D_Packed_U8x1x64_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -354,6 +360,7 @@ struct XE_2D_Packed_U8x2x64_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -383,6 +390,7 @@ struct XE_2D_Packed_U8x4x64_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -412,6 +420,7 @@ struct XE_2D_Packed_U8x8x64_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -441,6 +450,7 @@ struct XE_2D_Packed_U8x16x64_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -470,6 +480,7 @@ struct XE_2D_Packed_U8x32x64_LD_N {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {
@@ -501,6 +512,7 @@ struct XE_2D_U8x32x16_LD_V {
   }
 
   struct PREFETCH {
+    using BlockShape = BlockShape;
     CUTE_HOST_DEVICE static void copy(const void *baseoffset, int width,
                                       int height, int pitch,
                                       intel::coord_t coord) {

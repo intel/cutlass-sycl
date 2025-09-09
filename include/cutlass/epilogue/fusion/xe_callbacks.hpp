@@ -343,7 +343,7 @@ template <
   class ElementOutput_,
   class ElementCompute_,
   class ElementAux,
-  class ElementSource,
+  class ElementSource_,
   class ElementScalar,
   int AlignmentAux,
   FloatRoundStyle RoundStyle,
@@ -355,28 +355,29 @@ struct FusionCallbacks<
     epilogue::IntelXeXMX16,
     fusion::LinCombDeEltAct<
       GmemLayoutTagAux, ActivationFn, ElementOutput_, ElementCompute_,
-      ElementAux, ElementSource, ElementScalar, AlignmentAux, RoundStyle
+      ElementAux, ElementSource_, ElementScalar, AlignmentAux, RoundStyle
     >,
     CtaTileShapeMNK,
     EpilogueTile,
     CopyOpG2R
 > : XeLinCombDeEltAct<
       cutlass::gemm::TagToStrideC_t<GmemLayoutTagAux>, CopyOpG2R, ActivationFn, ElementOutput_,
-      ElementCompute_, ElementAux, ElementSource, ElementScalar, RoundStyle
+      ElementCompute_, ElementAux, ElementSource_, ElementScalar, RoundStyle
     > {
 
   using ElementOutput = ElementOutput_;
   using ElementCompute = ElementCompute_;
+  using ElementSource = ElementSource_;
 
   using Impl =
     XeLinCombDeEltAct<
       cutlass::gemm::TagToStrideC_t<GmemLayoutTagAux>, CopyOpG2R, ActivationFn, ElementOutput,
-      ElementCompute, ElementAux, ElementSource, ElementScalar, RoundStyle
+      ElementCompute, ElementAux, ElementSource_, ElementScalar, RoundStyle
     >;
   using Operation =
     fusion::LinCombDeEltAct<
       GmemLayoutTagAux, ActivationFn, ElementOutput, ElementCompute,
-      ElementAux, ElementSource, ElementScalar, AlignmentAux, RoundStyle
+      ElementAux, ElementSource_, ElementScalar, AlignmentAux, RoundStyle
     >;
 
   struct Arguments {

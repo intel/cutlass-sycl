@@ -87,7 +87,7 @@ struct DefaultGemmGroupConfiguration<
 
   using TiledMma = typename CollectiveMainloop::TiledMma;
 
-  using EpilogueOp = epilogue::fusion::LinearCombination<float, float>;
+  using EpilogueOp = epilogue::fusion::LinearCombination<ElementOutput, float>;
 
   using FusionCallBacks = epilogue::fusion::FusionCallbacks<
     epilogue::IntelXeXMX16Group,
@@ -101,7 +101,7 @@ struct DefaultGemmGroupConfiguration<
       TileShape, Shape<_1, _1, _1>,
       epilogue::collective::EpilogueTileAuto,
       float, float,
-      float, LayoutC, 1,
+      ElementOutput, LayoutC, 1,
       ElementOutput, LayoutC, 1,
       epilogue::IntelXeXMX16Group,
       EpilogueOp

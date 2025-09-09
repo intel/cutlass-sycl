@@ -156,7 +156,7 @@ struct ExampleRunner {
   using ElementAcc = typename Gemm::ElementAccumulator;
 
   using CollectiveEpilogue = typename Gemm::CollectiveEpilogue;
-  using ElementC = typename Gemm::ElementC;
+  using ElementC = typename CollectiveEpilogue::ElementOutput;
   using ElementOutput = typename CollectiveEpilogue::ElementOutput;
   using ElementCompute = typename CollectiveEpilogue::ElementCompute;
   using ElementAccumulator = typename CollectiveEpilogue::ElementAccumulator;
@@ -375,7 +375,7 @@ int main(int argc, const char** argv)
   // aside from the (A*B), which is handled by the GEMM. See 05_bmg_gemm_with_epilogues for more
   // complex epilogue examples.
   using EpilogueOp = cutlass::epilogue::fusion::LinearCombination<ElementOutput, ElementComputeEpilogue,
-          ElementAccumulator, ElementAccumulator, cutlass::FloatRoundStyle::round_to_nearest>;
+          ElementOutput, ElementAccumulator, cutlass::FloatRoundStyle::round_to_nearest>;
 
   // FusionCallbacks ties the EpilogueOp to an implementation (based on the dispatch
   // policy/architecture) and defines the epilogue arguments.

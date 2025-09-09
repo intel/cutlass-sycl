@@ -432,7 +432,7 @@ public:
     static constexpr auto N = decltype(size<1>(in))::value;
     static constexpr auto K = decltype(size<2>(in))::value;
 
-    using format_type = ushort;
+    using format_type = unsigned short;
     static constexpr auto src_bits = sizeof_bits_v<SrcType>;
     static constexpr auto scalar = sizeof_bits_v<format_type> / src_bits;
     static constexpr auto loop_cnt = decltype(size(out))::value / N;

@@ -251,12 +251,12 @@ public:
     auto inner_dim_sg = (nope_dim + rope_dim) / 32;
     auto nope_dim_sg = nope_dim / 32;
     auto rope_dim_sg = rope_dim / 32;
-    unsigned long sg_n_coord_d1 = sg_n_coord % inner_dim_sg;
-    unsigned long sg_n_coord_d0 = sg_n_coord / inner_dim_sg;
+    uint64_t sg_n_coord_d1 = sg_n_coord % inner_dim_sg;
+    uint64_t sg_n_coord_d0 = sg_n_coord / inner_dim_sg;
 
     auto num_head = N / inner_dim_sg;
-    unsigned long sg_n_coord_1 = sg_n_coord_d0 * nope_dim_sg + sg_n_coord_d1;
-    unsigned long sg_n_coord_2 = sg_n_coord_d0 * rope_dim_sg + sg_n_coord_d1 - nope_dim_sg;
+    uint64_t sg_n_coord_1 = sg_n_coord_d0 * nope_dim_sg + sg_n_coord_d1;
+    uint64_t sg_n_coord_2 = sg_n_coord_d0 * rope_dim_sg + sg_n_coord_d1 - nope_dim_sg;
     Tensor mAux_mnl1 = cute::get_xe_tensor(make_shape(M,num_head * nope_dim,L));
     // Tiling is done differently than in epilogue as we get in coordinates of subgroup in kernel
     Tensor gAux1 = local_tile(mAux_mnl1, select<0,1>(EpilogueTile{}), make_coord(sg_m_coord,sg_n_coord_1,l_offset));

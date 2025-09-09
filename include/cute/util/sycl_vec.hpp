@@ -45,7 +45,7 @@ template <class T, int N> using vector_t = sycl::marray<T, N>;
 
 using uint = unsigned int;
 using ushort = unsigned short;
-using ulong = unsigned long;
+using ulong = uint64_t; // note that this is not the same as unsigned long on Windows. It might be better named uint64 but that could be confused with vector of 64 uint.
 using uchar = unsigned char;
 
 using uchar2 = vector_t<uchar, 2>;

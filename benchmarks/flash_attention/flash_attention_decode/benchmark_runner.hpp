@@ -415,7 +415,7 @@ template <class FMHADecodeConfiguration> struct BenchmarkRunnerFMHADecode {
     // generate Q as --b times
     //    gaussian (--Q, --Q / 2) sampled positive
     //    track cumulative 
-    std::mt19937 rng(0x202305151552ull);
+    std::mt19937 rng(std::uint_fast32_t(0x202305151552ull));
     std::normal_distribution<double> dist_q(get<3>(problem_size), get<3>(problem_size) / 2);
     std::normal_distribution<double> dist_kv(get<4>(problem_size), get<4>(problem_size) / 2);
     std::normal_distribution<double> dist_kv_cache(get<5>(problem_size), get<5>(problem_size) / 2);

@@ -71,7 +71,12 @@ else()
 if (SYCL_INTEL_TARGET)
   cutlass_example_add_executable(
     cute_tutorial_bmg
-    sgemm_bmg.cpp
+    bgemm_bmg_legacy.cpp
+  )
+
+  cutlass_example_add_executable(
+    cute_tutorial_xe
+    xe_gemm.cpp
   )
 endif()
   if (SYCL_NVIDIA_TARGET)

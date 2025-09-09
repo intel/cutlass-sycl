@@ -46,11 +46,12 @@ CUTE_HOST_DEVICE
 constexpr auto
 wi_interleave(LayoutIn const&)
 {
+  using namespace intel;
   constexpr LayoutIn layout{};
   constexpr int per_byte = ceil_div(8, sizeof_bits_v<ValType>);
-  constexpr int vals = ceil_div(size(layout), 16);
-  auto tv_interleaved = Layout<Shape<_16, Shape<C<per_byte>, C<vals/per_byte>>>,
-                               Stride<C<per_byte>, Stride<_1, C<16*per_byte>>>>{};
+  constexpr int vals = ceil_div(size(layout), sg_size);
+  auto tv_interleaved = Layout<Shape<_16,          Shape<C<per_byte>, C<vals/per_byte>>>,
+                              Stride<C<per_byte>, Stride<_1,          C<sg_size*per_byte>>>>{};
   return coalesce(composition(layout, tv_interleaved), Step<_1,_1>{});
 }
 
@@ -76,7 +77,7 @@ struct MMA_Traits<XE_DPAS_TT<M, TD, TA, TB, TC>>
   using _K = Int<K>;
 
   using Shape_MNK = Shape<_M, _16, _K>;
-  using ThrID = Layout<_16>;
+  using ThrID = Layout<intel::_SGSize>;
 
   // A layout: (T,V) -> (M,K)
   //   M x K row major, work-items interleaved.
@@ -85,7 +86,7 @@ struct MMA_Traits<XE_DPAS_TT<M, TD, TA, TB, TC>>
   // B layout: (T,V) -> (N,K)
   //   K x 16 VNNI-transformed row major, work-items interleaved.
   using BLayout = detail::wi_interleave_t<TB, Layout<Shape<Int<BV>, _16, Int<K/BV>>,
-                                                     Stride<_16, _1, Int<16*BV>>>>;
+                                                     Stride<_16,    _1,  Int<16*BV>>>>;
 
   // C layout: (T,V) -> (M,N)
   //   M x 16 row major, work-items interleaved.

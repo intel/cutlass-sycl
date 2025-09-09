@@ -75,7 +75,7 @@ template <class Op, class XMode, class YMode, typename ValType, typename TiledSt
 struct Xe2DTraitsBase
 {
   using Traits = Copy_Traits<Op, XMode, YMode, ValType, TiledStrides>;
-  using ThrID = Layout<_16>;
+  using ThrID = Layout<intel::_SGSize>;
 
   static constexpr int ValBits = is_void_v<ValType> ? Op::CopyBits
                                                     : int(sizeof_bits_v<ValType>);
@@ -262,7 +262,7 @@ struct XeInterleavedLayoutHelper {
   // Res:  ((_2, _8), (_16, _2, _8)):((_16, _256), (_1, _2048, _32))  (T,V) -> (xbit,y)
 };
 
-template <typename Layout, int CopyBits, int ValBits, int Threads = 16>
+template <typename Layout, int CopyBits, int ValBits, int Threads = intel::sg_size>
 using XeInterleavedLayout = typename XeInterleavedLayoutHelper<Layout, CopyBits, ValBits, Threads>::Result;
 
 // Block 2D load traits.
@@ -281,7 +281,7 @@ struct Copy_Traits<XE_LOAD_2D<CopyBits, Height, Width, BlockWidth>, XMode, YMode
                                         sizeof_bits_v<ValType>>;
 
   using RefLayout = DstLayout;
-  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
+  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<intel::_SGSize>, Stride<_0>>{}));
 };
 
 // Block 2D VNNI load traits.
@@ -302,7 +302,7 @@ struct Copy_Traits<XE_LOAD_2D_VNNI<CopyBits, Height, Width, BlockWidth>, XMode, 
                                         sizeof_bits_v<ValType>>;
 
   using RefLayout = DstLayout;
-  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
+  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<intel::_SGSize>, Stride<_0>>{}));
 };
 
 // Block 2D transposed load traits.
@@ -321,7 +321,7 @@ struct Copy_Traits<XE_LOAD_2D_TRANSPOSE<CopyBits, Height, Width>, XMode, YMode, 
                                         sizeof_bits_v<ValType>>;
 
   using RefLayout = DstLayout;
-  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
+  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<intel::_SGSize>, Stride<_0>>{}));
 };
 
 // Block 2D store traits.
@@ -336,7 +336,7 @@ struct Copy_Traits<XE_STORE_2D<CopyBits, Height, Width>, XMode, YMode, ValType, 
                                         sizeof_bits_v<ValType>>;
 
   using RefLayout = SrcLayout;
-  using DstLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
+  using DstLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<intel::_SGSize>, Stride<_0>>{}));
 
   using Op = XE_STORE_2D<CopyBits, Height, Width>;
   using Super = Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrides>;
@@ -385,7 +385,7 @@ struct Copy_Traits<XE_PREFETCH_2D<CopyBits, Height, Width, BlockWidth>, XMode, Y
                                         sizeof_bits_v<ValType>>;
 
   using RefLayout = DstLayout;
-  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<_16>, Stride<_0>>{}));
+  using SrcLayout = decltype(replace<0>(RefLayout{}, Layout<Shape<intel::_SGSize>, Stride<_0>>{}));
 
   using Op = XE_PREFETCH_2D<CopyBits, Height, Width, BlockWidth>;
   using Super = Xe2DTraitsBase<Op, XMode, YMode, ValType, TiledStrides>;
@@ -569,15 +569,16 @@ CUTE_HOST_DEVICE
 constexpr auto
 strip_subbyte(InLayout const& layout)
 {
+  using namespace cute::intel;
   if constexpr (Bits >= 8)
     return layout;
   else {
     static_assert(is_static_v<InLayout>, "Layout must be static");
-    constexpr auto values = size(InLayout{}) / 16;
+    constexpr auto values = size(InLayout{}) / sg_size;
     constexpr auto per_byte = 8 / Bits;
     static_assert(values % per_byte == 0, "Partially-occupied bytes in layout");
-    return coalesce(composition(layout, Layout<Shape<C<per_byte>, _16, C<values/per_byte>>,
-                                        Stride<_16,        _1,  C<16*per_byte>>>{}));
+    return coalesce(composition(layout, Layout<Shape<C<per_byte>, _SGSize, C<values/per_byte>>,
+                                               Stride<_SGSize,         _1, C<sg_size*per_byte>>>{}));
   }
 }
 

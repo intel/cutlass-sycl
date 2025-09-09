@@ -656,6 +656,8 @@ coshape(Layout<Shape,Stride> const& layout)
   return transform_leaf(co_coord, [](auto c) { return c + Int<1>{}; });
 }
 
+// Compute max(a_leaf * b_leaf) across all ArithmeticTuple leaf pairs of a/b,
+//   where 'max' and '*' are acting in elementwise fashion on tuples.
 template <class IntTupleA, class IntTupleB>
 CUTE_HOST_DEVICE constexpr
 auto

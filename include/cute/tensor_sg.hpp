@@ -103,7 +103,7 @@ make_subgroup_tensor(Tensor<Engine, Layout> const& tensor, SubgroupTVLayout cons
 {
   static_assert(is_static_v<SubgroupTVLayout>, "Subgroup TV layout must be static");
   static_assert(is_rmem_v<Engine>, "Expected an rmem tensor");
-  return reinterpret_cast<SubgroupTensor<Engine,Layout,SubgroupTVLayout> const&>(tensor);
+  return static_cast<SubgroupTensor<Engine,Layout,SubgroupTVLayout> const&>(tensor);
 }
 
 

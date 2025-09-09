@@ -36,6 +36,10 @@
 
 namespace cute::intel
 {
+
+constexpr int sg_size = 16;
+using _SGSize = Int<sg_size>;
+
 #ifdef __SYCL_DEVICE_ONLY__
 template <class T> struct vector_element_helper {
   using type = conditional_t<(sizeof_bits_v<T> < 8), uint8_t, T>;

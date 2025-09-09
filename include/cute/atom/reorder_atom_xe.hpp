@@ -59,7 +59,7 @@ constexpr bool has_xe_optimized_reorder() {
 template <int SV, int DV, class ReorderLayout>
 constexpr ReorderKind classify_xe_reorder()
 {
-  constexpr int R = decltype(rank(ReorderLayout{}))::value;
+  constexpr int R = rank(ReorderLayout{});
   using Size0   = decltype(size<0>(ReorderLayout{}));
   using Stride0 = decltype(stride<0>(ReorderLayout{}));
   using _SV = Int<SV>;
@@ -82,15 +82,15 @@ constexpr ReorderKind classify_xe_reorder()
   // Fundamental assumption: values associated with a single VNNI block are contiguous in val space
   //   in both src and dst (even if only one of those is in VNNI format). All others take the generic path.
   if constexpr (R >= 2) {
-    using Modes01 = std::remove_reference_t<decltype(take<0, 2>(ReorderLayout()))>;
+    constexpr auto Modes01 = take<0,2>(ReorderLayout{});
 
     // Check for unit <-> VNNI reorders.
     //   unit->VNNI:  (_16, _DV, ...):(_DV, _1, ...)
     //   VNNI->unit:  (_SV, _16, ...):(_16, _1, ...)
-    if constexpr (is_same_v<Modes01, Layout<Shape<_16, _DV>, Stride<_DV, _1>>>) {
+    if constexpr (Modes01 == Layout<Shape<_16, _DV>, Stride<_DV, _1>>{}) {
       return ReorderKind::UV;
     }
-    if constexpr (is_same_v<Modes01, Layout<Shape<_SV, _16>, Stride<_16, _1>>>) {
+    if constexpr (Modes01 == Layout<Shape<_SV, _16>, Stride<_16, _1>>{}) {
       return ReorderKind::VU;
     }
 
@@ -98,10 +98,10 @@ constexpr ReorderKind classify_xe_reorder()
     //  SV > DV:  (_DV, _SV/DV, _16, ...):(_1, _DV*16, _DV, ...)
     //  DV > SV:  (_SV, _16, _DV/SV, ...):(_1, _SV*16, _SV, ...)
     if constexpr (R >= 3 && SV != DV) {
-      using Modes012 = std::remove_reference_t<decltype(take<0, 3>(ReorderLayout()))>;
-      if constexpr (SV > DV && is_same_v<Modes012, Layout<Shape<_DV, Int<SV/DV>, _16>, Stride<_1, Int<DV*16>, _DV>>>) {
+      constexpr auto Modes012 = take<0,3>(ReorderLayout());
+      if constexpr (SV > DV && Modes012 == Layout<Shape<_DV, Int<SV/DV>, _16>, Stride<_1, Int<DV*16>, _DV>>{}) {
         return ReorderKind::VV;
-      } else if constexpr (DV > SV && is_same_v<Modes012, Layout<Shape<_SV, _16, Int<DV/SV>>, Stride<_1, Int<SV*16>, _SV>>>) {
+      } else if constexpr (DV > SV && Modes012 == Layout<Shape<_SV, _16, Int<DV/SV>>, Stride<_1, Int<SV*16>, _SV>>{}) {
         return ReorderKind::VV;
       }
     }
@@ -135,6 +135,85 @@ constexpr auto choose_xe_reorder_impl(SLayout const& slayout,   // (src thr, src
     return ReorderDispatchRelayoutConvert{};
   else
     return ReorderDispatchXeGeneric{};
+}
+
+
+// Copy a strided vector to a strided vector in GRF.
+//   src and dst must each fit within a single register.
+template <int simd, int sstride, int dstride, int sidx, int didx,
+          class SEngine, class SLayoutWI,
+          class DEngine, class DLayoutWI>
+CUTE_HOST_DEVICE
+void
+reorder_span(Tensor<SEngine,SLayoutWI> const& src,
+             Tensor<DEngine,DLayoutWI> &      dst)
+{
+  using namespace intel;
+  using ValType = typename SEngine::element_type;
+  using StorageType = storage_vector_t<ValType, 32>;
+  constexpr int grf_elems = 64 / sizeof(ValType);
+  const auto& sv = *recast_ptr<StorageType>(src.data() + ((sidx / grf_elems) * (grf_elems / sg_size)));
+  auto&       dv = *recast_ptr<StorageType>(dst.data() + ((didx / grf_elems) * (grf_elems / sg_size)));
+  constexpr auto soff = sidx % grf_elems;
+  constexpr auto doff = didx % grf_elems;
+#ifdef __SYCL_DEVICE_ONLY__
+  asm (
+    "mov (M1_NM, %2) %0(0,%5)<%3> %1(0,%6)<%4;1,0>"
+    : "+rw"(dv)
+    : "rw"(sv), "P"(simd), "P"(dstride), "P"(sstride), "P"(doff), "P"(soff)
+  );
+#endif
+}
+
+// Generic Xe reorders, supporting arbitrary layout changes, but not type conversions.
+template <class SEngine, class SLayoutWI, class SLayout,
+          class DEngine, class DLayoutWI, class DLayout>
+CUTE_HOST_DEVICE
+void
+reorder_impl(ReorderDispatchXeGeneric  const&,
+             Tensor<SEngine,SLayoutWI> const& src,       // WI fragment
+             Tensor<DEngine,DLayoutWI> &      dst,       // WI fragment
+             SLayout                   const& slayout,   // (src thr, src val) -> coord
+             DLayout                   const& dlayout)   // (dst thr, dst val) -> coord
+{
+  using SrcType = typename SEngine::element_type;
+  using DstType = typename DEngine::element_type;
+  static_assert(is_same_v<SrcType, DstType>, "No type conversions allowed on this path");
+
+  auto rlayout = coalesce(composition(right_inverse(dlayout), slayout));          // src index -> dst index
+  auto ilayout = coalesce(composition(right_inverse(slayout), dlayout));          // dst index -> src index
+
+  // Decide whether to stride on src or dst, depending on which allows a longer vector length.
+  static constexpr int elems_per_grf = 64 / sizeof(SrcType);
+  static constexpr int ds_vl = cute::min(32, cute::min(shape<0>(rlayout), elems_per_grf / stride<0>(rlayout)));
+  static constexpr int ss_vl = cute::min(32, cute::min(shape<0>(ilayout), elems_per_grf / stride<0>(ilayout)));
+
+  // Make dst live, to prevent compiler from inserting its own initialization.
+#ifdef __SYCL_DEVICE_ONLY__
+  using StorageType = intel::storage_vector_t<DstType, 32>;
+
+  CUTE_UNROLL
+  for (int i = 0; i < dst.size(); i += 4 / sizeof(DstType)) {
+    auto &dv = *recast_ptr<StorageType>(dst.data() + i);
+    asm("" : "=rw"(dv));
+  }
+#endif
+
+  if constexpr (ss_vl >= ds_vl) {
+    // Stride on src. For simplicity, take 1 GRF at a time.
+    for_each(make_seq<size(SLayout{}) / ss_vl>{}, [&](auto i) {
+      constexpr auto didx = i * ss_vl;
+      constexpr auto sidx = ilayout(didx);
+      reorder_span<ss_vl, stride<0>(decltype(ilayout){}), 1, sidx, didx>(src, dst);
+    });
+  } else {
+    // Stride on dst.
+    for_each(make_seq<size(SLayout{}) / ds_vl>{}, [&](auto i) {
+      constexpr auto sidx = i * ds_vl;
+      constexpr auto didx = rlayout(sidx);
+      reorder_span<ds_vl, 1, stride<0>(decltype(rlayout){}), sidx, didx>(src, dst);
+    });
+  }
 }
 
 //

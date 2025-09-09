@@ -44,6 +44,8 @@
 #include "cutlass/util/reference/device/tensor_compare.h"
 #include "cutlass/util/reference/host/tensor_fill.h"
 
+#include "../../common/sycl_cute_common.hpp"
+
 #pragma clang diagnostic ignored "-Wpass-failed"
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
@@ -186,7 +188,7 @@ choose_mma_op()
 {
   if constexpr (is_complete_v<XE_DPAS_TT<8, TC, TA, TB>>)
     return XE_DPAS_TT<8, TC, TA, TB>{};
-  else if constexpr (cute::is_same_v<TA, cute::bfloat16_t>)
+  else if constexpr (is_same_v<TA, cute::bfloat16_t>)
     return XE_DPAS_TT<8, float, cute::bfloat16_t>{};
   else
     return XE_DPAS_TT<8, float, cute::half_t>{};
@@ -203,10 +205,10 @@ choose_tiled_mma(ATensor const& A, BTensor const& B, CTensor const&)
   auto op = choose_mma_op<TA,TB,TC>();
 
   constexpr bool byte = (cute::max(sizeof_bits_v<TA>, sizeof_bits_v<TB>) <= 8);
-  constexpr bool use_1x_dpas = is_constant_v<1, decltype(stride<0>(A))>             // Use single-DPAS chunks for A^T case
-                            || (byte && is_constant_v<1, decltype(stride<0>(B))>);  //  pending compiler improvements (also int8 B^N)
+  constexpr bool use_1x_dpas_per_k = is_constant_v<1, decltype(stride<0>(A))>             // Use one DPAS in k dimension for A^T case
+                                  || (byte && is_constant_v<1, decltype(stride<0>(B))>);  //  pending compiler improvements (also int8 B^N)
 
-  using _K = conditional_t<use_1x_dpas,
+  using _K = conditional_t<use_1x_dpas_per_k,
                            C<op.K>, C<op.K*2>>;
 
   using WGTile = Shape<_256, _256, _K>;                               // 256x256 WG tile size
@@ -247,17 +249,6 @@ gemm_cute(sycl::queue &Q,
   EventManager::getInstance().addEvent(event);
 }
 
-template <typename T>
-auto ensure_signed_helper_t() {
-  if constexpr (is_unsigned_v<T>)
-    return make_signed_t<T>{};
-  else
-    return T{};
-}
-
-template <typename T>
-using ensure_signed_t = decltype(ensure_signed_helper_t<T>());
-
 template <class ATensor, class BTensor, class CTensor>
 bool
 gemm_verify(sycl::queue &Q,
@@ -296,113 +287,6 @@ gemm_verify(sycl::queue &Q,
   sycl::free(ok, Q);
 
   return read_ok;
-}
-
-template <typename T, char LayoutKind>
-auto
-make_shared_usm_tensor(sycl::queue &Q, int r, int c)
-{
-  auto ptr = make_gmem_ptr(sycl::malloc_shared<T>(r*c, Q));
-  auto shape = make_shape(r, c);
-  if constexpr (LayoutKind == 'C')
-    return make_tensor(ptr, make_layout(shape, make_stride(_1{}, r)));
-  else
-    return make_tensor(ptr, make_layout(shape, make_stride(c, _1{})));
-}
-
-template <typename InTensor>
-void
-free_usm_tensor(InTensor &X, sycl::queue &Q)
-{
-  // RAII? What's that?
-  sycl::free(&*X.data(), Q);
-}
-
-template <typename T>
-T random_value()
-{
-  using Limits = cutlass::platform::numeric_limits<T>;
-
-  static std::vector<T> saved;
-  static constexpr size_t nsave = 65537;
-  static size_t idx = 0;
-
-  if (saved.empty()) {
-    float range = Limits::is_integer ? 10.f : 1.f;
-    float v_min = max(-range, float(Limits::lowest()));
-    float v_max = min(+range, float(Limits::max()));
-
-    saved.resize(nsave);
-    for (auto &x: saved)
-      x = T(v_min + (v_max - v_min) * (float(rand()) / float(RAND_MAX)));
-  }
-
-  auto v = saved[idx++];
-  if (idx >= nsave) idx -= nsave;
-
-  return v;
-}
-
-template <typename InTensor>
-void
-random_fill(InTensor &X)
-{
-  using T = typename InTensor::element_type;
-
-  for (int i = 0; i < size(X); i++)
-    X(i) = random_value<T>();
-}
-
-template <typename InTensor>
-void
-zero_fill(InTensor &X)
-{
-  using T = typename InTensor::element_type;
-
-  for (int i = 0; i < size(X); i++)
-    X(i) = T(0);
-}
-
-template <typename InTensor>
-void
-subbyte_pack(InTensor &X)
-{
-  using T = typename InTensor::element_type;
-
-  if constexpr (sizeof_bits_v<T> % 8 != 0) {
-    static_assert(sizeof_bits_v<T> == 4, "Unsupported sub-byte data size");
-
-    auto ptr = recast_ptr<uint8_t>(&*X.data());
-    auto bytes = X.size();
-
-    for (size_t i = 0; i < bytes/2; i++)
-        ptr[i] = ptr[2*i] | (ptr[2*i + 1] << 4);
-    if (bytes & 1)
-        ptr[bytes >> 1] = ptr[bytes - 1];
-  }
-}
-
-template <typename T>
-const char *type_str() {
-  using T_ = remove_cvref_t<T>;
-#define CASE(x, y) if (is_same_v<T_,x>) return #y;
-#define ICASE(x) CASE(x, x)
-  ICASE(double)
-  ICASE(float)
-  CASE(tfloat32_t, tf32)
-  CASE(half_t, half)
-  CASE(bfloat16_t, bf16)
-  CASE(float_e5m2_t, e5m2)
-  CASE(float_e4m3_t, e4m3)
-  CASE(float_e2m1_t, e2m1)
-  CASE(int32_t, int32)
-  CASE(uint32_t, uint32)
-  CASE(int8_t, int8)
-  CASE(uint8_t, uint8)
-  CASE(int4_t, int4)
-  CASE(uint4_t, uint4)
-#undef CASE
-  return "<unknown type>";
 }
 
 template <typename TA, typename TB, typename TC,

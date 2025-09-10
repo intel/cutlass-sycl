@@ -453,15 +453,8 @@ bool verify(ProblemShapeType problem_size, Options options) {
   
           // delete this memory as it is no longer needed
           block_acc.reset();
-          // std::vector<ElementOutput> vec_out(vec_acc.size());
-          // for(int i = 0; i < vec_out.size(); i++) {
-          //   vec_out[i] = static_cast<ElementOutput>(vec_acc[i]);
-          // }
-          // syclcompat::memcpy<ElementOutput>(block_ref_O.get() + offset_o, vec_out.data(), vec_out.size());
           for (int seq = 0; seq < seq_len_qo; seq++) {
             for (int hvo = 0; hvo < head_size_vo; hvo++) {
-              // std::cout << "O[" << seq << "," << h << "] = " << vec_out[seq * head_size_vo + h] << " ";
-              // int idx = b * seq_len_qo * num_heads_q * head_size_vo + seq * head_size_vo + (q_group * q_group_size + q_head) * seq_len_qo * head_size_vo + hvo;
               int idx = offset_o + seq * num_heads_q * head_size_vo + (q_group * q_group_size + q_head) * head_size_vo + hvo;
               host_O[idx] = static_cast<ElementOutput>(vec_acc[seq * head_size_vo + hvo]);
             }
@@ -638,57 +631,7 @@ bool verify(ProblemShapeType problem_size, Options options) {
       block_V_cache.reset(num_pages * paged_kv_cache.page_size * num_heads_kv * head_size_vo);
     }
 
-   
-
-    
-    // for (int b = 0; b < batch; b++) {
-      //   for (int sq = 0; sq <seq_len_qo; sq++) {
-        //     for (int hq = 0; hq < num_heads_q; hq++) {
-    //       for (int hqk = 0; hqk < head_size_qk; hqk++) {
-    //         int idx = b * num_heads_q * seq_len_qo * head_size_qk + sq * num_heads_q * head_size_qk + hq * head_size_qk + hqk;
-    //       host_Q[idx] = static_cast<ElementQ>(float(b * 10000 + sq * 1000 + hq * 100 + hqk));
-    //       }
-    //     }
-    //   }
-    // }
-  
-    
-    // syclcompat::memcpy<ElementQ>(block_Q.get(), host_Q.data(), host_Q.size());
-
-
-    // std::vector<ElementK> host_K(block_K.size());
-    // for (int idx = 0; idx < host_K.size(); idx++) {
-    //   host_K[idx] = static_cast<ElementK>(float(1));
-    // }
-    // syclcompat::memcpy<ElementK>(block_K.get(), host_K.data(), block_K.size());
-    
-    
-    // std::vector<ElementK> host_K_cache(block_K_cache.size());
-    // for (int idx = 0; idx < host_K_cache.size(); idx++) {
-      //   host_K_cache[idx] = static_cast<ElementK>(float(1));
-      // }
-      // syclcompat::memcpy<ElementK>(block_K_cache.get(), host_K_cache.data(), block_K_cache.size());
-      
     initialize_block(block_Q, seed + 2023);
-    
-    // std::vector<ElementQ> host_Q(block_Q.size());
-    // syclcompat::memcpy<ElementQ>(host_Q.data(), block_Q.get(), host_Q.size());
-    
-  // for (int b = 0; b < batch; b++) {
-  //     for (int sq = 0; sq <seq_len_qo; sq++) {
-  //       for (int hq = 0; hq < num_heads_q; hq++) {
-  //         for (int hqk = 0; hqk < head_size_qk; hqk++) {
-  //           int idx = b * num_heads_q * seq_len_qo * head_size_qk + sq * num_heads_q * head_size_qk + hq * head_size_qk + hqk;
-  //           // host_Q[idx] = static_cast<ElementQ>(float(b * 10000 + sq * 1000 + hq * 100 + hqk));
-  //           std::cout << "host_Q[" << b << "," << sq << "," << hq << "," << hqk << "] = " << host_Q[idx] << " ";
-  //         }
-  //         std::cout << std::endl;
-  //       }
-  //       std::cout << std::endl;
-  //     }
-  //     std::cout << std::endl;
-  //   }
-
     initialize_block(block_K, seed + 2022);
     initialize_block(block_V, seed + 2021);
     initialize_block(block_K_cache, seed + 2024);

@@ -175,12 +175,12 @@ struct BenchmarkRunnerGemm {
 
   using CollectiveMainloop = typename Gemm::GemmKernel::CollectiveMainloop;
   using DispatchPolicy = typename CollectiveMainloop::DispatchPolicy;
-  using ElementMma = CollectiveMainloop::TiledMma::ValTypeA;
+  using ElementMma = typename CollectiveMainloop::TiledMma::ValTypeA;
 
-  using ElementScale = ScaleType<CollectiveMainloop>::type;
-  using ElementZero = ZeroType<CollectiveMainloop>::type;
-  using StrideS = ScaleStride<CollectiveMainloop>::type;
-  using StrideZ = ZeroStride<CollectiveMainloop>::type;
+  using ElementScale = typename ScaleType<CollectiveMainloop>::type;
+  using ElementZero = typename ZeroType<CollectiveMainloop>::type;
+  using StrideS = typename ScaleStride<CollectiveMainloop>::type;
+  using StrideZ = typename ZeroStride<CollectiveMainloop>::type;
 
   using CollectiveEpilogue = typename Gemm::CollectiveEpilogue;
   using ElementC = typename Gemm::ElementC;

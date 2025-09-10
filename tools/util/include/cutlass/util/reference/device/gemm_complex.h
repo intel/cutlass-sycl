@@ -194,7 +194,6 @@ __global__ void
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template<class...> class GemmComplexKernelName;
-template<class...> class GemmComplexKernelName1;
 
 /// Computes a general matrix product among matrices (tensors of rank=2) pointed to by TensorRef
 /// objects.
@@ -360,7 +359,7 @@ using cutlasscompat::dim3;
                       InnerProductOp,
                       kBigMblock,
                       kBigNblock
-                    >, GemmComplexKernelName1<
+                    >, GemmComplexKernelName<
                       ElementA,
                       LayoutA,
                       ElementB,
@@ -371,9 +370,7 @@ using cutlasscompat::dim3;
                       ComputeType,
                       ElementD,
                       ConvertOp,
-                      InnerProductOp,
-                      decltype(kMblock),
-                      decltype(kNblock)
+                      InnerProductOp
                     >>(Biggrid, Bigblock, 
                         problem_size,
                         alpha,

@@ -33,8 +33,6 @@
 #include <cutlasscompat/dims.hpp>
 #include <cutlasscompat/launch_policy.hpp>
 
-#include <cute/container/type_list.hpp>
-
 namespace cutlasscompat {
 
 namespace detail {
@@ -154,7 +152,6 @@ sycl::event launch(LaunchPolicy launch_policy, sycl::queue q, Args... args) {
 template <auto F, class N=sycl::detail::auto_name, typename LaunchPolicy, typename... Args>
 sycl::event launch(LaunchPolicy launch_policy, sycl::queue q, Args... args) {
   static_assert(detail::is_launch_policy_v<LaunchPolicy>);
-  //using FN = std::conditional_t<std::is_same_v<N, sycl::detail::auto_name>, sycl::detail::auto_name, cute::type_list<decltype(F), N>>;
   return detail::launch<F, N>(launch_policy, q, args...);
 }
 

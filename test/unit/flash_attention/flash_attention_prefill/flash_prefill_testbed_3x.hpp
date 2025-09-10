@@ -373,8 +373,8 @@ struct TestbedImpl {
     if constexpr (isVarLen) {
       int max_seq_len_q = static_cast<int>(cute::get<3>(problem_size));
       int max_seq_len_kv = static_cast<int>(cute::get<4>(problem_size));
-      cute::get<3>(problem_size) = cutlass::fmha::collective::VariableLength{max_seq_len_q, cumulative_seqlen_q.data()};
-      cute::get<4>(problem_size) = cutlass::fmha::collective::VariableLength{max_seq_len_kv, cumulative_seqlen_kv.data()};
+      cute::get<3>(problem_size) = cutlass::fmha::collective::VariableLength{max_seq_len_q, 0, cumulative_seqlen_q.data()};
+      cute::get<4>(problem_size) = cutlass::fmha::collective::VariableLength{max_seq_len_kv, 0, cumulative_seqlen_kv.data()};
     }
 
     auto [batch, num_heads_q, num_heads_kv, head_size_qk, head_size_vo] = cute::select<0,1,2,5,6>(problem_size);

@@ -125,6 +125,17 @@ struct Shape_h192 {
     using GmemTiledCopyV = cute::XE_2D_U16x16x32_LD_V;
     using GmemTiledCopyO = cute::XE_2D_U16x8x16_ST_N;
   };
+  
+  template <class, class> class convert_fp8_to_fp16_name;
+
+  template <typename SrcT, typename DstT>
+  void convert_fp8_to_fp16(const SrcT* d_src, DstT* d_dst, size_t size) {
+    cutlasscompat::get_default_queue().parallel_for<convert_fp8_to_fp16_name<SrcT, DstT>>(size, [=](auto indx) {
+      d_dst[indx] = static_cast<DstT>(d_src[indx]);
+    }).wait();
+  }
+
+
 /////////////////////////////////////////////////////////////////////
 
 template<typename ElementInputType, typename ElementAccumulatorType, typename ElementOutputType,  
@@ -225,15 +236,6 @@ struct TestbedImpl {
   //
   // Methods
   //
-  template <class, class> class convert_fp8_to_fp16_name;
-
-  template <typename SrcT, typename DstT>
-  void convert_fp8_to_fp16(const SrcT* d_src, DstT* d_dst, size_t size) {
-    cutlasscompat::get_default_queue().parallel_for<convert_fp8_to_fp16_name<SrcT, DstT>>(size, [=](auto indx) {
-      d_dst[indx] = static_cast<DstT>(d_src[indx]);
-    }).wait();
-  }
-
   template <typename T>
   static constexpr bool is_fp8_v = cute::is_any_of_v<T, cute::float_e5m2_t, cute::float_e4m3_t>;
 

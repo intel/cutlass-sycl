@@ -42,7 +42,7 @@ using namespace cute;
 
 #define SUBGROUP_SIZE (16)
 
-template <class...> CopyKernelName;
+template <class...> class CopyKernelName;
 
 template <class CopyInstruction, class TensorS, class fragment_size>
 void copy_kernel(TensorS S) {

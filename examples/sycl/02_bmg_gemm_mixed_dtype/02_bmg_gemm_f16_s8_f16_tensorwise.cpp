@@ -193,10 +193,10 @@ struct ExampleRunner {
       SrcT* h_src = new SrcT[size * L];
       ElementScale* scale_h = new ElementScale[L];
       ElementZero* zero_h = new ElementZero[L];
-      syclcompat::memcpy(h_src, d_src, size * L * sizeof(SrcT));
-      syclcompat::wait();
-      syclcompat::memcpy(scale_h, scale, L * sizeof(ElementScale));
-      syclcompat::memcpy(zero_h, zero, L * sizeof(ElementZero));
+      cutlasscompat::memcpy(h_src, d_src, size * L * sizeof(SrcT));
+      cutlasscompat::wait();
+      cutlasscompat::memcpy(scale_h, scale, L * sizeof(ElementScale));
+      cutlasscompat::memcpy(zero_h, zero, L * sizeof(ElementZero));
       
       DstT* h_dst = new DstT[size * L];
       for(size_t j = 0; j < L; ++j) {
@@ -205,8 +205,8 @@ struct ExampleRunner {
         }
       }
 
-      syclcompat::memcpy(d_dst, h_dst, size * sizeof(DstT));
-      syclcompat::wait();
+      cutlasscompat::memcpy(d_dst, h_dst, size * sizeof(DstT));
+      cutlasscompat::wait();
   }
 
   bool verify(const ProblemShapeType& problem_size, ElementCompute alpha, ElementCompute beta) {
@@ -245,7 +245,7 @@ struct ExampleRunner {
           M * N,
           M * N 
       );
-      syclcompat::wait();
+      cutlasscompat::wait();
 
       bool passed = cutlass::reference::device::BlockCompareEqual(
           block_ref_D.get(), block_D.get(), block_D.size());
@@ -311,7 +311,7 @@ struct ExampleRunner {
     // Run the GEMM
     CUTLASS_CHECK(gemm_op.run());
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Verify that the result is correct
     bool passed = verify(problem_size, options.alpha, options.beta);
@@ -325,7 +325,7 @@ struct ExampleRunner {
       for (int i = 0; i < options.iterations; ++i) {
         gemm_op.run();
       }
-      syclcompat::wait();
+      cutlasscompat::wait();
 
       float cute_time = timer.seconds() / options.iterations;
       double tflops = (2.0 * options.m * options.n * options.k * options.l) * 1e-12;

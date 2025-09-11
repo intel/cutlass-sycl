@@ -32,7 +32,7 @@
 #pragma once
 
 #include <sycl/sycl.hpp>
-#include <syclcompat.hpp>
+#include <cutlasscompat.hpp>
 
 #if defined(CUTLASS_SYCL_PROFILING_ENABLED)
 #include "cutlass/util/sycl_event_manager.hpp"
@@ -57,7 +57,7 @@ struct SYCLTimer {
 #if defined(CUTLASS_SYCL_PROFILING_ENABLED)
     syclEventRecord(start_);
 #else
-    syclcompat::get_default_queue().wait();
+    cutlasscompat::get_default_queue().wait();
     start_ = std::chrono::high_resolution_clock::now();
 #endif
   }
@@ -66,7 +66,7 @@ struct SYCLTimer {
 #if defined(CUTLASS_SYCL_PROFILING_ENABLED)
     syclEventRecord(stop_);
 #else
-    syclcompat::get_default_queue().wait();
+    cutlasscompat::get_default_queue().wait();
     stop_ = std::chrono::high_resolution_clock::now();
 #endif
   }
@@ -78,7 +78,7 @@ struct SYCLTimer {
     syclEventElapsedTime(&time, start_, stop_);
     return time;
 #else
-    syclcompat::get_default_queue().wait();
+    cutlasscompat::get_default_queue().wait();
     auto stop = std::chrono::high_resolution_clock::now();
     std::chrono::duration<float, std::milli> time = stop - start_;
     return time.count();

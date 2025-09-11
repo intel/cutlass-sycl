@@ -819,7 +819,7 @@ struct HostCollectiveMainloopSparse
 
 #if defined(CUTLASS_ENABLE_SYCL)
     try {
-      syclcompat::wait_and_throw();
+      cutlasscompat::wait_and_throw();
     } catch (std::exception const &e) {
       ADD_FAILURE() << "Error at Kernel Sync.";
       return false;
@@ -1471,7 +1471,7 @@ struct HostCollectiveMainloop<cutlass::gemm::KernelSparseTmaWarpSpecializedBlock
 
 #if (CUTLASS_ENABLE_SYCL)
     try {
-      syclcompat::wait_and_throw();
+      cutlasscompat::wait_and_throw();
     } catch (std::exception const &e) {
       ADD_FAILURE() << "Error at Kernel Sync.";
       return false;
@@ -2843,7 +2843,7 @@ struct TestbedImpl {
     size_t smem_size = static_cast<size_t>(Gemm::GemmKernel::SharedStorageSize);
     size_t device_smem_size;
 #if defined(CUTLASS_ENABLE_SYCL)
-    syclcompat::device_info info = syclcompat::get_current_device().get_device_info();
+    cutlasscompat::device_info info = cutlasscompat::get_current_device().get_device_info();
     this->sm_count = info.get_max_compute_units();
     device_smem_size = info.get_local_mem_size();
 #else
@@ -2902,7 +2902,7 @@ struct TestbedImpl {
 
 #if defined(CUTLASS_ENABLE_SYCL)
     try {
-      syclcompat::wait_and_throw();
+      cutlasscompat::wait_and_throw();
     } catch (std::exception const &e) {
       ADD_FAILURE() << "Error at Kernel Sync.";
       return false;
@@ -3079,7 +3079,7 @@ struct TestbedImpl {
       status = gemm_op.run();
 #if defined(CUTLASS_ENABLE_SYCL)
       try {
-        syclcompat::wait_and_throw();
+        cutlasscompat::wait_and_throw();
       } catch (std::exception const &e) {
         ADD_FAILURE() << "Error at Kernel Sync.";
         return false;

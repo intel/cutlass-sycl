@@ -204,7 +204,7 @@ struct ExampleRunner {
           M * N  // batch_stride_D
         );
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     auto D_shape = make_shape(M, N, L);
     auto D1_shape = make_shape(M, NUM_HEAD, NOPE_DIM, L);
@@ -215,8 +215,8 @@ struct ExampleRunner {
     auto D1 = std::vector<ElementOutput>(size(D1_shape));
     // 256x128x128
     auto D2 = std::vector<ElementOutput>(size(D2_shape));
-    syclcompat::memcpy<ElementOutput>(D.data(), block_ref_D.get(), size(D_shape));
-    syclcompat::wait();
+    cutlasscompat::memcpy<ElementOutput>(D.data(), block_ref_D.get(), size(D_shape));
+    cutlasscompat::wait();
 
     for (int l = 0; l < L; l++) {
       for (int i = 0; i < M; i++) {
@@ -235,15 +235,15 @@ struct ExampleRunner {
     }
 
     auto test_D = std::vector<ElementOutput>(size(D_shape));
-    syclcompat::memcpy<ElementOutput>(test_D.data(), block_D.get(), size(D_shape));
+    cutlasscompat::memcpy<ElementOutput>(test_D.data(), block_D.get(), size(D_shape));
 
     // 256x128x64
     auto test_D1 = std::vector<ElementOutput>(size(D1_shape));
     // 256x128x128
     auto test_D2 = std::vector<ElementOutput>(size(D2_shape));
-    syclcompat::memcpy<ElementOutput>(test_D1.data(), block_D1.get(), size(D1_shape));
-    syclcompat::memcpy<ElementOutput>(test_D2.data(), block_D2.get(), size(D2_shape));
-    syclcompat::wait();
+    cutlasscompat::memcpy<ElementOutput>(test_D1.data(), block_D1.get(), size(D1_shape));
+    cutlasscompat::memcpy<ElementOutput>(test_D2.data(), block_D2.get(), size(D2_shape));
+    cutlasscompat::wait();
 
     uint32_t err_cnt = 0;
     constexpr float atol = 1e-4;
@@ -358,7 +358,7 @@ struct ExampleRunner {
     // Run the GEMM
     gemm_op.run();
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Verify that the result is correct
     bool passed = verify(problem_size, splitk_size, options.alpha, options.beta);

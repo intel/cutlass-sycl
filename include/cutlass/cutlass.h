@@ -103,7 +103,7 @@ CUTLASS_HOST_DEVICE bool thread0() {
   #if defined(__CUDA_ARCH__)
     return (!threadIdx.x && !threadIdx.y && !threadIdx.z) && (!blockIdx.x && !blockIdx.y && !blockIdx.z);
   #elif defined(__SYCL_DEVICE_ONLY__)
-    return (!syclcompat::global_id::x() && !syclcompat::global_id::y() && !syclcompat::global_id::z());
+    return (!cutlasscompat::global_id::x() && !cutlasscompat::global_id::y() && !cutlasscompat::global_id::z());
   #else
     return false;
   #endif

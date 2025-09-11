@@ -189,8 +189,8 @@ void BlockFillRandomUniformCopyFromHost(
     for (size_t i = 0; i < capacity; ++i) {
       buff[i] = (Element)(dis(gen));
     }
-    syclcompat::memcpy<Element>(ptr, buff.data(), capacity);
-    syclcompat::wait();
+    cutlasscompat::memcpy<Element>(ptr, buff.data(), capacity);
+    cutlasscompat::wait();
   } else {
     assert(false && "Not supported dtype");
   }

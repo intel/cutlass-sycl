@@ -210,8 +210,8 @@ struct ExampleRunner {
           M * N  // batch_stride_D
         );
 
-    // CUTLASS on SYCL uses the compatibility library syclcompat for e.g. default in-order queue
-    syclcompat::wait();
+    // CUTLASS on SYCL uses the compatibility library cutlasscompat for e.g. default in-order queue
+    cutlasscompat::wait();
 
     // Check if output from CUTLASS kernel and reference kernel are equal or not
     bool passed = cutlass::reference::device::BlockCompareEqual(
@@ -270,7 +270,7 @@ struct ExampleRunner {
     // Run the GEMM
     CUTLASS_CHECK(gemm_op.run());
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Verify that the result is correct
     bool passed = verify(problem_size, options.alpha, options.beta);
@@ -284,7 +284,7 @@ struct ExampleRunner {
       for (int i = 0; i < options.iterations; ++i) {
         gemm_op.run();
       }
-      syclcompat::wait();
+      cutlasscompat::wait();
 
       float cute_time = timer.seconds() / options.iterations;
       double tflops = (2.0 * options.m * options.n * options.k * options.l) * 1e-12;

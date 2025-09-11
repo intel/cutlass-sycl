@@ -175,12 +175,12 @@ struct BenchmarkRunnerGemm {
 
   using CollectiveMainloop = typename Gemm::GemmKernel::CollectiveMainloop;
   using DispatchPolicy = typename CollectiveMainloop::DispatchPolicy;
-  using ElementMma = CollectiveMainloop::TiledMma::ValTypeA;
+  using ElementMma = typename CollectiveMainloop::TiledMma::ValTypeA;
 
-  using ElementScale = ScaleType<CollectiveMainloop>::type;
-  using ElementZero = ZeroType<CollectiveMainloop>::type;
-  using StrideS = ScaleStride<CollectiveMainloop>::type;
-  using StrideZ = ZeroStride<CollectiveMainloop>::type;
+  using ElementScale = typename ScaleType<CollectiveMainloop>::type;
+  using ElementZero = typename ZeroType<CollectiveMainloop>::type;
+  using StrideS = typename ScaleStride<CollectiveMainloop>::type;
+  using StrideZ = typename ZeroStride<CollectiveMainloop>::type;
 
   using CollectiveEpilogue = typename Gemm::CollectiveEpilogue;
   using ElementC = typename Gemm::ElementC;
@@ -290,7 +290,7 @@ struct BenchmarkRunnerGemm {
     std::vector<uint8_t> zero(size(zero_layout) * sizeof_bits_v<ElementZero> / 8, 0);
     cutlass::device_memory::copy_to_host(zero.data(), (uint8_t*)zero_buffer, zero.size());
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     auto dst_tensor = make_tensor(make_gmem_ptr(reinterpret_cast<DequantizedElement*>(dst.data())), select<1, 0, 2>(operand_layout));
 
@@ -362,7 +362,7 @@ struct BenchmarkRunnerGemm {
     }
 
     cutlass::device_memory::copy_to_device(dq_buffer, (DequantizedElement*)(raw_pointer_cast(dst_tensor.data())), dst_tensor.size());
-    syclcompat::wait();
+    cutlasscompat::wait();
     return dq_buffer;
   }
 
@@ -394,7 +394,7 @@ struct BenchmarkRunnerGemm {
     std::vector<uint8_t> zero(size(zero_layout) * sizeof_bits_v<ElementZero> / 8, 0);
     cutlass::device_memory::copy_to_host(zero.data(), (uint8_t*)zero_buffer, zero.size());
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     auto dst_tensor = make_tensor(make_gmem_ptr(reinterpret_cast<DequantizedElement*>(dst.data())), operand_layout);
 
@@ -448,7 +448,7 @@ struct BenchmarkRunnerGemm {
     }
 
     cutlass::device_memory::copy_to_device(dq_buffer, (DequantizedElement*)(raw_pointer_cast(dst_tensor.data())), dst_tensor.size());
-    syclcompat::wait();
+    cutlasscompat::wait();
     return dq_buffer;
   }
 
@@ -526,7 +526,7 @@ struct BenchmarkRunnerGemm {
     );
 
 #if defined(CUTLASS_ENABLE_SYCL)
-    syclcompat::wait();
+    cutlasscompat::wait();
 #else
     cudaDeviceSynchronize();
 #endif
@@ -543,7 +543,7 @@ struct BenchmarkRunnerGemm {
           block_ref_D.get(), block_ref_D.get(), block_Aux[0].get(), block_D.size());
     }
 
-    syclcompat::wait();
+    cutlasscompat::wait();
 
     // Check if output from CUTLASS kernel and reference kernel are equal or not
     bool passed = reference::device::BlockCompareEqual(
@@ -686,7 +686,7 @@ struct BenchmarkRunnerGemm {
     gemm_op.run();
 
 #if defined(CUTLASS_ENABLE_SYCL)
-    syclcompat::wait();
+    cutlasscompat::wait();
 #else
     cudaDeviceSynchronize();
 #endif

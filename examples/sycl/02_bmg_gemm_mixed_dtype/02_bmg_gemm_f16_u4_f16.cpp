@@ -452,7 +452,12 @@ struct ExampleRunner {
 
   /// Initialize operands to be used in the GEMM and reference GEMM
   void initialize(Options const& options) {
-    auto [M, N, K, L] = ProblemShapeType{options.m, options.n, options.k, options.l};
+    // auto [M, N, K, L] = ProblemShapeType{options.m, options.n, options.k, options.l};
+    auto problem_shape = ProblemShapeType{options.m, options.n, options.k, options.l};
+    auto& M = cute::get<0>(problem_shape);
+    auto& N = cute::get<1>(problem_shape);
+    auto& K = cute::get<2>(problem_shape);
+    auto& L = cute::get<3>(problem_shape);
 
     auto zero_elements_packed_along_k = get<0>(StrideZero{});
     const int scale_k = cute::ceil_div(options.k, options.g);
@@ -461,8 +466,8 @@ struct ExampleRunner {
     auto shape_B = cute::make_shape(N, K, L);
     auto shape_CD = cute::make_shape(M, N, L);
     auto shape_scale = cute::make_shape(dq_mn_size, scale_k, L);
-    auto shape_zero = [&, stride_Z_ref = std::ref(stride_Z)]() {
-      if constexpr (is_tuple_v<std::remove_reference_t<decltype(cute::get<1>(stride_Z_ref.get()))>>) {
+    auto shape_zero = [&]() {
+      if constexpr (is_tuple_v<std::remove_reference_t<decltype(cute::get<1>(stride_Z))>>) {
         return cute::make_shape(dq_mn_size, cute::make_shape(zero_elements_packed_along_k, cute::max(1, scale_k / zero_elements_packed_along_k)), L);
       } else {
         return shape_scale;
@@ -474,8 +479,8 @@ struct ExampleRunner {
     stride_C = cutlass::make_cute_packed_stride(StrideC{}, shape_CD);
     stride_D = cutlass::make_cute_packed_stride(StrideD{}, shape_CD);
     stride_S = cutlass::make_cute_packed_stride(StrideScale{}, shape_scale);
-    stride_Z = [&, stride_Z_ref = std::ref(stride_Z)]() {
-      if constexpr (is_tuple_v<std::remove_reference_t<decltype(cute::get<1>(stride_Z_ref.get()))>>) {
+    stride_Z = [&]() {
+      if constexpr (is_tuple_v<std::remove_reference_t<decltype(cute::get<1>(stride_Z))>>) {
         return make_stride(Int<zero_elements_packed_along_k>{}, make_stride(_1{}, int64_t(zero_elements_packed_along_k * dq_mn_size)), int64_t(dq_mn_size * scale_k));
       } else {
         return stride_S;

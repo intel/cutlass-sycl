@@ -121,6 +121,7 @@ if (CUTLASS_ENABLE_SYCL)
          DPCPP_SYCL_TARGET STREQUAL "intel_gpu_bmg_g21")
     set(SYCL_INTEL_TARGET ON)
     add_compile_definitions(SYCL_INTEL_TARGET)
+    add_compile_options(-Wno-unused-command-line-argument)
   endif()
 
   add_compile_definitions(CUTLASS_ENABLE_SYCL)

@@ -117,7 +117,7 @@ void copy(int global_M, int global_N) {
 
   auto gridDim = cutlasscompat::dim3(1);
   auto blockDim = cutlasscompat::dim3(SUBGROUP_SIZE);
-  launch<copy_kernel<CopyInstruction, decltype(tensor_S), fragment_size>, CopyKernelName<CopyInstruction, decltype(tensor_S), fragment_size>>(
+  launch<copy_kernel<CopyInstruction, decltype(tensor_S), fragment_size>, CopyKernelName<CopyInstruction, decltype(tensor_S)>>(
       launch_policy{gridDim, blockDim,
                     kernel_properties{sycl_exp::sub_group_size<SUBGROUP_SIZE>}},
       tensor_S);

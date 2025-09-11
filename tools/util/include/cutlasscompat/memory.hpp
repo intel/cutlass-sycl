@@ -601,6 +601,9 @@ public:
   }
 };
 
+class memcpy_3d_detail;
+class compat_memcpy_3d_detail_usmnone;
+
 /// copy 3D matrix specified by \p size from 3D matrix specified by \p from_ptr
 /// and \p from_range to another specified by \p to_ptr and \p to_range.
 static inline std::vector<sycl::event>
@@ -703,7 +706,7 @@ memcpy(sycl::queue q, void *to_ptr, const void *from_ptr,
                      sycl::access::target::device>
           from_acc(from_alloc.buffer, cgh,
                    get_copy_range(size, from_slice, from_range.get(0)), from_o);
-      cgh.parallel_for<class compat_memcpy_3d_detail_usmnone>(
+      cgh.parallel_for<compat_memcpy_3d_detail_usmnone>(
           size, [=](sycl::id<3> id) {
             to_acc[get_offset(id, to_slice, to_range.get(0))] =
                 from_acc[get_offset(id, from_slice, from_range.get(0))];
@@ -713,7 +716,7 @@ memcpy(sycl::queue q, void *to_ptr, const void *from_ptr,
 #else
     event_list.push_back(q.submit([&](sycl::handler &cgh) {
       cgh.depends_on(dep_events);
-      cgh.parallel_for<class memcpy_3d_detail>(size, [=](sycl::id<3> id) {
+      cgh.parallel_for<memcpy_3d_detail>(size, [=](sycl::id<3> id) {
         to_surface[get_offset(id, to_slice, to_range.get(0))] =
             from_surface[get_offset(id, from_slice, from_range.get(0))];
       });

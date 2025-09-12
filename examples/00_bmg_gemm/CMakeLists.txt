@@ -32,6 +32,15 @@ set(TEST_SMALL_SHAPE --m=4 --n=8 --k=8 --l=2)
 
 
 cutlass_example_add_executable(
+  00_bmg_gemm_bf16_output
+  00_bmg_gemm_bf16_output.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_BATCHES
+  TEST_LARGE
+  TEST_SMALL_SHAPE
+)
+
+cutlass_example_add_executable(
   00_bmg_gemm
   00_bmg_gemm.cpp
   TEST_COMMAND_OPTIONS

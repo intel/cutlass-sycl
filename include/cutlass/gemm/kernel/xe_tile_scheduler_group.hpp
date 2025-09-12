@@ -224,20 +224,6 @@ public:
     }
 
     total_grid_size_ = uint64_t(GridDimX()) * uint64_t(GridDimY()) * uint64_t(GridDimZ());
-
-    uint64_t ctas_along_m, ctas_along_n;
-    if (is_tuple<decltype(cute::shape<0>(params_.problem_shapes_.get_problem_shape(0)))>::value ||
-        is_tuple<decltype(cute::shape<1>(params_.problem_shapes_.get_problem_shape(0)))>::value) {
-      ctas_along_m = cute::size(cute::ceil_div(cute::shape<0>(params_.problem_shapes_.get_problem_shape(0)), scheduler_params.cta_shape_.m()));
-      ctas_along_n = cute::size(cute::ceil_div(cute::shape<1>(params_.problem_shapes_.get_problem_shape(0)), scheduler_params.cta_shape_.n()));
-    }
-    else {
-      ctas_along_m = scheduler_params.divmod_cta_shape_m_.divide(cute::shape<0>(params_.problem_shapes_.get_problem_shape(0)) +  scheduler_params.divmod_cta_shape_m_.divisor - 1);
-      ctas_along_n = scheduler_params.divmod_cta_shape_n_.divide(cute::shape<1>(params_.problem_shapes_.get_problem_shape(0)) +  scheduler_params.divmod_cta_shape_n_.divisor - 1);
-    }
-    auto problem_blocks_m = round_up(ctas_along_m, (1 << params_.log_swizzle_size_) * params_.cluster_shape_.m());
-    auto problem_blocks_n = round_up(ctas_along_n, (1 << params_.log_swizzle_size_) * params_.cluster_shape_.n());
-    current_group_info_.total_tiles = problem_blocks_m * problem_blocks_n;
 #else
     CUTLASS_ASSERT(false && "This line should never be reached");
 #endif

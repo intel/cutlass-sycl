@@ -28,6 +28,8 @@
 
 include(FetchContent)
 
+block()
+set(CMAKE_COMPILE_WARNING_AS_ERROR FALSE) # Ignore warnings in GoogleTest's code
 set(GOOGLETEST_DIR "" CACHE STRING "Location of local GoogleTest repo to build against")
 
 if(GOOGLETEST_DIR)
@@ -47,3 +49,4 @@ FetchContent_MakeAvailable(googletest)
 if (MSVC)
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 endif()
+endblock()

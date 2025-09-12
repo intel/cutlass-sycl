@@ -191,9 +191,8 @@ template <
       using SmemLayoutAtomD_ = void;
       using CopyOpR2S_ = void;
 
-      //TODO(Codeplay): Should FusionCallbacks use DispatchPolicy IntelXeGroupEpilogue for group gemm? That does not work.
       using FusionCallbacks = typename detail::FusionOpInfo<FusionOpOrCallbacks>::template FusionCallbacks<
-                                  IntelXeXMX16, TileShape_MNK, TileShape_MNK, CopyOpG2R>;
+                                  std::conditional_t<IsGroup, IntelXeXMX16Group, IntelXeXMX16>, TileShape_MNK, TileShape_MNK, CopyOpG2R>;
 
       using CollectiveOp = cutlass::epilogue::collective::CollectiveEpilogue<
             DispatchPolicy,

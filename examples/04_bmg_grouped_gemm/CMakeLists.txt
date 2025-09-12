@@ -36,7 +36,15 @@ cutlass_example_add_executable(
   TEST_GROUPS_2
   TEST_GROUPS_4
 )
+cutlass_example_add_executable(
+  04_bmg_grouped_gemm_bf16_output
+  04_bmg_grouped_gemm_bf16_output.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_GROUPS_2
+  TEST_GROUPS_4
+)
 if(NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
   # TODO(codeplay): Remove these once IGC VectorAliasThreshold issue is fixed
   target_link_options( 04_bmg_grouped_gemm PRIVATE -Xs "-options \"-igc_opts 'VectorAliasBBThreshold=10000'\"" )
+  target_link_options( 04_bmg_grouped_gemm_bf16_output PRIVATE -Xs "-options \"-igc_opts 'VectorAliasBBThreshold=10000'\"" )  
 endif()

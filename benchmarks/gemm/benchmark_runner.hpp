@@ -453,13 +453,15 @@ struct BenchmarkRunnerGemm {
   }
 
   bool verify(const ProblemShapeType& problem_size, ElementCompute alpha, ElementCompute beta) {
-    auto [M, N, K, L] = problem_size;
+    auto& M = cute::get<0>(problem_size);
+    auto& N = cute::get<1>(problem_size);
+    auto& K = cute::get<2>(problem_size);
+    auto& L = cute::get<3>(problem_size);
 
     TensorRef ref_C(block_C[0].get(), LayoutC::packed({M, N}));
     TensorRef ref_D(block_ref_D.get(), LayoutD::packed({M, N}));
 
     auto [ptr_A, ptr_B] = [&]() {
-      auto [M, N, K, L] = problem_size;
       if constexpr (!is_mixed_dtype<DispatchPolicy>) {
         return make_tuple(block_A[0].get(), block_B[0].get());
       } else {
@@ -475,7 +477,6 @@ struct BenchmarkRunnerGemm {
         auto shape_scale = cute::make_shape(dq_mn_size, K / 128, L);
         static constexpr auto k_packed = CollectiveMainloop::zero_elements_packed_along_k;
         auto shape_zero = [&]() {
-         auto [M, N, K, L] = problem_size;
           if constexpr (is_tuple_v<std::remove_reference_t<decltype(cute::get<1>(stride_Z))>>) {
             return cute::make_shape(dq_mn_size, cute::make_shape(k_packed,
                                                         cute::max(1, K / 128 / k_packed)), L);

@@ -40,6 +40,12 @@
 #include <cute/arch/cluster_sm90.hpp>
 #include <cutlass/cluster_launch.hpp>
 
+#if defined(CUTLASS_ENABLE_SYCL)
+namespace sc = syclcompat;
+namespace sc_exp = syclcompat::experimental;
+namespace sycl_ext = sycl::ext::oneapi::experimental;
+#endif
+
 namespace cutlass::test {
 
 template <class ElementType, class SmemLayout>
@@ -62,12 +68,12 @@ tma_test_device_cute(T const* g_in, T* g_out, GmemLayout gmem_layout, SmemLayout
 
   // Use Shared Storage structure to allocate and distribute aligned SMEM addresses
   #if defined(CUTLASS_ENABLE_SYCL)
-    auto smem = sycl_ext::get_dynamic_work_group_memory<char>().get();
+  #if !defined(__SYCL_DEVICE_ONLY__)
+    void *shared_memory ; // dummy declaration to avoid compilation errors during the host compilation phase
+  #else
+    auto shared_memory = sycl_ext::get_work_group_scratch_memory();
   #endif
-  #if defined(CUTLASS_ENABLE_SYCL) && !defined(__SYCL_DEVICE_ONLY__)
-    char* smem; // dummy declaration to avoid compilation errors during the host compilation phase
-  #endif
-  #if !defined(CUTLASS_ENABLE_SYCL)
+  #else
     extern CUTLASS_SHARED char shared_memory[];
   #endif
   using SharedStorage = SharedStorage<T, SmemLayout>;
@@ -208,24 +214,27 @@ test_tma_load(CopyOp       const& copy_op,
   auto tma = make_tma_atom<TmaType>(copy_op, gA, smem_layout, cta_tiler, cluster_size);
   //print(tma);
 
+  int smem_size = sizeof(SharedStorage<T, SMEM_Layout>);
   // Launch
   #if defined(CUTLASS_ENABLE_SYCL)
-  auto kernel = tma_test_device_cute<T, GMEM_Layout, 
+  constexpr auto kernel = tma_test_device_cute<T, GMEM_Layout,
                                     SMEM_Layout, decltype(tma), CTA_Tiler, Cluster_Size>;
+
   sc_exp::launch<kernel>
-  ( sc_exp::launch_policy::{sc::dim3(1), sc::dim3(32), 
-    sc_exp::launch_properties{sycl_ext::work_group_static_size(smem_size),
+  ( sc_exp::launch_policy{sc::dim3(1), sc::dim3(32),
+    sc_exp::launch_properties{sycl_ext::work_group_scratch_size(smem_size),
                             sycl_ext::cuda::cluster_size(sycl::range<1>(sc::dim3(size(cluster_size))))}},
-    d_in.data(), d_out.data(), 
+    reinterpret_cast<T const*>(raw_pointer_cast(d_in.data())),
+    reinterpret_cast<T      *>(raw_pointer_cast(d_out.data())),
     gmem_layout,
     smem_layout,
     tma, cta_tiler, cluster_size);
+
   sc::wait_and_throw();
   #else
   dim3 dimBlock(32);
   dim3 dimCluster(size(cluster_size));
   dim3 dimGrid = dimCluster;
-  int smem_size = sizeof(SharedStorage<T, SMEM_Layout>);
 
   void* kernel_ptr = (void*) &tma_test_device_cute<T, GMEM_Layout, SMEM_Layout,
                                                    decltype(tma), CTA_Tiler, Cluster_Size>;

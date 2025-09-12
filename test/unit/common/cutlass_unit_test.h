@@ -93,7 +93,7 @@ int CutlassUnitTestProblemCount();
 #define CUTLASS_TEST_UNIT_ENABLE_WARNINGS false
 #endif
 
-#if (__CUDACC_VER_MAJOR__ >= 12)
+#if ((__CUDACC_VER_MAJOR__ >= 12) || (defined(__SYCL_CUDA_ARCH__) && (__SYCL_CUDA_ARCH__ >= 900)))
   #define CUDA_12_0_SM90_FEATURES_SUPPORTED true
 #else
   #define CUDA_12_0_SM90_FEATURES_SUPPORTED false

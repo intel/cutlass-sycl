@@ -39,10 +39,19 @@
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+// This is a workaround and should be removed in the future.
+// Issue in next #if (cuda flags not getting set) need to be fixed for SYCL.
+#if (!defined(CUTLASS_ARCH_MMA_SM90_ENABLED) && defined(__SYCL_CUDA_ARCH__) && (__SYCL_CUDA_ARCH__ >= 900))
+  #define CUTLASS_ARCH_MMA_SM90_ENABLED 1
+  #pragma message("FROM THE PREPROCESSOR CUTLASS_ARCH_MMA_SM90_ENABLED.")
+#endif
+
 // SM90
 #if (__CUDACC_VER_MAJOR__ > 12 || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 0))
   #define CUTLASS_ARCH_MMA_SM90_SUPPORTED 1
-  #if (!defined(CUTLASS_ARCH_MMA_SM90_ENABLED) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 900)
+  #if ((!defined(CUTLASS_ARCH_MMA_SM90_ENABLED) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 900) || \
+       (defined(__SYCL_CUDA_ARCH__) && (__SYCL_CUDA_ARCH__ >= 900)))
     #define CUTLASS_ARCH_MMA_SM90_ENABLED 1
 
     #if (!defined(CUTLASS_ARCH_MMA_SM90A_ENABLED) && defined(__CUDA_ARCH_FEAT_SM90_ALL))

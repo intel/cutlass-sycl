@@ -31,7 +31,7 @@
 
 #include "cutlass_unit_test.h"
 
-#include "../hopper/tma_load_testbed.hpp"
+#include "tma_load_testbed.hpp"
 
 using namespace cute;
 using namespace cutlass::test;

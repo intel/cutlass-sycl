@@ -62,10 +62,10 @@ bulk_copy_test_device_cute(T const* g_in,
 {
   // Use Shared Storage structure to allocate and distribute aligned SMEM addresses
   #if defined(__SYCL_DEVICE_ONLY__)
-  auto smem = sycl_ext::get_dynamic_work_group_memory<char>().get();
+  auto shared_memory = sycl_ext::get_work_group_scratch_memory();
   #endif
   #if defined(CUTLASS_ENABLE_SYCL) && !defined(__SYCL_DEVICE_ONLY__)
-    char* smem; // dummy declaration to avoid compilation errors during the host compilation phase
+    char* shared_memory; // dummy declaration to avoid compilation errors during the host compilation phase
   #endif
   #if !defined(CUTLASS_ENABLE_SYCL)
     extern CUTLASS_SHARED char shared_memory[];
@@ -83,7 +83,7 @@ bulk_copy_test_device_cute(T const* g_in,
   //
 
   // Input gmem -> smem
-  for (int i = threadIdx.x; i < size(sA); i += blockDim.x) {
+  for (int i = ThreadIdxX(); i < size(sA); i +=  BlockDimX()) {
     sA(i) = gA(i);
   }
 
@@ -128,7 +128,7 @@ void run_and_validate(GLayout gmem_layout,
   #if defined(CUTLASS_ENABLE_SYCL)
   sc_exp::launch<bulk_copy_test_device_cute<T, GLayout, SLayout>>
   ( sc_exp::launch_policy{sc::dim3(1), sc::dim3(128), 
-    sc_exp::launch_properties{sycl_ext::work_group_static_size(smem_size)}},
+    sc_exp::launch_properties{sycl_ext::work_group_scratch_size(smem_size)}},
     d_in.data(), d_out.data(), gmem_layout, smem_layout);
   sc::wait_and_throw();
   #else

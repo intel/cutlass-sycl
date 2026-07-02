@@ -141,6 +141,10 @@ if (CUTLASS_ENABLE_SYCL)
     intel_gpu_bmg_g31
     bmg
     pvc
+    intel_gpu_ptl_h
+    intel_gpu_ptl_u
+    ptl
+    ptl
   )
 
   foreach(ITEM IN LISTS DPCPP_SYCL_TARGET_LIST)

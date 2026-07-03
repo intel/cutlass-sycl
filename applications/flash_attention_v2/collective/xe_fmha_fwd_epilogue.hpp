@@ -103,9 +103,17 @@ public:
   using DefaultTiledCopyO = decltype(default_tiled_copy_O_helper());
   using TiledCopyO = conditional_t<is_void_v<TiledCopyO_>, DefaultTiledCopyO, TiledCopyO_>;
 
-  // Stateless design -- no arguments or parameters.
-  struct Arguments {};
-  struct Params {};
+  // LSE output configuration (optional, null = skip).
+  struct Arguments {
+    float* lse_ptr = nullptr;
+    int seq_len_qo = 0;
+    int num_heads_q = 0;
+  };
+  struct Params {
+    float* lse_ptr = nullptr;
+    int seq_len_qo = 0;
+    int num_heads_q = 0;
+  };
 
   // Shared memory storage
   // Note sum/max tiles are padded to 16 elements, due to limitations in CuTe block load infrastructure.
@@ -121,11 +129,14 @@ public:
 
 private:
   SharedStorage &shared;
+  float* lse_ptr = nullptr;
+  int num_heads_q_param = 0;
+  int seq_len_qo_param = 0;
 
 public:
   static constexpr
   Params to_underlying_arguments(Arguments const &args, void * /* workspace */) {
-    return {};
+    return {args.lse_ptr, args.seq_len_qo, args.num_heads_q};
   }
 
   CUTLASS_HOST_DEVICE static bool can_implement(Arguments const&) {
@@ -133,7 +144,11 @@ public:
   }
 
   CUTLASS_HOST_DEVICE
-  FMHAFwdEpilogue(Params const&, SharedStorage& shared_) : shared(shared_) {}
+  FMHAFwdEpilogue(Params const& params_, SharedStorage& shared_)
+    : shared(shared_),
+      lse_ptr(params_.lse_ptr),
+      num_heads_q_param(params_.num_heads_q),
+      seq_len_qo_param(params_.seq_len_qo) {}
 
   template <bool SumIsReduced = false, typename QVCoord, typename FragSPRow>
   CUTLASS_DEVICE
@@ -144,7 +159,12 @@ public:
              FragSPRow      & tA_sum,   // Softmax row-wise partial sum (per-lane, deferred hreduce)
              QVCoord          blk_qv,   // WG tile indices: (q,v)
              int              thr_id,   // Work-item ID
+<<<<<<< HEAD
              float            v_scale = 1.0f) { // Per-tensor V dequant scale (fp8 path)
+=======
+             int              head_q,   // Query-head index (for LSE output)
+             int              idx_b) {  // Batch index (for LSE output)
+>>>>>>> fedbba40 (Add LSE output configuration to FMHAFwdEpilogue and kernel parameters)
 
     using namespace cute;
     using ElementA = typename FragA::element_type;
@@ -185,6 +205,45 @@ public:
     for (int i = 0; i < rA.size(); i++)
       tOrO(i) = static_cast<ElementO>(rA(i) * broadcast<0>(rA_sum, rA, i));
     copy(copy_o, tOrO, tOgO);
+
+    /* ---- Write LSE output if requested ---- */
+    if (lse_ptr) {
+      /* The softmax uses exp2 throughout. LSE = max + log2(sum).
+         After rA_sum inversion: log2(1/rA_sum) = log(1/rA_sum) * log2(e) */
+      constexpr float kLog2e = 1.4426950408889634f;
+      constexpr int num_q_elems = sizeof(FragARow) / sizeof(ElementA);
+      constexpr int total_a_elems = sizeof(FragA) / sizeof(ElementA);
+      constexpr int tile_q_size = size<0>(TileShapeO{});
+      constexpr int elems_per_q = total_a_elems / num_q_elems;
+      static_assert(total_a_elems % num_q_elems == 0,
+                    "FragA elements must be divisible by FragARow elements");
+
+      /* Write LSE.  Each subgroup covers a portion of the Q output.
+         tile_q_size / SGPerWG gives Q-rows per subgroup (minimum 1).
+         The last tile may have fewer Q-rows; the q_global check handles it. */
+      constexpr int total_tile_sgs = decltype(SGPerWG{})::value;
+      constexpr int q_per_sg = tile_q_size > total_tile_sgs
+                               ? (tile_q_size + total_tile_sgs - 1) / total_tile_sgs
+                               : 1;
+      int sg_id = thr_id / intel::sg_size;
+      int q_offset = sg_id * q_per_sg;
+      int blk_q = static_cast<int>(cute::get<0>(blk_qv));
+      int total_q_global = size<0>(O.shape());
+      int64_t lse_base = (int64_t)idx_b * (int64_t)num_heads_q_param * (int64_t)total_q_global +
+                          (int64_t)head_q * (int64_t)total_q_global;
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < q_per_sg; ++i) {
+        int q_global = blk_q * tile_q_size + q_offset + i;
+        if (q_global < total_q_global) {
+          /* Access tA_max/rA_sum using the position within this SG's range.
+             Use q_idx = i (since num_q_elems may differ from q_per_sg due to
+             VTiles folding, clamp to num_q_elems-1 if needed). */
+          int qi = i < num_q_elems ? i : num_q_elems - 1;
+          ElementA lse_val = tA_max(qi) + sycl::log(ElementA(1) / rA_sum(qi)) * kLog2e;
+          lse_ptr[lse_base + q_global] = static_cast<float>(lse_val);
+        }
+      }
+    }
   }
 
   // Reduce k-blocks of A and A_sum across WG, if needed.

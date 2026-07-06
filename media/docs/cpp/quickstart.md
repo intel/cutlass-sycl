@@ -4,53 +4,44 @@
 
 ## Prerequisites
 
-CUTLASS requires:
-- NVIDIA CUDA Toolkit (11.4 or later required, [12.0](https://developer.nvidia.com/cuda-toolkit) recommended)
-- CMake 3.18+
-- host compiler supporting C++17 or greater (minimum g++ 7.5.0)
-- Python 3.6+
+SYCL*TLA targets Intel GPUs and requires:
+- Intel® oneAPI DPC++/C++ Compiler (`icpx`) — or a recent open-source DPC++ build — supporting C++17 or greater
+- CMake 3.22+
+- Python 3.8+
 
-CUTLASS may be optionally compiled and linked with
-- cuBLAS
-- cuDNN v7.6 or later
+For full toolchain setup and supported configurations, see
+[Building with SYCL support](build/building_with_sycl_support.md).
+
+> The instructions below cover the Intel GPU (SYCL) build path. SYCL*TLA also retains an
+> upstream NVIDIA CUDA build path (`nvcc` / `CUTLASS_NVCC_ARCHS`) for cross-platform
+> coverage; that path is documented in the deeper sections of this guide and in the build
+> docs. For Intel GPU development, follow the SYCL steps here.
 
 ## Initial build steps
 
-Construct a build directory and run CMake.
+Construct a build directory and run CMake, selecting the DPC++ compiler and an Intel GPU target.
 ```bash
-$ export CUDACXX=${CUDA_INSTALL_PATH}/bin/nvcc
-
 $ mkdir build && cd build
 
-$ cmake .. -DCUTLASS_NVCC_ARCHS=90a            # compiles for NVIDIA Hopper GPU architecture
-$ cmake .. -DCUTLASS_NVCC_ARCHS=100a           # compiles for NVIDIA Blackwell SM100 GPU architecture
+# compiles for Intel Data Center GPU Max (PVC)
+$ CC=icx CXX=icpx cmake .. -G Ninja -DCUTLASS_ENABLE_SYCL=ON -DDPCPP_SYCL_TARGET=intel_gpu_pvc
+
+# compiles for Intel Arc B580 Graphics (BMG G21)
+$ CC=icx CXX=icpx cmake .. -G Ninja -DCUTLASS_ENABLE_SYCL=ON -DDPCPP_SYCL_TARGET=intel_gpu_bmg_g21
 ```
 
-If your goal is strictly to build only the CUTLASS Profiler and to minimize compilation time, we suggest
-executing the following CMake command in an empty `build/` directory.
-```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=90a -DCUTLASS_ENABLE_TESTS=OFF -DCUTLASS_UNITY_BUILD_ENABLED=ON
-```
+The target architecture is selected via the `DPCPP_SYCL_TARGET` flag; see
+[Building for Multiple Architectures](#building-for-multiple-architectures) below and the
+[functionality docs](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/functionality.md)
+for which kernels require which targets.
 
-This reduces overall compilation time by excluding unit tests and enabling the unity build.
-
-You may reduce build times by compiling only certain operations by setting the `CUTLASS_LIBRARY_OPERATIONS` flag as shown below,
-executed from an empty `build/` directory. This only compiles 2-D convolution kernels.
+You may reduce build times by compiling only certain operations by setting the `CUTLASS_LIBRARY_OPERATIONS` flag,
+or filter kernels by name with `CUTLASS_LIBRARY_KERNELS`. For example, the command below selects only CUTLASS-3 kernels.
 
 ```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=90a -DCUTLASS_LIBRARY_OPERATIONS=conv2d
-```
-
-You may also filter kernels by name by supplying a filter string with flag `CUTLASS_LIBRARY_KERNELS`. For example the below command selects only CUTLASS-3 kernels.
-
-```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=90a -DCUTLASS_LIBRARY_KERNELS=cutlass3x*
+$ CC=icx CXX=icpx cmake .. -G Ninja -DCUTLASS_ENABLE_SYCL=ON -DDPCPP_SYCL_TARGET=intel_gpu_pvc -DCUTLASS_LIBRARY_KERNELS=cutlass3x*
 ```
 See more examples on selectively compiling CUTLASS GEMM and convolution kernels [here](quickstart.md#example-cmake-commands).
-
-You may explicitly exclude cuBLAS and cuDNN as dependencies with the following CMake flags.
-- `-DCUTLASS_ENABLE_CUBLAS=OFF`
-- `-DCUTLASS_ENABLE_CUDNN=OFF`
 
 
 ## Build and run the CUTLASS Profiler
@@ -175,43 +166,29 @@ $ make test_unit_gemm_warp -j
 
 ## Building for Multiple Architectures
 
-To minimize compilation time, specific GPU architectures can be enabled via the CMake command,
-selected by [CUDA Compute Capability.](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capabilities)
+To minimize compilation time, a specific Intel GPU architecture is selected via the
+`DPCPP_SYCL_TARGET` CMake flag. See the
+[functionality docs](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/functionality.md)
+for which kernels require which targets.
 
-**NVIDIA Blackwell Architecture.**
+**Intel Data Center GPU Max — PVC (Ponte Vecchio).**
 ```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=100a              # compiles for NVIDIA Blackwell GPU architecture
+$ CC=icx CXX=icpx cmake .. -G Ninja -DCUTLASS_ENABLE_SYCL=ON -DDPCPP_SYCL_TARGET=intel_gpu_pvc
 ```
 
-**NVIDIA Hopper Architecture.**
+**Intel Arc B580 Graphics — BMG G21 (Battlemage).**
 ```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=90a              # compiles for NVIDIA Hopper GPU architecture
+$ CC=icx CXX=icpx cmake .. -G Ninja -DCUTLASS_ENABLE_SYCL=ON -DDPCPP_SYCL_TARGET=intel_gpu_bmg_g21
 ```
 
-**NVIDIA Ampere Architecture.**
-```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=80               # compiles for NVIDIA Ampere GPU architecture
-```
+> `-DDPCPP_SYCL_TARGET=bmg` compiles for both `intel_gpu_bmg_g21` and `intel_gpu_bmg_g31`.
 
-**NVIDIA Turing Architecture.**
-```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=75               # compiles for NVIDIA Turing GPU architecture
-```
-
-**NVIDIA Volta Architecture.**
-```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS=70               # compiles for NVIDIA Volta GPU architecture
-```
-
-**NVIDIA Pascal Architecture.**
-```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS="60;61"          # compiles for NVIDIA Pascal GPU architecture
-```
-
-**NVIDIA Maxwell Architecture.**
-```bash
-$ cmake .. -DCUTLASS_NVCC_ARCHS="50;53"          # compiles for NVIDIA Maxwell GPU architecture
-```
+**NVIDIA GPUs (cross-platform path).** SYCL*TLA also retains the upstream NVIDIA CUDA build
+path for cross-platform coverage. Architectures are selected by
+[CUDA Compute Capability](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#compute-capabilities)
+via `CUTLASS_NVCC_ARCHS` (e.g. `90a` for Hopper, `100a` for Blackwell, `80` for Ampere);
+see [Building with SYCL support](build/building_with_sycl_support.md) for the
+`nvptx64-nvidia-cuda` target configuration.
 
 ## Using CUTLASS within other applications
 

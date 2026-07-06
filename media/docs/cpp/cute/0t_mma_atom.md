@@ -1,5 +1,10 @@
 # CuTe's support for Matrix Multiply-Accumulate instructions
 
+> **Note on terminology.** This page uses CUDA terminology (CTA, threadblock, warp, `mma.sync`)
+> inherited from upstream CUTLASS. See [10_intel_overview.md](./10_intel_overview.md) for
+> the CUDA → SYCL mapping used in SYCL*TLA (e.g. `mma.sync`/HMMA → DPAS, threadblock → workgroup,
+> warp → subgroup).
+
 In this file, we explain in detail how we support our GPUs'
 Matrix Multiply-Accumulate (MMA) hardware instructions in CuTe.
 
@@ -66,7 +71,7 @@ including
 #### Location of files
 
 CuTe provides its Operations structs in the
-[`include/cute/arch`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/arch)
+[`include/cute/arch`](https://github.com/intel/sycl-tla/tree/main/include/cute/arch)
 directory, in header files starting with `mma`.
 
 #### Operation struct's name
@@ -84,7 +89,13 @@ These often include
 
 For example, the Volta section below will refer to the
 `SM70_8x8x4_F32F16F16F32_NT` Operation struct defined in
-[`include/cute/arch/mma_sm70.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/arch/mma_sm70.hpp).
+[`include/cute/arch/mma_sm70.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/arch/mma_sm70.hpp).
+
+> **Note.** `SM70_8x8x4_F32F16F16F32_NT` is used here only as a worked example of the *naming
+> convention* — it is an NVIDIA Volta instruction. The Intel Xe equivalent is the `XE_DPAS_TT`
+> atom in [`include/cute/arch/mma_xe.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/arch/mma_xe.hpp);
+> see [11_intel_gemm_companion.md](./11_intel_gemm_companion.md) for how it is selected and used
+> in a real Intel Xe GEMM.
 
 * "SM70" refers to Volta.
 
@@ -111,7 +122,7 @@ An Operation struct has the following members.
 An Operation struct has four public type aliases:
 `DRegisters`, `ARegisters`, `BRegisters`, and `CRegisters`.
 For example, the `SM70_8x8x4_F32F16F16F32_NT` Operation struct defined in
-[`include/cute/arch/mma_sm70.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/arch/mma_sm70.hpp)
+[`include/cute/arch/mma_sm70.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/arch/mma_sm70.hpp)
 defines these as follows.
 
 ```c++
@@ -145,7 +156,7 @@ can still compile, even if the PTX instruction is not available.
 #### Location of files
 
 CuTe provides its Traits structs in the
-[`include/cute/atom`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/atom)
+[`include/cute/atom`](https://github.com/intel/sycl-tla/tree/main/include/cute/atom)
 directory, in header files starting with `mma_traits`.
 
 #### Contents
@@ -175,7 +186,7 @@ An `MMA_Traits` specialization defines the following public type aliases.
 
 The specialization of MMA_Traits for the
 `SM70_8x8x4_F32F16F16F32_NT` Operation lives in the header file
-[`include/cute/atom/mma_traits_sm70.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/atom/mma_traits_sm70.hpp).
+[`include/cute/atom/mma_traits_sm70.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/atom/mma_traits_sm70.hpp).
 It looks like this.
 
 ```c++
@@ -250,7 +261,7 @@ Let us look at exactly how the 8 threads within a QP are mapped to the A, B and 
 
 ![HMMA.8x8x4.quadpair.C.png](../../../images/cute/HMMA.8x8x4.quadpair.C.png)
 
-The metainformation of this single instruction level view is what we want to encode in CuTe. Specifically, the QP level view in this diagram corresponds to the four MMA traits for [SM70_F32F16F16F32](https://github.com/NVIDIA/cutlass/tree/main/include/cute/arch/mma_sm70.hpp). These structs contain the `Element` types, the `Shape_MNK`, and the `ThrID` mapping we constructed above. Now, let us take a look at the definition of `CLayout`, the thread-data layout of accumulators. The job of `CLayout` is to construct a mapping between the `(logical_thr_id, logical_val_id)` and `(m, n)` coordinate in the C matrix which can then be used to build up more complicated layouts and operations like the 16x16x4 WMMA.
+The metainformation of this single instruction level view is what we want to encode in CuTe. Specifically, the QP level view in this diagram corresponds to the four MMA traits for [SM70_F32F16F16F32](https://github.com/intel/sycl-tla/tree/main/include/cute/arch/mma_sm70.hpp). These structs contain the `Element` types, the `Shape_MNK`, and the `ThrID` mapping we constructed above. Now, let us take a look at the definition of `CLayout`, the thread-data layout of accumulators. The job of `CLayout` is to construct a mapping between the `(logical_thr_id, logical_val_id)` and `(m, n)` coordinate in the C matrix which can then be used to build up more complicated layouts and operations like the 16x16x4 WMMA.
 
 We can start constructing a `CLayout` from the picture above. As with any CuTe layout, it is a pair of `Shape` and corresponding `Stride`. Let us just look at the shape for now. We know that the HMMA uses 8 threads each of which own 8 values. Therefore, the shape of our mapping must have a size of 8 along two modes. With this, we have
 

@@ -4,7 +4,7 @@ This section summarizes the interfaces and implementations
 of common numerical algorithms performed on `Tensor`s.
 
 The implementation of these algorithms may be found in the
-[include/cute/algorithm/](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm/)
+[include/cute/algorithm/](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm/)
 directory.
 
 ## `copy`
@@ -12,7 +12,7 @@ directory.
 CuTe's `copy` algorithm copies the elements of a source `Tensor`
 into the elements of a destination `Tensor`.
 The various overloads of `copy` can be found in
-[`include/cute/algorithm/copy.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm/copy.hpp).
+[`include/cute/algorithm/copy.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm/copy.hpp).
 
 ### Interface and specialization opportunities
 
@@ -82,7 +82,7 @@ such as `cp.async`, or its C++ interface `memcpy_async`.
 In that case, users will need to perform
 the additional synchronization appropriate to that underlying implementation
 before they may use the results of the `copy` algorithm.
-[The CuTe GEMM tutorial example](https://github.com/NVIDIA/cutlass/tree/main/examples/cute/tutorial/)
+[The CuTe GEMM tutorial example](https://github.com/intel/sycl-tla/tree/main/examples/cute/tutorial/)
 shows one such synchronization method.
 More optimized GEMM implementations use pipelining techniques
 to overlap asynchronous `copy` operations with other useful work.
@@ -129,7 +129,7 @@ CuTe's optimized copy implementations can do all of these.
 ## `copy_if`
 
 CuTe's `copy_if` algorithm lives in the same header as `copy`,
-[`include/cute/algorithm/copy.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm/copy.hpp).
+[`include/cute/algorithm/copy.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm/copy.hpp).
 The algorithm takes source and destination `Tensor` parameters like `copy`,
 but it also takes a "predication `Tensor`"
 with the same shape as the input and output.
@@ -195,7 +195,7 @@ for different architectures, please refer to the
 ## `axpby`
 
 The `axpby` algorithm lives in the header file
-[`include/cute/algorithm/axpby.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm/axpby.hpp).
+[`include/cute/algorithm/axpby.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm/axpby.hpp).
 It assigns to $y$ the result of $\alpha x + \beta y$,
 where $\alpha$ and $\beta$ are scalars and $x$ and $y$ are `Tensor`s.
 The name stands for "Alpha times X Plus Beta times Y,"
@@ -205,21 +205,21 @@ and is a generalization of the original BLAS "AXPY" routine
 ## `fill`
 
 The `fill` algorithm lives in the header file
-[`include/cute/algorithm/fill.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm/fill.hpp).
+[`include/cute/algorithm/fill.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm/fill.hpp).
 It overwrites the elements of its `Tensor` output argument
 with a given scalar value.
 
 ## `clear`
 
 The `clear` algorithm lives in the header file
-[`include/cute/algorithm/clear.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm/clear.hpp).
+[`include/cute/algorithm/clear.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm/clear.hpp).
 It overwrites the elements of its `Tensor` output argument with zeros.
 
 ## Other algorithms
 
 CuTe provides other algorithms.
 Their header files can be found in the
-[`include/cute/algorithm`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm)
+[`include/cute/algorithm`](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm)
 directory.
 
 ## Copyright

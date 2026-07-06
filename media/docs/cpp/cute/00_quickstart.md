@@ -1,17 +1,17 @@
 # Getting Started With CuTe
 
-CuTe is a collection of C++ CUDA template abstractions for defining and operating on hierarchically multidimensional layouts of threads and data. CuTe provides `Layout` and `Tensor` objects that compactly packages the type, shape, memory space, and layout of data, while performing the complicated indexing for the user. This lets programmers focus on the logical descriptions of their algorithms while CuTe does the mechanical bookkeeping for them. With these tools, we can quickly design, implement, and modify all dense linear algebra operations.
+CuTe is a collection of C++ template abstractions for GPU computing, for defining and operating on hierarchically multidimensional layouts of threads and data. CuTe provides `Layout` and `Tensor` objects that compactly package the type, shape, memory space, and layout of data, while performing the complicated indexing for the user. This lets programmers focus on the logical descriptions of their algorithms while CuTe does the mechanical bookkeeping for them. With these tools, we can quickly design, implement, and modify all dense linear algebra operations.
 
 The core abstraction of CuTe are the hierarchically multidimensional layouts which can be composed with data arrays to represent tensors. The representation of layouts is powerful enough to represent nearly everything we need to implement efficient dense linear algebra. Layouts can also be combined and manipulated via functional composition, on which we build a large set of common operations such as tiling and partitioning.
 
 ## System Requirements
 
 CuTe shares CUTLASS 3.x's software requirements,
-including NVCC with a C++17 host compiler.
+including Intel DPC++ compiler (icpx) with C++17 support.
 
 ## Knowledge prerequisites
 
-CuTe is a CUDA C++ header-only library.  It requires C++17
+CuTe is a header-only C++ library for GPU computing.  It requires C++17
 (the revision of the C++ Standard that was released in 2017).
 
 Throughout this tutorial, we assume intermediate C++ experience.
@@ -21,31 +21,31 @@ how to use the `auto` keyword to deduce a function's return type.
 We will be gentle with C++ and explain some things
 that you might already know.
 
-We also assume intermediate CUDA experience.
+We also assume intermediate SYCL/GPU programming experience.
 For example, readers must know
 the difference between device and host code,
-and how to launch kernels.
+and how to launch kernels (e.g. via `sycl::queue::submit` and `parallel_for`).
 
 ## Building Tests and Examples
 
 CuTe's tests and examples build and run as part of CUTLASS's normal build process.
 
-CuTe's unit tests live in the [`test/unit/cute`](https://github.com/NVIDIA/cutlass/tree/main/test/unit/cute) subdirectory.
+CuTe's unit tests live in the [`test/unit/cute`](https://github.com/intel/sycl-tla/tree/main/test/unit/cute) subdirectory.
 
-CuTe's examples live in the [`examples/cute`](https://github.com/NVIDIA/cutlass/tree/main/examples/cute) subdirectory.
+CuTe's examples live in the [`examples/cute`](https://github.com/intel/sycl-tla/tree/main/examples/cute) subdirectory.
 
 ## Library Organization
 
-CuTe is a header-only C++ library, so there is no source code that needs building. Library headers are contained within the top level [`include/cute`](https://github.com/NVIDIA/cutlass/tree/main/include/cute) directory, with components of the library grouped by directories that represent their semantics.
+CuTe is a header-only C++ library, so there is no source code that needs building. Library headers are contained within the top level [`include/cute`](https://github.com/intel/sycl-tla/tree/main/include/cute) directory, with components of the library grouped by directories that represent their semantics.
 
 |        Directory       |        Contents        |
 |------------------------|------------------------|
-| [`include/cute`](https://github.com/NVIDIA/cutlass/tree/main/include/cute) | Each header in the top level corresponds to one of the fundamental building blocks of CuTe, such as [`Layout`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/layout.hpp) and [`Tensor`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/tensor.hpp). |
-| [`include/cute/container`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/container) | Implementations of STL-like objects, such as tuple, array, and aligned array.  |
-| [`include/cute/numeric`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/numeric) | Fundamental numeric data types that include nonstandard floating-point types, nonstandard integer types, complex numbers, and integer sequence.  |
-| [`include/cute/algorithm`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/algorithm) | Implementations of utility algorithms such as copy, fill, and clear that automatically leverage architecture-specific features if available. |
-| [`include/cute/arch`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/arch) | Wrappers for architecture-specific matrix-matrix multiply and copy instructions. |
-| [`include/cute/atom`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/atom) | Meta-information for instructions in `arch` and utilities like partitioning and tiling.
+| [`include/cute`](https://github.com/intel/sycl-tla/tree/main/include/cute) | Each header in the top level corresponds to one of the fundamental building blocks of CuTe, such as [`Layout`](https://github.com/intel/sycl-tla/tree/main/include/cute/layout.hpp) and [`Tensor`](https://github.com/intel/sycl-tla/tree/main/include/cute/tensor.hpp). |
+| [`include/cute/container`](https://github.com/intel/sycl-tla/tree/main/include/cute/container) | Implementations of STL-like objects, such as tuple, array, and aligned array.  |
+| [`include/cute/numeric`](https://github.com/intel/sycl-tla/tree/main/include/cute/numeric) | Fundamental numeric data types that include nonstandard floating-point types, nonstandard integer types, complex numbers, and integer sequence.  |
+| [`include/cute/algorithm`](https://github.com/intel/sycl-tla/tree/main/include/cute/algorithm) | Implementations of utility algorithms such as copy, fill, and clear that automatically leverage architecture-specific features if available. |
+| [`include/cute/arch`](https://github.com/intel/sycl-tla/tree/main/include/cute/arch) | Wrappers for architecture-specific matrix-matrix multiply and copy instructions. |
+| [`include/cute/atom`](https://github.com/intel/sycl-tla/tree/main/include/cute/atom) | Meta-information for instructions in `arch` and utilities like partitioning and tiling.
 
 ## Tutorial
 
@@ -103,7 +103,7 @@ if (thread0()) {
 Some algorithms depend on some thread or threadblock,
 so you may need to print on threads or threadblocks other than zero.
 The header file
-[`cute/util/debug.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/util/debug.hpp),
+[`cute/util/debug.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/util/debug.hpp),
 among other utilities,
 includes the function `bool thread(int tid, int bid)`
 that returns `true` if running on thread `tid` and threadblock `bid`.

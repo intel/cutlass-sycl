@@ -1,10 +1,21 @@
 # CuTe dense matrix-matrix multiply tutorial
 
-In this section, we review
-[these examples](https://github.com/NVIDIA/cutlass/tree/main/examples/cute/tutorial/),
-which demonstrate a few self-contained, single-file dense matrix-matrix multiply implementations using only CuTe.
+> **Note on terminology and files.** This page teaches the CuTe GEMM concepts using CUDA
+> terminology (CTA, threadblock, `.cu` filenames, `__global__`, `<<<>>>`) inherited from
+> upstream CUTLASS. In SYCL*TLA the actual tutorial sources are SYCL `.cpp` files: each
+> `sgemm_N.cu` discussed below ships as `sgemm_N_sycl.cpp` in
+> [`examples/cute/tutorial/`](https://github.com/intel/sycl-tla/tree/main/examples/cute/tutorial/).
+> See [10_intel_overview.md](./10_intel_overview.md) for the CUDA → SYCL mapping, and
+> [11_intel_gemm_companion.md](./11_intel_gemm_companion.md) for a complete Intel Xe GPU GEMM
+> walkthrough built on the native `xe_gemm.cpp` tutorial.
 
-## `sgemm_1.cu`
+In this section, we review the
+[CuTe tutorial examples](https://github.com/intel/sycl-tla/tree/main/examples/cute/tutorial/),
+which demonstrate a few self-contained, single-file dense matrix-matrix multiply implementations
+using only CuTe. The walkthrough below uses the upstream CUDA form of each example; the SYCL
+ports (`*_sycl.cpp`) in that directory follow the same structure.
+
+## `sgemm_1.cu` (SYCL: [`sgemm_1_sycl.cpp`](https://github.com/intel/sycl-tla/tree/main/examples/cute/tutorial/sgemm_1_sycl.cpp))
 
 The simplest of the tutorial examples covers the basics of partitioning the global memory into tiles across the CTAs (also called threadblocks in CUDA), partitioning the data tiles across the threads of each CTA, and writing a mainloop using `cute::copy` and `cute::gemm`.
 
@@ -372,7 +383,7 @@ for (int k_tile = 0; k_tile < K_TILE_MAX; ++k_tile)
 
 We can see that `k_tile` iterates over each tile of data, the `cute::copy` is performed for the current `k_tile` using the `tA` and `tB` thread-partitioned tensors, and the `cute::gemm` is computed for that current `k_tile` using the `tC` thread-partitioned tensors. Synchronization is provided so that this kernel works on any architecture.
 
-## `sgemm_2.cu`
+## `sgemm_2.cu` (SYCL: [`sgemm_2_sycl.cpp`](https://github.com/intel/sycl-tla/tree/main/examples/cute/tutorial/sgemm_2_sycl.cpp))
 
 An example that uses more complex `TiledMMA` and `TiledCopy` to perform partitioning in place of the `tA`, `tB`, and `tC` thread layouts. With this example, we try to emphasize that the shared memory layouts, the partitioning patterns, and the PTX instruction to use in each stage can be specified independently.
 
@@ -448,13 +459,13 @@ In this version, we have also updated the shared memory layouts for `gemm_tn` fr
 ```
 which produces M-major and N-major layouts, but they are padded to avoid shared memory bank conflicts. This simply improves the access pattern to and from shared memory and no other changes in the kernel are required.
 
-## `sgemm_sm70.cu`
+## `sgemm_sm70.cu` (SYCL: [`sgemm_sm70_sycl.cpp`](https://github.com/intel/sycl-tla/tree/main/examples/cute/tutorial/sgemm_sm70_sycl.cpp))
 
-An example that uses an optimized mainloop for Volta SM70 architectures that pipelines shared memory and register memory.
+An example that uses an optimized mainloop for Volta SM70 architectures that pipelines shared memory and register memory. This is an NVIDIA-target example and builds only with `SYCL_NVIDIA_TARGET=ON`; on Intel Xe GPUs the equivalent pipelined mainloop is shown in [11_intel_gemm_companion.md](./11_intel_gemm_companion.md).
 
-## `sgemm_sm80.cu`
+## `sgemm_sm80.cu` (SYCL: [`sgemm_sm80_sycl.cpp`](https://github.com/intel/sycl-tla/tree/main/examples/cute/tutorial/sgemm_sm80_sycl.cpp))
 
-An example that uses an optimized mainloop for Ampere SM80 architectures that explicitly pipelines shared memory using asynchronous reads from global memory.
+An example that uses an optimized mainloop for Ampere SM80 architectures that explicitly pipelines shared memory using asynchronous reads from global memory. This is an NVIDIA-target example and builds only with `SYCL_NVIDIA_TARGET=ON`.
 
 ## Next steps
 
@@ -529,7 +540,7 @@ gett(int m0, int m1, int n, int k,
 ```
 Note that the only changes are the definition of shape `M`, the definition of strides `dA` and `dC`, and the definition of the CTA Tiler `bM`. The above uses a multimodel problem shape `M = (m0,m1)` and a multimodal CTA Tiler `bM = <_64,_2>` to change which portion of the global memory tensors `A` and `C` each CTA will be responsible for computing.
 
-Similar examples can be found for CUTLASS 3.x kernels that are based on CuTe, such as [this Hopper GETT example](https://github.com/NVIDIA/cutlass/tree/main/examples/51_hopper_gett).
+Similar examples can be found for CUTLASS 3.x kernels that are based on CuTe, such as [this Hopper GETT example](https://github.com/NVIDIA/cutlass/tree/main/examples/51_hopper_gett) in upstream CUTLASS.
 
 ## Copyright
 

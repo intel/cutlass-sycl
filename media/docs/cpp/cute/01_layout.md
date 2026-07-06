@@ -33,17 +33,17 @@ CuTe provides a number of traits to work with integers.
 * `cute::is_static<T>`: Checks whether `T` is an empty type (so instantiations cannot depend on any dynamic information). Equivalent to `std::is_empty`.
 * `cute::is_constant<N,T>`: Checks that `T` is a static integer AND its value is equivalent to `N`.
 
-See the [`integral_constant` implementations](https://github.com/NVIDIA/cutlass/tree/main/include/cute/numeric/integral_constant.hpp) for more information.
+See the [`integral_constant` implementations](https://github.com/intel/sycl-tla/tree/main/include/cute/numeric/integral_constant.hpp) for more information.
 
 ### Tuple
 
 A tuple is a finite ordered list of zero or more elements.
-The [`cute::tuple` class](https://github.com/NVIDIA/cutlass/tree/main/include/cute/container/tuple.hpp) behaves like `std::tuple`, but works on device and host. It imposes restrictions on its template arguments and strips down the implementation for performance and simplicity.
+The [`cute::tuple` class](https://github.com/intel/sycl-tla/tree/main/include/cute/container/tuple.hpp) behaves like `std::tuple`, but works on device and host. It imposes restrictions on its template arguments and strips down the implementation for performance and simplicity.
 
 ### IntTuple
 
 CuTe defines the IntTuple concept as either an integer, or a tuple of IntTuples. Note the recursive definition.
-In C++, we define [operations on `IntTuple`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/int_tuple.hpp).
+In C++, we define [operations on `IntTuple`](https://github.com/intel/sycl-tla/tree/main/include/cute/int_tuple.hpp).
 
 Examples of `IntTuple`s include:
 * `int{2}`, the dynamic integer 2.
@@ -53,7 +53,7 @@ Examples of `IntTuple`s include:
 
 CuTe reuses the `IntTuple` concept for many different things,
 including Shape, Stride, Step, and Coord
-(see [`include/cute/layout.hpp`](https://github.com/NVIDIA/cutlass/tree/main/include/cute/layout.hpp)).
+(see [`include/cute/layout.hpp`](https://github.com/intel/sycl-tla/tree/main/include/cute/layout.hpp)).
 
 Operations defined on `IntTuple`s include the following.
 

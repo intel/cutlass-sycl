@@ -17,7 +17,7 @@ In the previous section, we summarized `Layout`s with
 
 The `coalesce` operation is a "simplify" on functions from integers to integers. If we only care about input integers, then we can manipulate the shape and number of modes of the `Layout` without changing it as a function. The only thing `coalesce` can't change is the `Layout`'s `size`.
 
-More specifically, you can find the checked post-conditions in [the `coalesce` unit test](https://github.com/NVIDIA/cutlass/tree/main/test/unit/cute/core/coalesce.cpp), which we'll reproduce here:
+More specifically, you can find the checked post-conditions in [the `coalesce` unit test](https://github.com/intel/sycl-tla/tree/main/test/unit/cute/core/coalesce.cpp), which we'll reproduce here:
 ```cpp
 // @post size(@a result) == size(@a layout)
 // @post depth(@a result) <= 1
@@ -116,7 +116,7 @@ compatible(B, R)
 
 That is, every coordinate of `B` can also be used as a coordinate of `R`. This is an expected property of functional composition because `B` defines the *domain* of `R`.
 
-You can find many examples and checked post-conditions in [the `composition` unit test](https://github.com/NVIDIA/cutlass/tree/main/test/unit/cute/core/composition.cpp). The post-conditions are precisely as we just stated.
+You can find many examples and checked post-conditions in [the `composition` unit test](https://github.com/intel/sycl-tla/tree/main/test/unit/cute/core/composition.cpp). The post-conditions are precisely as we just stated.
 ```cpp
 // @post compatible(@a layout_b, @a result)
 // @post for all i, 0 <= i < size(@a layout_b), @a result(i) == @a layout_a(@a layout_b(i)))
@@ -341,7 +341,7 @@ Before getting to "product" and "divide," we need one more operation. We can thi
 
 The `complement` of a layout attempts to find another layout that represents the "rest" -- the elements that aren't touched by the layout.
 
-You can find many examples and checked post-conditions in [the `complement` unit test](https://github.com/NVIDIA/cutlass/tree/main/test/unit/cute/core/complement.cpp). The post-conditions include
+You can find many examples and checked post-conditions in [the `complement` unit test](https://github.com/intel/sycl-tla/tree/main/test/unit/cute/core/complement.cpp). The post-conditions include
 ```cpp
 // @post cosize(make_layout(@a layout_a, @a result))) >= size(@a cotarget)
 // @post cosize(@a result) >= round_up(size(@a cotarget), cosize(@a layout_a))
@@ -361,7 +361,7 @@ The `cotarget` parameter above is most commonly an integer -- you can see we onl
 
 ### Complement Examples
 
-`complement` is most effective on static shapes and strides, so consider all integers below to be static. Similar examples for dynamic shapes and strides as well as IntTuple `cotarget` can be found in [the unit test](https://github.com/NVIDIA/cutlass/tree/main/test/unit/cute/core/complement.cpp).
+`complement` is most effective on static shapes and strides, so consider all integers below to be static. Similar examples for dynamic shapes and strides as well as IntTuple `cotarget` can be found in [the unit test](https://github.com/intel/sycl-tla/tree/main/test/unit/cute/core/complement.cpp).
 
 * `complement(4:1, 24)` is `6:4`. Note that `(4,6):(1,4)` has cosize `24`. The layout `4:1` is effectively repeated 6 times with `6:4`.
 

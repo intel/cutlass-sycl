@@ -57,13 +57,13 @@ public:
   static_assert(TopK == 2 || TopK == 4,
     "Fused Top-K + Softmax reduction only allows K=2 and K=4.");
 
-  static constexpr auto Tile_M = get<0>(CtaTileShapeMNK{});
-  static constexpr auto Tile_N = get<1>(CtaTileShapeMNK{});
-  static constexpr auto Epi_M = get<0>(EpilogueTile{});
-  static constexpr auto Epi_N = get<1>(EpilogueTile{});
-  static constexpr auto Sg_M = Tile_M / Epi_M;
-  static constexpr auto Sg_N = Tile_N / Epi_N;
-  static constexpr auto Sg_Nums = Sg_M * Sg_N;
+  static constexpr int Tile_M = get<0>(CtaTileShapeMNK{});
+  static constexpr int Tile_N = get<1>(CtaTileShapeMNK{});
+  static constexpr int Epi_M = get<0>(EpilogueTile{});
+  static constexpr int Epi_N = get<1>(EpilogueTile{});
+  static constexpr int Sg_M = Tile_M / Epi_M;
+  static constexpr int Sg_N = Tile_N / Epi_N;
+  static constexpr int Sg_Nums = Sg_M * Sg_N;
   static constexpr int SubgroupSize = IntelXeXMX16::SubgroupSize;
 
   using Trait_Output = Copy_Traits<CopyOpR2G>;

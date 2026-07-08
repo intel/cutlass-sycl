@@ -95,6 +95,7 @@ jobs:
             -DDPCPP_SYCL_TARGET=${{ env.SYCL_TARGET }} \
             -DIGC_VERSION_MAJOR=${{ env.IGC_VERSION_MAJOR }} \
             -DIGC_VERSION_MINOR=${{ env.IGC_VERSION_MINOR }} \
+            -DCMAKE_CXX_FLAGS="-Werror" \
             -DCUTLASS_SYCL_RUNNING_CI=ON
           cmake --build . 
       

@@ -873,6 +873,7 @@ set(CUTLASS_GENERATOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/library CACHE INTERN
 set(CUTLASS_TOOLS_UTIL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/util/include CACHE INTERNAL "")
 
 include_directories(${CUTLASS_INCLUDE_DIR})
+include_directories(${CUTLASS_TOOLS_UTIL_INCLUDE_DIR})
 
 target_compile_features(CUTLASS INTERFACE cxx_std_11)
 

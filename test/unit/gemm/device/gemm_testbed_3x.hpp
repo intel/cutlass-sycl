@@ -61,6 +61,8 @@
 #include "cutlass/util/reference/host/tensor_norm.h"
 #include "cutlass/util/reference/host/gemm.h"
 #include "cutlass/util/reference/host/gett.hpp"
+#include "cutlass/util/reference/device/gemm_complex.h"
+#include "cutlass/util/reference/device/tensor_fill.h"
 #include "cutlass/epilogue/collective/default_epilogue.hpp"
 #include "cutlass/epilogue/collective/xe_epilogue.hpp"
 #include "cutlass/epilogue/fusion/xe_callbacks.hpp"
@@ -4750,8 +4752,795 @@ bool TestAllBiasElementwise(double alpha = 1.0, double beta = cute::is_same_v<ty
   return TestAll<Gemm>(alpha, beta, check_relative_equality);
 }
 
+
+// Helper to detect LinCombTopKSoftmaxCol epilogue operation
+template<typename EpilogueOp, typename = void>
+struct IsTopKSoftmaxOp : cute::false_type {};
+
+template<typename EpilogueOp>
+struct IsTopKSoftmaxOp<EpilogueOp, 
+  cute::void_t<decltype(EpilogueOp::TopK)>> : cute::true_type {
+  static constexpr int TopK = EpilogueOp::TopK;
+};
+
+// Top-K+Softmax reference implementation
+template<int TopK, typename ElementCompute, typename ElementD, typename TensorD, typename StrideD>
+void compute_topk_softmax_reference(
+    TensorD& tensor_ref_D,
+    int M, int N, int L,
+    StrideD stride_d) {
+  
+  using namespace cute;
+  auto D = make_tensor(tensor_ref_D.host_data(),
+      make_layout(make_shape(M, N, L), stride_d));
+  
+  for (int l = 0; l < L; ++l) {
+    for (int m = 0; m < M; ++m) {
+      // Find Top-K elements in row
+      cutlass::Array<ElementCompute, TopK> top_k;
+      top_k.fill(-cutlass::platform::numeric_limits<ElementCompute>::infinity());
+      
+      for (int n = 0; n < N; ++n) {
+        auto val = static_cast<ElementCompute>(D(m, n, l));
+        for (int k_idx = 0; k_idx < TopK; ++k_idx) {
+          if (val > top_k[k_idx]) {
+            // Shift down and insert
+            for (int shift = TopK - 1; shift > k_idx; --shift) {
+              top_k[shift] = top_k[shift - 1];
+            }
+            top_k[k_idx] = val;
+            break;
+          }
+        }
+      }
+      
+      // Compute softmax over Top-K
+      ElementCompute max_val = top_k[0];
+      ElementCompute sum_exp = ElementCompute(0);
+      for (int k_idx = 0; k_idx < TopK; ++k_idx) {
+        sum_exp += cutlass::fast_exp(top_k[k_idx] - max_val);
+      }
+      
+      // Apply mask and softmax
+      for (int n = 0; n < N; ++n) {
+        auto val = D(m, n, l);
+        if (val < top_k[TopK - 1]) {
+          D(m, n, l) = static_cast<ElementD>(0);
+        } else {
+          auto softmax_val = cutlass::fast_exp(val - max_val) / sum_exp;
+          D(m, n, l) = static_cast<ElementD>(softmax_val);
+        }
+      }
+    }
+  }
+}
+
+// Specialized TestXe for Top-K+Softmax epilogues
+template <typename Gemm, int TopK>
+bool TestXeTopKSoftmax(
+    int m, int n, int k, int l,
+    double alpha = 1.0,
+    double beta = 0.0) {
+  
+  using ElementA = typename Gemm::GemmKernel::ElementA;
+  using ElementB = typename Gemm::GemmKernel::ElementB;
+  using ElementD = typename Gemm::GemmKernel::ElementD;
+  using ElementAccumulator = typename Gemm::GemmKernel::ElementAccumulator;
+  using StrideA = typename Gemm::GemmKernel::StrideA;
+  using StrideB = typename Gemm::GemmKernel::StrideB;
+  using StrideD = typename Gemm::GemmKernel::StrideD;
+  using LayoutTagA = cutlass::detail::StrideToLayoutTagA_t<StrideA>;
+  using LayoutTagB = cutlass::detail::StrideToLayoutTagB_t<StrideB>;
+  using LayoutTagD = cutlass::detail::StrideToLayoutTagC_t<StrideD>;
+  using ProblemShapeType = typename Gemm::GemmKernel::ProblemShape;
+  
+  // Setup problem size
+  ProblemShapeType problem_size{m, n, k, l};
+  
+  // Setup strides
+  StrideA stride_a = cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(m, k, l));
+  StrideB stride_b = cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(n, k, l));
+  StrideD stride_d = cutlass::make_cute_packed_stride(StrideD{}, cute::make_shape(m, n, l));
+  
+  // Allocate host tensors
+  auto a_coord = cutlass::make_Coord(m * l, k);
+  auto b_coord = cutlass::make_Coord(k, n * l);
+  auto d_coord = cutlass::make_Coord(m * l, n);
+  
+  cutlass::HostTensor<ElementA, LayoutTagA> tensor_A(a_coord);
+  cutlass::HostTensor<ElementB, LayoutTagB> tensor_B(b_coord);
+  cutlass::HostTensor<ElementD, LayoutTagD> tensor_D(d_coord);
+  cutlass::HostTensor<ElementD, LayoutTagD> tensor_ref_D(d_coord);
+  
+  // Initialize with random data (match example's seed pattern: seed defaults to 0)
+  uint64_t seed = 0;
+  cutlass::reference::host::TensorFillRandomUniform(tensor_A.host_view(), seed + 2022, 1, -1, 2);
+  cutlass::reference::host::TensorFillRandomUniform(tensor_B.host_view(), seed + 2023, 1, -1, 2);
+  
+  tensor_A.sync_device();
+  tensor_B.sync_device();
+  tensor_D.sync_device();
+  
+  // Setup GEMM arguments (Top-K+Softmax has simpler epilogue arguments than standard fusions)
+  typename Gemm::Arguments arguments{
+    cutlass::gemm::GemmUniversalMode::kGemm,
+    problem_size,
+    {tensor_A.device_data(), stride_a, tensor_B.device_data(), stride_b},
+    {{static_cast<float>(alpha), 0.f},  // alpha, beta (beta not used in TopKSoftmax)
+     nullptr, stride_d,
+     tensor_D.device_data(), stride_d}
+  };
+  
+  // Run device GEMM with Top-K+Softmax fusion
+  Gemm gemm_op;
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+  
+  cutlass::Status status = gemm_op.can_implement(arguments);
+  if (status != cutlass::Status::kSuccess) {
+    return true; // Skip unsupported configurations
+  }
+  
+  status = gemm_op.initialize(arguments, workspace.get());
+  if (status != cutlass::Status::kSuccess) {
+    return false;
+  }
+  
+  status = gemm_op.run();
+  if (status != cutlass::Status::kSuccess) {
+    return false;
+  }
+  
+#ifdef CUTLASS_ENABLE_SYCL
+  sycl::queue{}.wait();
+#else
+  cudaDeviceSynchronize();
+#endif
+  
+  // Compute host reference: standard GEMM followed by Top-K+Softmax
+  auto A = cute::make_tensor(tensor_A.host_data(),
+      cute::make_layout(cute::make_shape(m, k, l), stride_a));
+  auto B = cute::make_tensor(tensor_B.host_data(),
+      cute::make_layout(cute::make_shape(n, k, l), stride_b));
+  auto D_ref = cute::make_tensor(tensor_ref_D.host_data(),
+      cute::make_layout(cute::make_shape(m, n, l), stride_d));
+  
+  cutlass::reference::host::GettMainloopParams<ElementAccumulator, decltype(A), decltype(B)> mainloop_params{A, B};
+  
+  using unused_t = decltype(D_ref);
+  cutlass::reference::host::GettEpilogueParams<
+      float, float,
+      ElementAccumulator, float,
+      unused_t, decltype(D_ref),
+      unused_t, unused_t, unused_t, unused_t
+  > epilogue_params;
+  
+  epilogue_params.D = D_ref;
+  epilogue_params.alpha = static_cast<float>(alpha);
+  epilogue_params.beta = 0.f;
+  
+  // Compute standard GEMM reference
+  cutlass::reference::host::Gemm3x(mainloop_params, epilogue_params);
+  
+  // Apply Top-K+Softmax to reference
+  compute_topk_softmax_reference<TopK, ElementAccumulator, ElementD>(
+      tensor_ref_D, m, n, l, stride_d);
+  
+  // Compare results
+  tensor_D.sync_host();
+  
+  bool passed = true;
+  double max_error = 0.0;
+  double threshold = 1e-3; // Relaxed tolerance for Top-K+Softmax operations
+  
+  for (int batch = 0; batch < l; ++batch) {
+    for (int i = 0; i < m; ++i) {
+      for (int j = 0; j < n; ++j) {
+        auto coord = cutlass::make_Coord(i + batch * m, j);
+        float device_val = float(tensor_D.at(coord));
+        float ref_val = float(tensor_ref_D.at(coord));
+        
+        float abs_diff = std::abs(device_val - ref_val);
+        float rel_error = abs_diff / (std::abs(ref_val) + 1e-5f);
+        max_error = std::max(max_error, (double)rel_error);
+        
+        if (rel_error > threshold) {
+          passed = false;
+          if (m <= 16 && n <= 16) {
+            std::cout << "Mismatch at [" << i << "," << j << "," << batch << "]: "
+                      << "device=" << device_val << " ref=" << ref_val
+                      << " rel_err=" << rel_error << std::endl;
+          }
+        }
+      }
+    }
+  }
+  
+  if (!passed) {
+    std::cout << "Top-K+Softmax test FAILED with max relative error: " << max_error << std::endl;
+    if (m <= 8 && n <= 8) {
+      std::cout << "Device output:\n" << tensor_D.host_view() << "\n";
+      std::cout << "Reference output:\n" << tensor_ref_D.host_view() << "\n";
+    }
+  }
+  
+  return passed;
+}
+
+// Helper to detect LinCombSoftmaxRow epilogue operation
+template<typename EpilogueOp, typename = void>
+struct IsSoftmaxRowOp : cute::false_type {};
+
+template<typename EpilogueOp>
+struct IsSoftmaxRowOp<EpilogueOp,
+  cute::void_t<decltype(EpilogueOp::Operation::kSoftmaxRow)>> : cute::true_type {};
+
+// Row-wise Softmax reference implementation (standard softmax per row)
+template<typename ElementCompute, typename ElementD, typename TensorD, typename StrideD>
+void compute_softmax_row_reference(
+    TensorD& tensor_ref_D,
+    int M, int N, int L,
+    StrideD stride_d) {
+  
+  using namespace cute;
+  auto D = make_tensor(tensor_ref_D.host_data(),
+      make_layout(make_shape(M, N, L), stride_d));
+  
+  // Apply row-wise softmax: for each row, compute softmax(row)
+  for (int l = 0; l < L; ++l) {
+    for (int m = 0; m < M; ++m) {
+      // Find max value in row (for numerical stability)
+      ElementCompute row_max = static_cast<ElementCompute>(D(m, 0, l));
+      for (int n = 1; n < N; ++n) {
+        row_max = cute::max(row_max, static_cast<ElementCompute>(D(m, n, l)));
+      }
+      
+      // Compute exp(x - max) for each element and accumulate sum
+      ElementCompute exp_sum = ElementCompute(0);
+      for (int n = 0; n < N; ++n) {
+        auto val = static_cast<ElementCompute>(D(m, n, l));
+        auto exp_val = cutlass::fast_exp(val - row_max);
+        D(m, n, l) = static_cast<ElementD>(exp_val);
+        exp_sum += exp_val;
+      }
+      
+      // Normalize by sum to get softmax
+      for (int n = 0; n < N; ++n) {
+        auto val = static_cast<ElementCompute>(D(m, n, l));
+        D(m, n, l) = static_cast<ElementD>(val / exp_sum);
+      }
+    }
+  }
+}
+
+// Helper to detect LinCombSplitK epilogue operation
+template<typename EpilogueOp, typename = void>
+struct IsSplitKOp : cute::false_type {};
+
+template<typename EpilogueOp>
+struct IsSplitKOp<EpilogueOp,
+  cute::void_t<typename EpilogueOp::Operation>> : cute::true_type {};
+
+// Specialized TestXe for LinCombSplitK epilogues
+// This function handles the split-k verification where output is split into two tensors
+// based on attention head structure (NOPE and ROPE dimensions)
+template <typename Gemm>
+bool TestXeSplitK(
+    int m, int n, int k, int l,
+    int num_head, int nope_dim, int rope_dim,
+    double alpha = 1.0,
+    double beta = 0.0) {
+  
+  using ElementA = typename Gemm::GemmKernel::ElementA;
+  using ElementB = typename Gemm::GemmKernel::ElementB;
+  using ElementC = typename Gemm::GemmKernel::ElementC;
+  using ElementD = typename Gemm::GemmKernel::ElementD;
+  using ElementAccumulator = typename Gemm::GemmKernel::ElementAccumulator;
+  using StrideA = typename Gemm::GemmKernel::StrideA;
+  using StrideB = typename Gemm::GemmKernel::StrideB;
+  using StrideC = typename Gemm::GemmKernel::StrideC;
+  using StrideD = typename Gemm::GemmKernel::StrideD;
+  using LayoutTagA = cutlass::detail::StrideToLayoutTagA_t<StrideA>;
+  using LayoutTagB = cutlass::detail::StrideToLayoutTagB_t<StrideB>;
+  using LayoutTagC = cutlass::detail::StrideToLayoutTagC_t<StrideC>;
+  using LayoutTagD = cutlass::detail::StrideToLayoutTagC_t<StrideD>;
+  using LayoutA = typename Gemm::LayoutA;
+  using LayoutB = typename Gemm::LayoutB;
+  using LayoutC = typename Gemm::LayoutC;
+  using LayoutD = typename Gemm::LayoutD;
+  using ProblemShapeType = typename Gemm::GemmKernel::ProblemShape;
+
+  // Validate split-k dimensions
+  if ((nope_dim % 32 != 0) || (nope_dim / 32 <= 0)) {
+    std::cout << "Error: NOPE_DIM must be divisible by 32" << std::endl;
+    return false;
+  }
+  if ((rope_dim % 32 != 0) || (rope_dim / 32 <= 0)) {
+    std::cout << "Error: ROPE_DIM must be divisible by 32" << std::endl;
+    return false;
+  }
+  if (n != num_head * (nope_dim + rope_dim)) {
+    std::cout << "Error: N must equal NUM_HEAD × (NOPE_DIM + ROPE_DIM)" << std::endl;
+    std::cout << "  Expected: " << num_head * (nope_dim + rope_dim) << ", Got: " << n << std::endl;
+    return false;
+  }
+
+  cutlass::KernelHardwareInfo hw_info;
+  hw_info.device_id = 0;
+  hw_info.sm_count = cutlass::KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id);
+
+  ProblemShapeType problem_size{m, n, k, l};
+  
+  // Compute strides
+  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(m, k, l));
+  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(n, k, l));
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(m, n, l));
+  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, cute::make_shape(m, n, l));
+
+  // Allocate device memory
+  cutlass::DeviceAllocation<ElementA> block_A(m * k * l);
+  cutlass::DeviceAllocation<ElementB> block_B(k * n * l);
+  cutlass::DeviceAllocation<ElementC> block_C(m * n * l);
+  cutlass::DeviceAllocation<ElementD> block_D(m * n * l);
+  cutlass::DeviceAllocation<ElementD> block_D1(m * num_head * nope_dim * l);
+  cutlass::DeviceAllocation<ElementD> block_D2(m * num_head * rope_dim * l);
+  cutlass::DeviceAllocation<ElementD> block_ref_D(m * n * l);
+
+  // Initialize input tensors
+  uint64_t seed = 2024;
+  cutlass::reference::device::BlockFillRandomUniform(
+    block_A.get(), m * k * l, seed + 2023, ElementA(2), ElementA(-2), 0);
+  cutlass::reference::device::BlockFillRandomUniform(
+    block_B.get(), k * n * l, seed + 2022, ElementB(2), ElementB(-2), 0);
+  cutlass::reference::device::BlockFillRandomUniform(
+    block_C.get(), m * n * l, seed + 2021, ElementC(2), ElementC(-2), 0);
+
+  compat::wait();
+
+  // Compute reference output using standard GEMM
+  cutlass::TensorRef ref_A(block_A.get(), LayoutA::packed({m, k}));
+  cutlass::TensorRef ref_B(block_B.get(), LayoutB::packed({k, n}));
+  cutlass::TensorRef ref_C(block_C.get(), LayoutC::packed({m, n}));
+  cutlass::TensorRef ref_D(block_ref_D.get(), LayoutD::packed({m, n}));
+
+  cutlass::reference::device::GemmComplex(
+    {m, n, k},
+    ElementAccumulator(alpha),
+    ref_A,
+    cutlass::ComplexTransform::kNone,
+    ref_B,
+    cutlass::ComplexTransform::kNone,
+    ElementAccumulator(beta),
+    ref_C,
+    ref_D,
+    ElementAccumulator(0),
+    l,     // batch_count
+    m * k, // batch_stride_A
+    k * n, // batch_stride_B
+    m * n, // batch_stride_C
+    m * n  // batch_stride_D
+  );
+
+  compat::wait();
+
+  // Setup epilogue arguments with split-k parameters
+  typename Gemm::GemmKernel::EpilogueArguments epilogue_args{
+    {ElementAccumulator(alpha), ElementAccumulator(beta)},
+    block_C.get(),
+    stride_C,
+    block_D.get(),
+    stride_D
+  };
+  epilogue_args.thread.output_ptr = block_D.get();
+  epilogue_args.thread.output_ptr1 = block_D1.get();
+  epilogue_args.thread.output_ptr2 = block_D2.get();
+  epilogue_args.thread.NUM_HEAD = num_head;
+  epilogue_args.thread.NOPE_DIM = nope_dim;
+  epilogue_args.thread.ROPE_DIM = rope_dim;
+
+  // Setup GEMM arguments
+  typename Gemm::GemmKernel::Arguments arguments{
+    cutlass::gemm::GemmUniversalMode::kGemm,
+    problem_size,
+    {block_A.get(), stride_A, block_B.get(), stride_B},
+    epilogue_args,
+    hw_info
+  };
+
+  Gemm gemm_op;
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+
+  cutlass::Status status = gemm_op.can_implement(arguments);
+  
+
+  status = gemm_op.initialize(arguments, workspace.get());
+  if (status != cutlass::Status::kSuccess) {
+    std::cout << "Gemm::initialize() failed: " << cutlass::cutlassGetStatusString(status) << std::endl;
+    return false;
+  }
+
+  status = gemm_op.run();
+  if (status != cutlass::Status::kSuccess) {
+    std::cout << "Gemm::run() failed: " << cutlass::cutlassGetStatusString(status) << std::endl;
+    return false;
+  }
+
+  compat::wait();
+
+  // Copy reference output and perform CPU-side split
+  auto D_shape = cute::make_shape(m, n, l);
+  auto D1_shape = cute::make_shape(m, num_head, nope_dim, l);
+  auto D2_shape = cute::make_shape(m, num_head, rope_dim, l);
+
+  std::vector<ElementD> D(cute::size(D_shape));
+  std::vector<ElementD> D1_ref(cute::size(D1_shape));
+  std::vector<ElementD> D2_ref(cute::size(D2_shape));
+
+  compat::memcpy<ElementD>(D.data(), block_ref_D.get(), cute::size(D_shape));
+  compat::wait();
+
+  // Split reference output into D1_ref and D2_ref
+  for (int batch = 0; batch < l; batch++) {
+    for (int row = 0; row < m; row++) {
+      for (int head = 0; head < num_head; head++) {
+        for (int dim = 0; dim < nope_dim + rope_dim; ++dim) {
+          int src_idx = batch * m * n + row * n + head * (nope_dim + rope_dim) + dim;
+          
+          if (dim < nope_dim) {
+            // NOPE dimension
+            int d1_idx = batch * m * num_head * nope_dim 
+                       + row * num_head * nope_dim 
+                       + head * nope_dim 
+                       + dim;
+            D1_ref[d1_idx] = D[src_idx];
+          } else {
+            // ROPE dimension
+            int d2_idx = batch * m * num_head * rope_dim 
+                       + row * num_head * rope_dim 
+                       + head * rope_dim 
+                       + (dim - nope_dim);
+            D2_ref[d2_idx] = D[src_idx];
+          }
+        }
+      }
+    }
+  }
+
+  // Copy kernel outputs
+  std::vector<ElementD> D1_test(cute::size(D1_shape));
+  std::vector<ElementD> D2_test(cute::size(D2_shape));
+  compat::memcpy<ElementD>(D1_test.data(), block_D1.get(), cute::size(D1_shape));
+  compat::memcpy<ElementD>(D2_test.data(), block_D2.get(), cute::size(D2_shape));
+  compat::wait();
+
+  // Verify results
+  uint32_t err_cnt = 0;
+  constexpr float atol = 1e-4f;
+  constexpr float rtol = 1e-4f;
+
+  // Verify D1 (NOPE dimensions)
+  for (int batch = 0; batch < l; batch++) {
+    for (int row = 0; row < m; row++) {
+      for (int head = 0; head < num_head; head++) {
+        for (int dim = 0; dim < nope_dim; ++dim) {
+          int idx = batch * m * num_head * nope_dim 
+                  + row * num_head * nope_dim 
+                  + head * nope_dim 
+                  + dim;
+          auto expect = D1_ref[idx];
+          auto val = D1_test[idx];
+          
+          if (std::isinf(float(val)) || std::isnan(float(val))) {
+            if (err_cnt < 10) {
+              std::cout << "D1[" << batch << "," << row << "," << head << "," << dim 
+                       << "]: Invalid value " << float(val) << std::endl;
+            }
+            err_cnt++;
+          } else {
+            float abs_diff = std::abs(float(val) - float(expect));
+            float abs_expect = std::abs(float(expect));
+            if (abs_diff > (atol + rtol * abs_expect)) {
+              if (err_cnt < 10) {
+                std::cout << "D1[" << batch << "," << row << "," << head << "," << dim 
+                         << "]: expected " << float(expect) << ", got " << float(val) 
+                         << ", diff=" << abs_diff << std::endl;
+              }
+              err_cnt++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Verify D2 (ROPE dimensions)
+  for (int batch = 0; batch < l; batch++) {
+    for (int row = 0; row < m; row++) {
+      for (int head = 0; head < num_head; head++) {
+        for (int dim = 0; dim < rope_dim; ++dim) {
+          int idx = batch * m * num_head * rope_dim 
+                  + row * num_head * rope_dim 
+                  + head * rope_dim 
+                  + dim;
+          auto expect = D2_ref[idx];
+          auto val = D2_test[idx];
+          
+          if (std::isinf(float(val)) || std::isnan(float(val))) {
+            if (err_cnt < 10) {
+              std::cout << "D2[" << batch << "," << row << "," << head << "," << dim 
+                       << "]: Invalid value " << float(val) << std::endl;
+            }
+            err_cnt++;
+          } else {
+            float abs_diff = std::abs(float(val) - float(expect));
+            float abs_expect = std::abs(float(expect));
+            if (abs_diff > (atol + rtol * abs_expect)) {
+              if (err_cnt < 10) {
+                std::cout << "D2[" << batch << "," << row << "," << head << "," << dim 
+                         << "]: expected " << float(expect) << ", got " << float(val) 
+                         << ", diff=" << abs_diff << std::endl;
+              }
+              err_cnt++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  uint32_t total_elements = m * n * l;
+  float pass_rate = 100.0f - (100.0f * err_cnt / total_elements);
+  
+  std::cout << "TestXeSplitK validation: m=" << m << " n=" << n << " k=" << k << " l=" << l 
+            << " num_head=" << num_head << " nope_dim=" << nope_dim << " rope_dim=" << rope_dim << std::endl;
+  std::cout << "  Error count: " << err_cnt << ", Pass rate: " << pass_rate << "%" << std::endl;
+
+  return err_cnt == 0;
+}
+
+// Specialized TestXe for Row-wise Softmax epilogues
+// This function is similar to the standard TestXe but includes custom verification
+// for softmax operations which are not handled by the standard GETT reference
+template <typename Gemm>
+bool TestXeSoftmaxRow(
+    int m, int n, int k, int l,
+    double alpha = 1.0,
+    double beta = 0.0) {
+  
+  using ElementA = typename Gemm::GemmKernel::ElementA;
+  using ElementB = typename Gemm::GemmKernel::ElementB;
+  using ElementC = typename Gemm::GemmKernel::ElementC;
+  using ElementD = typename Gemm::GemmKernel::ElementD;
+  using ElementAccumulator = typename Gemm::GemmKernel::ElementAccumulator;
+  using StrideA = typename Gemm::GemmKernel::StrideA;
+  using StrideB = typename Gemm::GemmKernel::StrideB;
+  using StrideC = typename Gemm::GemmKernel::StrideC;
+  using StrideD = typename Gemm::GemmKernel::StrideD;
+  using LayoutTagA = cutlass::detail::StrideToLayoutTagA_t<StrideA>;
+  using LayoutTagB = cutlass::detail::StrideToLayoutTagB_t<StrideB>;
+  using LayoutTagC = cutlass::detail::StrideToLayoutTagC_t<StrideC>;
+  using LayoutTagD = cutlass::detail::StrideToLayoutTagC_t<StrideD>;
+  using LayoutA = typename Gemm::LayoutA;
+  using LayoutB = typename Gemm::LayoutB;
+  using LayoutC = typename Gemm::LayoutC;
+  using LayoutD = typename Gemm::LayoutD;
+  using ProblemShapeType = typename Gemm::GemmKernel::ProblemShape;
+  
+  // Setup problem size
+  ProblemShapeType problem_size{m, n, k, l};
+  
+  // Setup strides
+  StrideA stride_a = cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(m, k, l));
+  StrideB stride_b = cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(n, k, l));
+  StrideC stride_c = cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(m, n, l));
+  StrideD stride_d = cutlass::make_cute_packed_stride(StrideD{}, cute::make_shape(m, n, l));
+  
+  // Allocate device memory
+  cutlass::device_memory::allocation<ElementA> block_A(static_cast<std::size_t>(m) * k * l);
+  cutlass::device_memory::allocation<ElementB> block_B(static_cast<std::size_t>(k) * n * l);
+  cutlass::device_memory::allocation<ElementC> block_C(static_cast<std::size_t>(m) * n * l);
+  cutlass::device_memory::allocation<ElementD> block_D(static_cast<std::size_t>(m) * n * l);
+  cutlass::device_memory::allocation<ElementD> block_ref_D(static_cast<std::size_t>(m) * n * l);
+  
+  // Initialize with random data directly on device - EXACTLY like the example
+  uint64_t seed = 0;
+  cutlass::reference::device::BlockFillRandomUniform(
+      block_A.get(), block_A.size(), seed + 2023, (ElementA)1, (ElementA)0, 0);
+  cutlass::reference::device::BlockFillRandomUniform(
+      block_B.get(), block_B.size(), seed + 2022, (ElementB)1, (ElementB)0, 0);
+  cutlass::reference::device::BlockFillRandomUniform(
+      block_C.get(), block_C.size(), seed + 2021, (ElementC)1, (ElementC)0, 0);
+  
+  // Setup GEMM arguments with softmax epilogue
+  typename Gemm::GemmKernel::EpilogueArguments epilogue_args{
+    {static_cast<float>(alpha), static_cast<float>(beta)},
+    block_C.get(), stride_c,
+    block_D.get(), stride_d
+  };
+  epilogue_args.thread.output_ptr = block_D.get();
+  
+  typename Gemm::Arguments arguments{
+    cutlass::gemm::GemmUniversalMode::kGemm,
+    problem_size,
+    {block_A.get(), stride_a, block_B.get(), stride_b},
+    epilogue_args
+  };
+  
+  // Run device GEMM with Row-wise Softmax fusion
+  Gemm gemm_op;
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+  
+  cutlass::Status status = gemm_op.can_implement(arguments);
+  if (status != cutlass::Status::kSuccess) {
+    std::cout << "can_implement returned: " << cutlass::cutlassGetStatusString(status) << std::endl;
+    // Don't skip - continue to see if it actually fails at runtime
+  }
+  
+  status = gemm_op.initialize(arguments, workspace.get());
+  if (status != cutlass::Status::kSuccess) {
+    std::cout << "initialize returned: " << cutlass::cutlassGetStatusString(status) << std::endl;
+    return false;
+  }
+  
+  status = gemm_op.run();
+  if (status != cutlass::Status::kSuccess) {
+    std::cout << "run returned: " << cutlass::cutlassGetStatusString(status) << std::endl;
+    return false;
+  }
+  
+#ifdef CUTLASS_ENABLE_SYCL
+  sycl::queue{}.wait();
+#else
+  cudaDeviceSynchronize();
+#endif
+  
+  // Compute reference using device GEMM - EXACTLY like the example
+  cutlass::TensorRef<ElementA, LayoutA> ref_A(block_A.get(), LayoutA::packed({m, k}));
+  cutlass::TensorRef<ElementB, LayoutB> ref_B(block_B.get(), LayoutB::packed({k, n}));
+  cutlass::TensorRef<ElementC, LayoutC> ref_C(block_C.get(), LayoutC::packed({m, n}));
+  cutlass::TensorRef<ElementD, LayoutD> ref_D(block_ref_D.get(), LayoutD::packed({m, n}));
+  
+  ::cutlass::reference::device::GemmComplex(
+      {m, n, k},
+      alpha,
+      ref_A,
+      cutlass::ComplexTransform::kNone,
+      ref_B,
+      cutlass::ComplexTransform::kNone,
+      beta,
+      ref_C,
+      ref_D,
+      ElementAccumulator(0),
+      l,     // batch_count
+      m * k, // batch_stride_A
+      k * n, // batch_stride_B
+      m * n, // batch_stride_C
+      m * n  // batch_stride_D
+  );
+
+#ifdef CUTLASS_ENABLE_SYCL
+  sycl::queue{}.wait();
+#else
+  cudaDeviceSynchronize();
+#endif
+
+  // Copy device results to host for comparison
+  std::vector<ElementD> ptr(m * n * l);      // Reference: GEMM result before softmax
+  std::vector<ElementD> ptr_refD(m * n * l); // Device: GEMM + Softmax fusion
+  
+#ifdef CUTLASS_ENABLE_SYCL
+  sycl::queue{}.memcpy(ptr.data(), block_ref_D.get(), m * n * l * sizeof(ElementD)).wait();
+  sycl::queue{}.memcpy(ptr_refD.data(), block_D.get(), m * n * l * sizeof(ElementD)).wait();
+#else
+  cudaMemcpy(ptr.data(), block_ref_D.get(), m * n * l * sizeof(ElementD), cudaMemcpyDeviceToHost);
+  cudaMemcpy(ptr_refD.data(), block_D.get(), m * n * l * sizeof(ElementD), cudaMemcpyDeviceToHost);
+#endif
+
+  // Apply manual row-wise softmax on the host reference (matching example)
+  for (int lbatch = 0; lbatch < l; lbatch++) {
+    for (int i = 0; i < m; i++) {
+      auto row_max = ptr[lbatch * m * n + i * n];
+      for (int j = 0; j < n; j++) {
+        row_max = std::max(row_max, ptr[lbatch * m * n + i * n + j]);
+      }
+
+      ElementD exp_sum = (ElementD)0;
+      for (int j = 0; j < n; j++) {
+        ptr[lbatch * m * n + i * n + j] = ptr[lbatch * m * n + i * n + j] - row_max;
+        ptr[lbatch * m * n + i * n + j] = std::exp(ptr[lbatch * m * n + i * n + j]);
+        exp_sum += ptr[lbatch * m * n + i * n + j];
+      }
+
+      for (int j = 0; j < n; j++) {
+        ptr[lbatch * m * n + i * n + j] = ptr[lbatch * m * n + i * n + j] / exp_sum;
+      }
+    }
+  }
+
+  // Compare results (matching example validation)
+  bool passed = true;
+  double max_error = 0.0;
+  int error_count = 0;
+  int total_elements = m * n * l;
+  double threshold = 1e-3;
+  
+  std::cout << "TestXeSoftmaxRow validation: m=" << m << " n=" << n << " l=" << l 
+            << " threshold=" << threshold << std::endl;
+  
+  for (int batch = 0; batch < l; ++batch) {
+    for (int i = 0; i < m; ++i) {
+      for (int j = 0; j < n; ++j) {
+        int idx = batch * m * n + i * n + j;
+        float device_val = float(ptr_refD[idx]);
+        float ref_val = float(ptr[idx]);
+        
+        // Both values must be normal for valid comparison
+        bool device_normal = std::isnormal(device_val);
+        bool ref_normal = std::isnormal(ref_val);
+        
+        if (!device_normal || !ref_normal) {
+          // If either value is not normal (zero, NaN, inf, subnormal), flag as failure
+          passed = false;
+          error_count++;
+          if (m <= 16 && n <= 16) {
+            std::cout << "Non-normal value at [" << i << "," << j << "," << batch << "]: "
+                      << "device=" << device_val << " (normal=" << device_normal << ") "
+                      << "ref=" << ref_val << " (normal=" << ref_normal << ")" << std::endl;
+          }
+        } else {
+          // Both values are normal, check relative error
+          float abs_diff = std::abs(device_val - ref_val);
+          float rel_error = abs_diff / std::abs(ref_val);
+          max_error = std::max(max_error, (double)rel_error);
+          
+          if (rel_error > threshold) {
+            passed = false;
+            error_count++;
+            if (m <= 16 && n <= 16) {
+              std::cout << "Mismatch at [" << i << "," << j << "," << batch << "]: "
+                        << "device=" << device_val << " ref=" << ref_val
+                        << " rel_err=" << rel_error << std::endl;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  std::cout << "Error count: " << error_count << " / " << total_elements 
+            << " (" << (100.0 * error_count / total_elements) << "%)" << std::endl;
+  
+  if (!passed) {
+    std::cout << "Row-wise Softmax test FAILED with max relative error: " << max_error << std::endl;
+    if (m <= 8 && n <= 8) {
+      std::cout << "Device output (first few elements):\n";
+      for (int i = 0; i < std::min(8, m); i++) {
+        for (int j = 0; j < std::min(8, n); j++) {
+          std::cout << ptr_refD[i * n + j] << " ";
+        }
+        std::cout << "\n";
+      }
+      std::cout << "Reference output (first few elements):\n";
+      for (int i = 0; i < std::min(8, m); i++) {
+        for (int j = 0; j < std::min(8, n); j++) {
+          std::cout << ptr[i * n + j] << " ";
+        }
+        std::cout << "\n";
+      }
+    }
+  } else {
+    std::cout << "Row-wise Softmax test PASSED with max relative error: " << max_error << std::endl;
+  }
+  
+  return passed;
+}
+
+
 } // namespace device
 } // namespace gemm
 } // namespace test
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
+

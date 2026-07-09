@@ -192,7 +192,7 @@ public:
     visit(Array<ElementAccumulator, FragmentSize> const& frg_acc, int epi_v, int epi_m, int epi_n,
           Array<ElementInput, FragmentSize> const& frg_input) {
 
-      return frg_acc;
+      return frg_input;
     }
 
     template<class STensor, class SyncFn, class VTensor>

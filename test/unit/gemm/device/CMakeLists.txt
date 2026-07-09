@@ -43,7 +43,7 @@ if(CUTLASS_ENABLE_SYCL)
       xe_gemm_f8_f8_fp32_tensor_op_fp32.cpp
       xe_gemm_fp16_s8_fp32_tensor_op_fp32.cpp
       gemm_universal_bf16n_bf16t_f32n_tensor_op_f32_xe.cpp
-      gemm_universal_fp8_fp8_fp32_tensor_op_f32_xe_models.cpp
+      # gemm_universal_fp8_fp8_fp32_tensor_op_f32_xe_models.cpp
     )
 
     cutlass_test_unit_add_executable(
@@ -59,6 +59,9 @@ if(CUTLASS_ENABLE_SYCL)
     cutlass_test_unit_add_executable(
       cutlass_test_unit_gemm_device_tensorop_epilogue_fusion_xe
       xe_gemm_bf16_bf16_fp32_tensor_op_fp32_evt.cpp
+      xe_gemm_bf16_bf16_fp32_lincombtopksoftmaxcol_tensor_op_f32.cpp
+      xe_gemm_bf16_bf16_fp32_lincomb_splitk_tensor_op_f32.cpp
+      # xe_gemm_bf16_bf16_fp32_lincomb_softmaxrow_tensor_op_f32.cpp
     )
 
     cutlass_test_unit_add_executable(

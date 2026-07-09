@@ -340,8 +340,12 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_, CachedKV_, PagedKV_,
                             auto& copy_k_cur, auto& copy_v_cur,
                             auto& prefetch_v_cur, auto& tKgK_cur,
                             auto& tVgV_cur, auto& pVgV_cur) {
-      /* Split barrier to keep threads together */
-      barrier_arrive(ScopeWorkgroup);
+      /* Split barrier to keep threads together.
+       * When causal mask is true it is not possible to set the scope of the
+       * barrier to workgroup level as the number of K blocks is different for
+       * each subgroup due to the triangular nature of causal masking. */
+      constexpr SPIRVScope barrier_scope = CausalMask ? ScopeSubgroup : ScopeWorkgroup;
+      barrier_arrive(barrier_scope);
       constexpr bool is_cache = decltype(cached_k)::value;
 
       int k_idx;
@@ -444,7 +448,7 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_, CachedKV_, PagedKV_,
           prefetch(prefetch_k, pKgK(_,_,_,K_next-kblocks_cache,D));
         }
       }
-      barrier_wait(ScopeWorkgroup);
+      barrier_wait(barrier_scope);
     };
 
     /* Main loop, blocked in k. */

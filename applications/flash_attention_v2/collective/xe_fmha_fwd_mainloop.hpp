@@ -146,7 +146,7 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_, CachedKV_, PagedKV_,
   static constexpr bool CausalMask = CausalMask_;
   static constexpr bool CachedKV = CachedKV_;
   static constexpr bool PagedKV = PagedKV_;
-
+  static constexpr SPIRVScope barrier_scope = CausalMask ? ScopeSubgroup : ScopeWorkgroup;
   // User-facing arguments
   struct Arguments {
     ElementS const scale;
@@ -341,7 +341,7 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_, CachedKV_, PagedKV_,
                             auto& prefetch_v_cur, auto& tKgK_cur,
                             auto& tVgV_cur, auto& pVgV_cur) {
       /* Split barrier to keep threads together */
-      barrier_arrive(ScopeWorkgroup);
+      barrier_arrive(barrier_scope);
       constexpr bool is_cache = decltype(cached_k)::value;
 
       int k_idx;
@@ -444,7 +444,7 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_, CachedKV_, PagedKV_,
           prefetch(prefetch_k, pKgK(_,_,_,K_next-kblocks_cache,D));
         }
       }
-      barrier_wait(ScopeWorkgroup);
+      barrier_wait(barrier_scope);
     };
 
     /* Main loop, blocked in k. */

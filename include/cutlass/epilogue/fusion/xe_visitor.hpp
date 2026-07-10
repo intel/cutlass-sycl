@@ -822,38 +822,14 @@ struct XeRowBroadcast {
     ConsumerStoreCallbacks(MRow mRow_, CTensor tCcRow_, Params const& params_)
       : mRow(mRow_),
         tCcRow(tCcRow_),
-        params(params_),
-        tCrRow(make_fragment_like<ElementCompute>(tCcRow)) {  // Allocate register storage matching coordinate layout
-      if (EnableNullptr && params.ptr_row == nullptr) {
-        fill(tCrRow, params.null_default);
-      }
-    }
+        params(params_) { }
 
-    MRow mRow;                                                                         // Global bias tensor (M, N) - pointer already offset to correct batch
-    CTensor tCcRow;                                                                    // Global output coordinates per thread
-    decltype(make_fragment_like<ElementCompute>(tCcRow)) tCrRow;                     // Register cache: bias values pre-loaded in begin(), indexed same as tCcRow
+    MRow mRow;
+    CTensor tCcRow;
     Params const& params;
 
     CUTLASS_DEVICE void
-    begin() {
-      if (EnableNullptr && params.ptr_row == nullptr) {
-        return;
-      }
-      
-      // Load all bias values from global memory into registers once per epilogue tile.
-      // Subsequent visit() calls read from tCrRow
-      // Uses scalar loads indexed by global N coordinates from tCcRow
-      CUTLASS_PRAGMA_UNROLL
-      for (int i = 0; i < size(tCcRow); ++i) {
-        auto coord = tCcRow(i);
-        int n_coord = get<1>(coord);  // Extract global column index
-        if (n_coord < get<1>(shape(mRow))) {
-          tCrRow(i) = ElementCompute(mRow(_0{}, n_coord));  // mRow: stride_M=0 (broadcast), stride_N=1
-        } else {
-          tCrRow(i) = ElementCompute(0);  // Zero-pad out-of-bounds (for non-tile-aligned N)
-        }
-      }
-    }
+    begin() { }
 
     template <typename ElementAccumulator, int FragmentSize>
     CUTLASS_DEVICE Array<ElementCompute, FragmentSize>
@@ -868,14 +844,18 @@ struct XeRowBroadcast {
         return frg_row;
       }
 
-      // Read from pre-loaded register cache
-      // Slice tCrRow by epilogue iteration (epi_m, epi_n)
-      Tensor tCrRow_mn = tCrRow(_,_,_,epi_m,epi_n);
-      
+      Tensor tCcRow_mn = tCcRow(_,_,_,epi_m,epi_n);
+
       CUTLASS_PRAGMA_UNROLL
       for (int i = 0; i < FragmentSize; ++i) {
         int idx = epi_v * FragmentSize + i;
-        frg_row[i] = tCrRow_mn(idx);
+        auto coord = tCcRow_mn(idx);
+        int n_coord = get<1>(coord);
+        if (n_coord < get<1>(shape(mRow))) {
+          frg_row[i] = ElementCompute(mRow(_0{}, n_coord));
+        } else {
+          frg_row[i] = ElementCompute(0);
+        }
       }
 
       return frg_row;
@@ -1043,38 +1023,14 @@ struct XeColBroadcast {
     ConsumerStoreCallbacks(MCol mCol_, CTensor tCcCol_, Params const& params_)
       : mCol(mCol_),
         tCcCol(tCcCol_),
-        params(params_),
-        tCrCol(make_fragment_like<ElementCompute>(tCcCol)) {  // Allocate register storage matching coordinate layout
-      if (EnableNullptr && params.ptr_col == nullptr) {
-        fill(tCrCol, params.null_default);
-      }
-    }
+        params(params_) { }
 
-    MCol mCol;                                                                         // Global bias tensor (M, N) - pointer already offset to correct batch
-    CTensor tCcCol;                                                                    // Global output coordinates per thread
-    decltype(make_fragment_like<ElementCompute>(tCcCol)) tCrCol;                     // Register cache: bias values pre-loaded in begin(), indexed same as tCcCol
+    MCol mCol;
+    CTensor tCcCol;
     Params const& params;
 
     CUTLASS_DEVICE void
-    begin() {
-      if (EnableNullptr && params.ptr_col == nullptr) {
-        return;
-      }
-      
-      // Load all bias values from global memory into registers once per epilogue tile.
-      // Subsequent visit() calls read from tCrCol
-      // Uses scalar loads indexed by global M coordinates from tCcCol
-      CUTLASS_PRAGMA_UNROLL
-      for (int i = 0; i < size(tCcCol); ++i) {
-        auto coord = tCcCol(i);
-        int m_coord = get<0>(coord);  // Extract global row index
-        if (m_coord < get<0>(shape(mCol))) {
-          tCrCol(i) = ElementCompute(mCol(m_coord, _0{}));  // mCol: stride_M=1, stride_N=0 (broadcast)
-        } else {
-          tCrCol(i) = ElementCompute(0);  // Zero-pad out-of-bounds (for non-tile-aligned M)
-        }
-      }
-    }
+    begin() { }
 
     template <typename ElementAccumulator, int FragmentSize>
     CUTLASS_DEVICE Array<ElementCompute, FragmentSize>
@@ -1089,14 +1045,18 @@ struct XeColBroadcast {
         return frg_col;
       }
 
-      // Read from pre-loaded register cache
-      // Slice tCrCol by epilogue iteration (epi_m, epi_n)
-      Tensor tCrCol_mn = tCrCol(_,_,_,epi_m,epi_n);
-      
+      Tensor tCcCol_mn = tCcCol(_,_,_,epi_m,epi_n);
+
       CUTLASS_PRAGMA_UNROLL
       for (int i = 0; i < FragmentSize; ++i) {
         int idx = epi_v * FragmentSize + i;
-        frg_col[i] = tCrCol_mn(idx);
+        auto coord = tCcCol_mn(idx);
+        int m_coord = get<0>(coord);
+        if (m_coord < get<0>(shape(mCol))) {
+          frg_col[i] = ElementCompute(mCol(m_coord, _0{}));
+        } else {
+          frg_col[i] = ElementCompute(0);
+        }
       }
 
       return frg_col;

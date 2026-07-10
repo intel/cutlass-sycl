@@ -1,6 +1,12 @@
 name: "SYCL Python EVT Test"
 
 on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  merge_group:
+    branches: [ "main" ]
   schedule:
     # Runs at 05:30 AM UTC on Monday
     - cron: '30 5 * * 1'
@@ -41,15 +47,28 @@ jobs:
           DPCPP_RELEASE: TORCH_SUPPORTED
           DPCPP_PATH: ~/dpcpp
 
+      - name: Ensure DPC++ compiler present
+        shell: bash
+        run: |
+          # A concurrent job's oneAPI `--action modify` (e.g. adding MKL) can remove
+          # icpx while leaving the compiler dir; reinstall the component if missing.
+          ls /home/ghrunner/intel/oneapi/compiler/*/bin/icpx >/dev/null 2>&1 || {
+            sudo wget -nv https://registrationcenter-download.intel.com/akdlm/IRC_NAS/b3e6c1bf-a6d5-4580-8b1d-80cbfd38c8af/intel-deep-learning-essentials-2025.3.2.36_offline.sh
+            bash intel-deep-learning-essentials-2025.3.2.36_offline.sh -a --silent --eula accept --action modify --components intel.oneapi.lin.dpcpp-cpp-compiler
+          }
+
       - name: Setup virtual environment
         shell: bash
         run: |
           python3 -m venv ~/.venv
           source ~/.venv/bin/activate
           . setvars.sh
+          # Load wheel's Intel runtime before system oneAPI so torch's libsycl.so.9 resolves.
+          export LD_LIBRARY_PATH="$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH"
           # Persist environment variables to following steps
           env >> $GITHUB_ENV
-          sycl-ls
+          # sycl-ls is only a diagnostic; don't let it gate the job if off PATH.
+          sycl-ls || echo "sycl-ls unavailable; continuing"
 
       - name: Install DPCTL
         id: install_dpctl
@@ -65,7 +84,7 @@ jobs:
         run: |
           source ~/.venv/bin/activate
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/test/xpu
-          pip uninstall --yes intel-sycl-rt intel-cmplr-lib-ur umf
+          # Keep intel-sycl-rt: torch XPU wheels need the libsycl.so.9 it provides.
 
       - name: Install CUTLASS Python Package
         shell: bash
@@ -94,7 +113,7 @@ jobs:
         run: |
           # Clean up environment files
           rm -f setvars.sh
-          echo "DPC++ cleanup completed"
+          echo "DPC++ cleanup done"
 
       - name: Cleanup DPCTL
         if: always()

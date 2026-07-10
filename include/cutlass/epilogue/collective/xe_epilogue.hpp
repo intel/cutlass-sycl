@@ -113,6 +113,8 @@ public:
   static_assert(cute::rank(StrideC{}) == 3, "StrideC must be rank-3: [M, N, L]");
   static_assert(cute::rank(StrideD{}) == 3, "StrideD must be rank-3: [M, N, L]");
 
+  static_assert(cute::sizeof_bits_v<ElementOutput> >= 8, "ElementOutput must be at least 8 bits");
+
   using TensorC = decltype(make_tensor(make_gmem_ptr(static_cast<NonVoidElementC const*>(nullptr)),
                                        Layout<Shape<int,int,int>, StrideC>{}));
 
@@ -274,9 +276,20 @@ public:
     static constexpr int EpiC = cute::gcd(EpiCPreferred, get<1>(MMATile{}));
 
     using DefaultEpilogueTile = Shape<Int<EpiR>, Int<EpiC>>;
-    using EpilogueTile = conditional_t<is_void_v<EpilogueTile_> || is_same_v<EpilogueTile_, EpilogueTileAuto>,
+    using RequestedEpilogueTile = conditional_t<is_void_v<EpilogueTile_> || is_same_v<EpilogueTile_, EpilogueTileAuto>,
                                        DefaultEpilogueTile,
                                        EpilogueTile_>;
+
+    // When the user-specified EpilogueTile groups multiple MMA iterations, the per-SG
+    // iteration count in each dimension must be evenly divisible.  Otherwise flat_divide
+    // creates phantom iterations that read out-of-bounds accumulator data and corrupt
+    // the output.  Fall back to the safe DefaultEpilogueTile when divisibility fails.
+    static constexpr auto _req_mma_per_epi = shape_div(RequestedEpilogueTile{}, MMATile{});
+    static constexpr auto _acc_mma_m = size<1>(Accumulator{});
+    static constexpr auto _acc_mma_n = size<2>(Accumulator{});
+    static constexpr bool _epi_divides = (_acc_mma_m % get<0>(_req_mma_per_epi) == 0) &&
+                                         (_acc_mma_n % get<1>(_req_mma_per_epi) == 0);
+    using EpilogueTile = conditional_t<_epi_divides, RequestedEpilogueTile, DefaultEpilogueTile>;
 
     // Check if C is in column-major layout or not
     constexpr bool IsColMajorC = cutlass::gemm::detail::is_major<0, StrideC>();
@@ -343,115 +356,132 @@ public:
     // skip all callback overhead and directly reorder + store.
     // reorder() handles both type conversion and layout transformation.
     //
-    bool is_identity_epilogue = false;
     if constexpr (has_is_identity<FusionCallbacks>::value) {
-      is_identity_epilogue = fusion_callbacks.is_identity();
-    }
+      if (fusion_callbacks.is_identity()) {
+        using ElementAccumulator = typename Accumulator::element_type;
+        constexpr int ComputeVectorLen = size<0>(Accumulator{});
+        auto tiled_acc_v = recast<Array<ElementAccumulator, ComputeVectorLen>>(tiled_acc);
 
-    if (is_identity_epilogue) {
-      CUTLASS_PRAGMA_UNROLL
-      for (int epi_m = 0; epi_m < EpiTilesM; epi_m++) {
+        // Use ElementD for the compute fragment so that reorder() only performs layout
+        // transformation without type conversion.  The float→ElementD conversion is done
+        // explicitly via NumericArrayConverter to match the full path's single-step rounding.
+        // Without this, reorder's hardware path (float→half→e4m3) double-rounds and produces
+        // different results for midpoint values.
+        auto tDrD_compute_wi = make_fragment_like<ElementD>(tiled_acc(_,_0{},_0{}));
+        auto tDrD_compute = make_subgroup_tensor(tDrD_compute_wi, cd_compute_tv);
+        auto tDrD_compute_v = recast<Array<ElementD, ComputeVectorLen>>(tDrD_compute_wi);
+
+        static constexpr auto RoundStyle = ThreadEpilogueOp::RoundStyle;
+        NumericArrayConverter<ElementD, ElementAccumulator, ComputeVectorLen, RoundStyle> convert_output{};
+
         CUTLASS_PRAGMA_UNROLL
-        for (int epi_n = 0; epi_n < EpiTilesN; epi_n++) {
-          auto acc_epi_wi = make_tensor(tiled_acc(_,epi_m,epi_n).data(), tiled_acc(_,_0{},_0{}).layout());
-          auto acc_epi = make_subgroup_tensor(acc_epi_wi, cd_compute_tv);
-          if constexpr (is_destination_supported) {
-            reorder(acc_epi, tDrD);
-            copy(copy_d, tDrD, tDgD(_,_,_,epi_m,epi_n));
-          }
-        }
-      }
-    } else {
-      //
-      // Full epilogue path: C load, fusion callbacks, compute, and D store.
-      //
+        for (int epi_m = 0; epi_m < EpiTilesM; epi_m++) {
+          CUTLASS_PRAGMA_UNROLL
+          for (int epi_n = 0; epi_n < EpiTilesN; epi_n++) {
+            CUTLASS_PRAGMA_UNROLL
+            for (int epi_v = 0; epi_v < size<0>(tiled_acc_v); ++epi_v) {
+              tDrD_compute_v(epi_v) = convert_output(tiled_acc_v(epi_v, epi_m, epi_n));
+            }
 
-      bool is_C_load_needed = is_source_supported && fusion_callbacks.is_C_load_needed();
-
-      // Prepare C load copy objects.
-      auto copy_c = make_block_2d_copy(ActualGmemTiledCopyC{}, params.mC(_,_,batch_idx));
-      auto thr_copy_c = copy_c.get_slice(wi_idx);
-      auto tCgC = thr_copy_c.partition_S(gCD_epi);                                        // (atom_v,atom_m,atom_n,epi_m,epi_n)
-      auto tCrC = thr_copy_c.partition_sg_fragment_D(gCD_epi(_,_,0,0));                   // (atom_v,atom_m,atom_n)
-
-      auto tCrC_compute_wi = make_fragment_like<NonVoidElementC>(tiled_acc(_,_0{},_0{}));
-      auto tCrC_compute = make_subgroup_tensor(tCrC_compute_wi, cd_compute_tv);           // (mma_v,mma_m,mma_n)
-
-      // Calculate residues for boundary checks.
-      auto residue_gCD    = MN - gCD(_0{});                                               // (res_m, res_n)
-      auto residue_tCDgCD = MN - tCDgCD(_0{});                                            // (res_m, res_n)
-
-      // Set up fusion visitor callbacks.
-      constexpr bool RefSrc = true;
-      auto cst_args = cutlass::epilogue::fusion::detail::ConsumerStoreArgs {
-          problem_shape_mnkl,
-          WGTileMNK{},
-          tile_coord_mnkl,
-          TiledMMA{},
-          EpilogueTile{},
-          copy_d,
-          gCD,
-          residue_gCD,
-          tDgD,
-          residue_tCDgCD,
-          tCrC_compute,
-          thread_idx,
-      };
-      auto cst_callbacks = fusion_callbacks.template get_consumer_store_callbacks<RefSrc>(cst_args);
-
-      // Recast accumulator as arrays for vectorized visitor operations.
-      using ElementAccumulator = typename Accumulator::element_type;
-      constexpr int ComputeVectorLen = size<0>(Accumulator{});
-      auto tiled_acc_v = recast<Array<ElementAccumulator, ComputeVectorLen>>(tiled_acc);
-
-      // Create D subgroup fragments for epilogue compute.
-      using FragmentVisit = decltype(cst_callbacks.visit(tiled_acc_v(0), 0, 0, 0));
-      using ElementVisit = typename FragmentVisit::Element;
-      auto tDrD_compute_wi = make_fragment_like<ElementVisit>(tiled_acc(_,_0{},_0{}));
-      auto tDrD_compute = make_subgroup_tensor(tDrD_compute_wi, cd_compute_tv);           // (mma_v,mma_m,mma_n)
-      auto tDrD_compute_v = recast<FragmentVisit>(tDrD_compute_wi);
-
-      // Epilogue tile loops with fusion callbacks.
-      cst_callbacks.begin();
-
-      CUTLASS_PRAGMA_UNROLL
-      for (int epi_m = 0; epi_m < EpiTilesM; epi_m++) {
-        CUTLASS_PRAGMA_UNROLL
-        for (int epi_n = 0; epi_n < EpiTilesN; epi_n++) {
-          cst_callbacks.begin_loop(epi_m, epi_n);
-
-          // Load C and reorder to compute layout.
-          if constexpr (is_source_supported) {
-            if (is_C_load_needed) {
-              copy(copy_c, tCgC(_,_,_,epi_m,epi_n), tCrC);
-              reorder(tCrC, tCrC_compute);
+            if constexpr (is_destination_supported) {
+              reorder(tDrD_compute, tDrD);
+              copy(copy_d, tDrD, tDgD(_,_,_,epi_m,epi_n));
             }
           }
-
-          cst_callbacks.previsit(epi_m, epi_n, 0, is_C_load_needed);
-
-          // Apply epilogue compute via visitor, one vector at a time.
-          CUTLASS_PRAGMA_UNROLL
-          for (int epi_v = 0; epi_v < size<0>(tiled_acc_v); ++epi_v) {
-            tDrD_compute_v(epi_v) = cst_callbacks.visit(tiled_acc_v(epi_v, epi_m, epi_n),
-                                                        epi_v, epi_m, epi_n);
-          }
-
-          bool last_epi = (epi_m == EpiTilesM - 1) && (epi_n == EpiTilesN - 1);
-          cst_callbacks.reduce(nullptr, [=]{}, epi_m, epi_n, last_epi, tDrD_compute_v);
-
-          // Reorder D (type conversion + layout) and store.
-          if constexpr (is_destination_supported) {
-            reorder(tDrD_compute, tDrD);
-            copy(copy_d, tDrD, tDgD(_,_,_,epi_m,epi_n));
-          }
-
-          cst_callbacks.end_loop(epi_m, epi_n);
         }
+        return;
       }
-
-      cst_callbacks.end();
     }
+
+    //
+    // Full epilogue path: C load, fusion callbacks, compute, and D store.
+    //
+
+    bool is_C_load_needed = is_source_supported && fusion_callbacks.is_C_load_needed();
+
+    // Prepare C load copy objects.
+    auto copy_c = make_block_2d_copy(ActualGmemTiledCopyC{}, params.mC(_,_,batch_idx));
+    auto thr_copy_c = copy_c.get_slice(wi_idx);
+    auto tCgC = thr_copy_c.partition_S(gCD_epi);                                        // (atom_v,atom_m,atom_n,epi_m,epi_n)
+    auto tCrC = thr_copy_c.partition_sg_fragment_D(gCD_epi(_,_,0,0));                   // (atom_v,atom_m,atom_n)
+
+    auto tCrC_compute_wi = make_fragment_like<NonVoidElementC>(tiled_acc(_,_0{},_0{}));
+    auto tCrC_compute = make_subgroup_tensor(tCrC_compute_wi, cd_compute_tv);           // (mma_v,mma_m,mma_n)
+
+    // Calculate residues for boundary checks.
+    auto residue_gCD    = MN - gCD(_0{});                                               // (res_m, res_n)
+    auto residue_tCDgCD = MN - tCDgCD(_0{});                                            // (res_m, res_n)
+
+    // Set up fusion visitor callbacks.
+    constexpr bool RefSrc = true;
+    auto cst_args = cutlass::epilogue::fusion::detail::ConsumerStoreArgs {
+        problem_shape_mnkl,
+        WGTileMNK{},
+        tile_coord_mnkl,
+        TiledMMA{},
+        EpilogueTile{},
+        copy_d,
+        gCD,
+        residue_gCD,
+        tDgD,
+        residue_tCDgCD,
+        tCrC_compute,
+        thread_idx,
+    };
+    auto cst_callbacks = fusion_callbacks.template get_consumer_store_callbacks<RefSrc>(cst_args);
+
+    // Recast accumulator as arrays for vectorized visitor operations.
+    using ElementAccumulator = typename Accumulator::element_type;
+    constexpr int ComputeVectorLen = size<0>(Accumulator{});
+    auto tiled_acc_v = recast<Array<ElementAccumulator, ComputeVectorLen>>(tiled_acc);
+
+    // Create D subgroup fragments for epilogue compute.
+    using FragmentVisit = decltype(cst_callbacks.visit(tiled_acc_v(0), 0, 0, 0));
+    using ElementVisit = typename FragmentVisit::Element;
+    auto tDrD_compute_wi = make_fragment_like<ElementVisit>(tiled_acc(_,_0{},_0{}));
+    auto tDrD_compute = make_subgroup_tensor(tDrD_compute_wi, cd_compute_tv);           // (mma_v,mma_m,mma_n)
+    auto tDrD_compute_v = recast<FragmentVisit>(tDrD_compute_wi);
+
+    // Epilogue tile loops with fusion callbacks.
+    cst_callbacks.begin();
+
+    CUTLASS_PRAGMA_UNROLL
+    for (int epi_m = 0; epi_m < EpiTilesM; epi_m++) {
+      CUTLASS_PRAGMA_UNROLL
+      for (int epi_n = 0; epi_n < EpiTilesN; epi_n++) {
+        cst_callbacks.begin_loop(epi_m, epi_n);
+
+        // Load C and reorder to compute layout.
+        if constexpr (is_source_supported) {
+          if (is_C_load_needed) {
+            copy(copy_c, tCgC(_,_,_,epi_m,epi_n), tCrC);
+            reorder(tCrC, tCrC_compute);
+          }
+        }
+
+        cst_callbacks.previsit(epi_m, epi_n, 0, is_C_load_needed);
+
+        // Apply epilogue compute via visitor, one vector at a time.
+        CUTLASS_PRAGMA_UNROLL
+        for (int epi_v = 0; epi_v < size<0>(tiled_acc_v); ++epi_v) {
+          tDrD_compute_v(epi_v) = cst_callbacks.visit(tiled_acc_v(epi_v, epi_m, epi_n),
+                                                      epi_v, epi_m, epi_n);
+        }
+
+        bool last_epi = (epi_m == EpiTilesM - 1) && (epi_n == EpiTilesN - 1);
+        cst_callbacks.reduce(nullptr, [=]{}, epi_m, epi_n, last_epi, tDrD_compute_v);
+
+        // Reorder D (type conversion + layout) and store.
+        if constexpr (is_destination_supported) {
+          reorder(tDrD_compute, tDrD);
+          copy(copy_d, tDrD, tDgD(_,_,_,epi_m,epi_n));
+        }
+
+        cst_callbacks.end_loop(epi_m, epi_n);
+      }
+    }
+
+    cst_callbacks.end();
   }
 
 private:

@@ -1,4 +1,4 @@
-![ALT](https://raw.githubusercontent.com/intel/sycl-tla/main/media/images/gemm-hierarchy-with-epilogue-no-labels.png "Complete CUDA GEMM decomposition")
+![ALT](https://raw.githubusercontent.com/intel/sycl-tla/main/media/images/gemm-hierarchy-with-epilogue-no-labels.png "Complete GEMM decomposition")
 
 # SYCL\* Templates for Linear Algebra (SYCL\*TLA)
 
@@ -163,11 +163,10 @@ for details on which kernels require which target architectures.
 
 # Documentation
 
-CUTLASS is described in the following documents and the accompanying
-[Doxygen documentation](https://nvidia.github.io/cutlass).
+SYCL*TLA is described in the following documents.
 
-- [Quick Start Guide](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/quickstart.md) - basics of building and running CUTLASS
-- [Functionality](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/functionality.md) - summarizes functionality available in CUTLASS
+- [Quick Start Guide](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/quickstart.md) - basics of building and running SYCL*TLA
+- [Functionality](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/functionality.md) - summarizes functionality available in SYCL*TLA
 - [Efficient GEMM in CUDA](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/efficient_gemm.md) - describes how GEMM kernels may be implemented efficiently in CUDA
 - [CUTLASS 3.x Design](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/cutlass_3x_design.md) - describes the CUTLASS 3.x design, its benefits, and how CuTe enables us to write much more composable components
 - [GEMM API 3.x](https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/gemm_api_3x.md) - describes the CUTLASS 3.x GEMM model and C++ template concepts

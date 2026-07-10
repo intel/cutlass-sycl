@@ -58,7 +58,14 @@ struct FMHAProblemShape {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-template <class ProblemShape_, class CollectiveMainloop_, class CollectiveEpilogue_, class TileScheduler_>
+template <class ProblemShape_,
+          class CollectiveMainloop_,
+          class CollectiveEpilogue_,
+          class TileScheduler_,
+          class VarLenQLayoutStep_ = Step<_1, _0, _2, _3>,
+          class VarLenKLayoutStep_ = VarLenQLayoutStep_,
+          class VarLenVLayoutStep_ = Step<_0, _1, _2, _3>,
+          class VarLenOLayoutStep_ = VarLenQLayoutStep_>
 class XeFMHAFwdKernel {
 
 public:
@@ -260,19 +267,19 @@ public:
       auto dcV_cache = const_cast<ElementV*>(p.V_cache + offset_v_cache);
       auto ptrO = p.O + offset_o;
 
-      auto stride_q = is_var_len ? cutlass::make_cute_packed_stride(StrideQ{}, shape_Q) : p.dQ;
-      auto stride_k = is_var_len ? cutlass::make_cute_packed_stride(StrideK{}, shape_K) : p.dK;
-      auto stride_v = is_var_len ? cutlass::make_cute_packed_stride(StrideV{}, shape_V) : p.dV;
-      auto stride_o = is_var_len ? cutlass::make_cute_packed_stride(StrideO{}, shape_O) : p.dO;
-      auto stride_k_cache = is_var_len ? cutlass::make_cute_packed_stride(StrideK{}, shape_K_cache) : p.dK_cache;
-      auto stride_v_cache = is_var_len ? cutlass::make_cute_packed_stride(StrideV{}, shape_V_cache) : p.dV_cache;
+      auto layout_q = is_var_len ? make_ordered_layout(shape_Q, VarLenQLayoutStep_{}) : make_layout(shape_Q, p.dQ);
+      auto layout_k = is_var_len ? make_ordered_layout(shape_K, VarLenKLayoutStep_{}) : make_layout(shape_K, p.dK);
+      auto layout_v = is_var_len ? make_ordered_layout(shape_V, VarLenVLayoutStep_{}) : make_layout(shape_V, p.dV);
+      auto layout_o = is_var_len ? make_ordered_layout(shape_O, VarLenOLayoutStep_{}) : make_layout(shape_O, p.dO);
+      auto layout_k_cache = is_var_len ? make_ordered_layout(shape_K_cache, VarLenKLayoutStep_{}) : make_layout(shape_K_cache, p.dK_cache);
+      auto layout_v_cache = is_var_len ? make_ordered_layout(shape_V_cache, VarLenVLayoutStep_{}) : make_layout(shape_V_cache, p.dV_cache);
 
-      Tensor Q = make_tensor(make_gmem_ptr(dcQ), make_layout(shape_Q, stride_q));
-      Tensor K = make_tensor(make_gmem_ptr(dcK), make_layout(shape_K, stride_k));
-      Tensor V = make_tensor(make_gmem_ptr(dcV), make_layout(shape_V, stride_v));
-      Tensor K_cache = make_tensor(make_gmem_ptr(dcK_cache), make_layout(shape_K_cache, stride_k_cache));
-      Tensor V_cache = make_tensor(make_gmem_ptr(dcV_cache), make_layout(shape_V_cache, stride_v_cache));
-      Tensor O = make_tensor(make_gmem_ptr(ptrO), make_layout(shape_O, stride_o));
+      Tensor Q = make_tensor(make_gmem_ptr(dcQ), layout_q);
+      Tensor K = make_tensor(make_gmem_ptr(dcK), layout_k);
+      Tensor V = make_tensor(make_gmem_ptr(dcV), layout_v);
+      Tensor K_cache = make_tensor(make_gmem_ptr(dcK_cache), layout_k_cache);
+      Tensor V_cache = make_tensor(make_gmem_ptr(dcV_cache), layout_v_cache);
+      Tensor O = make_tensor(make_gmem_ptr(ptrO), layout_o);
 
 
       // O accumulator types
@@ -305,7 +312,14 @@ public:
   }
 };
 
-template <class ProblemShape_, class CollectiveMainloop_, class CollectiveEpilogue_, class TileScheduler_>
+template <class ProblemShape_,
+          class CollectiveMainloop_,
+          class CollectiveEpilogue_,
+          class TileScheduler_,
+          class VarLenQLayoutStep_ = Step<_1, _0, _2, _3>,
+          class VarLenKLayoutStep_ = VarLenQLayoutStep_,
+          class VarLenVLayoutStep_ = Step<_0, _1, _2, _3>,
+          class VarLenOLayoutStep_ = VarLenQLayoutStep_>
 class XeFMHAFwdDynamicSplitKernel {
 
 public:
@@ -559,17 +573,17 @@ public:
       auto dcK = const_cast<ElementK*>(p.K);
       auto dcV = const_cast<ElementV*>(p.V);
 
-      Tensor Q = make_tensor(make_gmem_ptr(dcQ), make_layout(shape_Q, p.dQ));    // (q,d,h,b)
-      Tensor K = make_tensor(make_gmem_ptr(dcK), make_layout(shape_K, p.dK));    // (k,d,h,b)
-      Tensor V = make_tensor(make_gmem_ptr(dcV), make_layout(shape_V, p.dV));    // (v,k,h,b)
-      Tensor O = make_tensor(make_gmem_ptr(p.O), make_layout(shape_O, p.dO));    // (q,v,h,b)
+      Tensor Q = make_tensor(make_gmem_ptr(dcQ), make_ordered_layout(shape_Q, VarLenQLayoutStep_{}));    // (q,d,h,b)
+      Tensor K = make_tensor(make_gmem_ptr(dcK), make_ordered_layout(shape_K, VarLenKLayoutStep_{}));    // (k,d,h,b)
+      Tensor V = make_tensor(make_gmem_ptr(dcV), make_ordered_layout(shape_V, VarLenVLayoutStep_{}));    // (v,k,h,b)
+      Tensor O = make_tensor(make_gmem_ptr(p.O), make_ordered_layout(shape_O, VarLenOLayoutStep_{}));    // (q,v,h,b)
 
       auto shape_K_cache = make_shape(s.seq_len_kv_cache, s.head_size_qk, s.num_heads_kv, s.batch);
       auto shape_V_cache = make_shape(s.head_size_vo, s.seq_len_kv_cache, s.num_heads_kv, s.batch);
       auto dcK_cache = const_cast<ElementK*>(p.K_cache);
       auto dcV_cache = const_cast<ElementV*>(p.V_cache);
-      Tensor K_cache = make_tensor(make_gmem_ptr(dcK_cache), make_layout(shape_K_cache, p.dK_cache));
-      Tensor V_cache = make_tensor(make_gmem_ptr(dcV_cache), make_layout(shape_V_cache, p.dV_cache));
+      Tensor K_cache = make_tensor(make_gmem_ptr(dcK_cache), make_ordered_layout(shape_K_cache, VarLenKLayoutStep_{}));
+      Tensor V_cache = make_tensor(make_gmem_ptr(dcV_cache), make_ordered_layout(shape_V_cache, VarLenVLayoutStep_{}));
       
       // O accumulator types
       FragA tArA;

@@ -34,8 +34,12 @@ cutlass_benchmark_add_suite(cutlass_benchmarks_flash_attention)
 
 # Pass these configuration files for the CI
 set(CONFIG_FILE_DECODE_BF16 --config_file=${CUTLASS_DIR}/benchmarks/device/bmg/input_files/input_flash_attention_decode_bf16.in)
+set(CONFIG_FILE_DECODE_BF16_HND ${CONFIG_FILE_DECODE_BF16} --layout=HND)
+set(CONFIG_FILE_DECODE_BF16_NHD ${CONFIG_FILE_DECODE_BF16} --layout=NHD)
 
 set(CONFIG_FILE_PREFILL_BF16 --config_file=${CUTLASS_DIR}/benchmarks/device/bmg/input_files/input_flash_attention_prefill_bf16.in)
+set(CONFIG_FILE_PREFILL_BF16_HND ${CONFIG_FILE_PREFILL_BF16} --layout=HND)
+set(CONFIG_FILE_PREFILL_BF16_NHD ${CONFIG_FILE_PREFILL_BF16} --layout=NHD)
 
 # Create the decode subsuite under flash_attention
 cutlass_benchmark_add_suite(cutlass_benchmarks_flash_attention_decode
@@ -68,7 +72,7 @@ endforeach()
 cutlass_benchmark_add_executable(
     cutlass_benchmarks_flash_attention_decode_xe
     main.cpp
-    TEST_COMMAND_OPTIONS CONFIG_FILE_DECODE_BF16
+    TEST_COMMAND_OPTIONS CONFIG_FILE_DECODE_BF16_HND CONFIG_FILE_DECODE_BF16_NHD
     LIBRARIES decode_lib
     INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
     SUITE cutlass_benchmarks_flash_attention_decode
@@ -77,7 +81,7 @@ cutlass_benchmark_add_executable(
 cutlass_benchmark_add_executable(
     cutlass_benchmarks_flash_attention_prefill_xe
     main.cpp
-    TEST_COMMAND_OPTIONS CONFIG_FILE_PREFILL_BF16
+    TEST_COMMAND_OPTIONS CONFIG_FILE_PREFILL_BF16_HND CONFIG_FILE_PREFILL_BF16_NHD
     LIBRARIES prefill_lib
     INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
     SUITE cutlass_benchmarks_flash_attention_prefill

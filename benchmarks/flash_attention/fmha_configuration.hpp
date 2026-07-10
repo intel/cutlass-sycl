@@ -54,7 +54,11 @@ template <typename ElementQ, typename ElementK, typename ElementV, typename Elem
           typename StrideQ = Stride<int, _1, int, int>, 
           typename StrideK = Stride<int, _1, int, int>,
           typename StrideV = Stride<_1, int, int, int>, 
-          typename StrideO = Stride<int, _1, int, int>>          
+          typename StrideO = Stride<int, _1, int, int>,
+          typename VarLenQLayoutStep = Step<_1, _0, _2, _3>,
+          typename VarLenKLayoutStep = VarLenQLayoutStep,
+          typename VarLenVLayoutStep = Step<_0, _1, _2, _3>,
+          typename VarLenOLayoutStep = VarLenQLayoutStep>
 struct FMHAConfig {
   using LayoutQ = LayoutQ_;
   using LayoutK = LayoutK_;
@@ -67,7 +71,7 @@ struct FMHAConfig {
   static constexpr bool PagedKV = PagedKV_;
   static constexpr bool Persistent = Persistent_;
   static_assert(!(Persistent & Causal), "persistent SDPA kernel not support Causal yet");
-  
+
   static constexpr int SGTileQ = get<0>(shape_div(TileShapeQK{}, shape(SubgroupLayoutQK{})))();
 
   using DefaultMMA = XE_DPAS_TT<cute::gcd(SGTileQ, 8), float, ElementQ>;
@@ -127,11 +131,14 @@ struct FMHAConfig {
       cutlass::fmha::kernel::XeFHMAIndividualPersistentTileScheduler,
       cutlass::fmha::kernel::XeFHMAIndividualTileScheduler
   >;
+
   using FMHAKernel = cute::conditional_t<Persistent,
       cutlass::fmha::kernel::XeFMHAFwdDynamicSplitKernel<
-        ProblemShapeType, CollectiveMainloop, CollectiveEpilogue, Scheduler>,
+        ProblemShapeType, CollectiveMainloop, CollectiveEpilogue, Scheduler,
+        VarLenQLayoutStep, VarLenKLayoutStep, VarLenVLayoutStep, VarLenOLayoutStep>,
       cutlass::fmha::kernel::XeFMHAFwdKernel<
-        ProblemShapeType, CollectiveMainloop, CollectiveEpilogue, Scheduler>
+        ProblemShapeType, CollectiveMainloop, CollectiveEpilogue, Scheduler,
+        VarLenQLayoutStep, VarLenKLayoutStep, VarLenVLayoutStep, VarLenOLayoutStep>
   >;
 };
 

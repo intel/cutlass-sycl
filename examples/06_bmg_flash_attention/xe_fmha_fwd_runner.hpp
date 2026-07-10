@@ -62,13 +62,14 @@ struct Options {
   bool varlen = false;
   bool use_paged_kv = false;
   std::string scheduler;
+  std::string layout;
 
   int batch, num_heads_q, num_heads_kv, seq_len_qo, seq_len_kv, seq_len_kv_cache, page_size, head_size_qk, head_size_vo, iterations, warmup, verify;
   float softmax_scale;
 
   Options()
       : help(false), error(false), is_causal(false), varlen(false), use_paged_kv(false), batch(32), num_heads_q(16), num_heads_kv(16), seq_len_qo(512), head_size_qk(128),
-        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), warmup(100), softmax_scale(1.f), verify(1), scheduler("Individual") {}
+        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), warmup(100), softmax_scale(1.f), verify(1), scheduler("Individual"), layout("HND") {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -88,6 +89,17 @@ struct Options {
     }
 
     cmd.get_cmd_line_argument("scheduler", scheduler, std::string("Individual"));
+    cmd.get_cmd_line_argument("layout", layout, std::string("HND"));
+    if (layout == "hnd") {
+      layout = "HND";
+    } else if (layout == "nhd") {
+      layout = "NHD";
+    }
+    if (layout != "HND" && layout != "NHD") {
+      std::cerr << "Invalid: layout must be either HND or NHD" << std::endl;
+      error = true;
+      return;
+    }
 
 #ifdef PERSISTENT
     cmd.get_cmd_line_argument("batch", batch, 1);
@@ -118,10 +130,12 @@ struct Options {
 
         if (page_size % 128 != 0) {
             std::cerr << "Invalid: page_size must be a multiple of 128" << std::endl;
-            return;
+          error = true;
+          return;
         }
         if (seq_len_kv_cache % page_size != 0) {
             std::cerr << "Invalid: seq_len_kv_cache must be divisible by page_size" << std::endl;
+          error = true;
             return;
         }
     }
@@ -137,6 +151,7 @@ struct Options {
         << "  --help                      If specified, displays this usage statement\n\n"
         << "  --is_causal                 Apply Causal Mask to the output of first Matmul\n"
         << "  --varlen                    Enable variable sequence length\n"
+        << "  --layout                    Choose between HND or NHD layouts\n"
         << "  --scheduler=\"Value\"       Choose between Individual or Persistent Scheduler\n"
         << "  --batch=<int>               Sets the Batch Size of the Multi-Head Self Attention module\n"
         << "  --num_heads_q=<int>         Sets the Number of Attention Heads for Key-Value pair the Multi-Head Self Attention module\n"
@@ -187,6 +202,47 @@ using LayoutQ = cutlass::layout::RowMajor;
 using LayoutK = cutlass::layout::ColumnMajor;
 using LayoutV = cutlass::layout::RowMajor;
 using LayoutO = cutlass::layout::RowMajor;
+
+using HNDQLayoutStep = Step<_1, _0, _2, _3>;
+using HNDVLayoutStep = Step<_0, _1, _2, _3>;
+using NHDQLayoutStep = Step<_2, _0, _1, _3>;
+using NHDVLayoutStep = Step<_0, _2, _1, _3>;
+
+enum class CopySliceOp { Q, KCache, VCache, K, V, O };
+
+template <typename Owner, CopySliceOp Op, typename SrcT, typename DstT, typename Stride>
+class CopySliceKernelTag {};
+
+template <typename Owner, CopySliceOp Op, typename SrcT, typename DstT, typename Stride>
+void copy_slice(const SrcT* src, DstT* dst, int seq_start, int seq_len, int head_size,
+                int head_idx, int batch_idx, Stride stride, bool is_v = false,
+                bool store = false, int page_size = 0, const int* page_table = nullptr,
+                int start_page_idx = 0) {
+  std::size_t size = static_cast<std::size_t>(seq_len) * head_size;
+  if (size == 0) {
+    return;
+  }
+  using Tag = CopySliceKernelTag<Owner, Op, SrcT, DstT, Stride>;
+  compat::get_default_queue().parallel_for<Tag>(size, [=](auto indx) {
+    int linear_idx = indx;
+    int row = linear_idx / head_size;
+    int col = linear_idx % head_size;
+    int seq_idx = seq_start + row;
+    if (page_table != nullptr && page_size > 0) {
+      int page_offset = row % page_size;
+      int logical_page = row / page_size;
+      seq_idx = seq_start + page_table[start_page_idx + logical_page] * page_size + page_offset;
+    }
+    int tensor_idx = is_v ? col * get<0>(stride) + seq_idx * get<1>(stride)
+                          : seq_idx * get<0>(stride) + col * get<1>(stride);
+    tensor_idx += head_idx * get<2>(stride) + batch_idx * get<3>(stride);
+    if (store) {
+      dst[tensor_idx] = src[linear_idx];
+    } else {
+      dst[linear_idx] = src[tensor_idx];
+    }
+  }).wait();
+}
 
 template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
 
@@ -317,7 +373,7 @@ template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
     return cute::make_tuple(problem_size_for_init, problem_size_for_launch);
   }
 
-  bool verify(ProblemShapeType shape, bool is_causal) {
+  bool verify(ProblemShapeType shape, const Options& options) {
 
     if constexpr (isVarLen) {
       int max_seq_len_q = shape.seq_len_qo;
@@ -344,13 +400,6 @@ template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
     using ElementV_ = std::remove_pointer_t<decltype(block_V_.get())>;
     using ElementK_ = std::remove_pointer_t<decltype(block_K_.get())>;
 
-    int offset_q = 0;
-    int offset_k = 0;
-    int offset_v = 0;
-    int offset_k_cache = 0;
-    int offset_v_cache = 0;
-    int offset_o = 0;
-
     std::vector<int> page_table_host;
     std::vector<int> num_pages_per_seq_host;
     if (paged_kv_cache.page_size > 0) {
@@ -361,12 +410,15 @@ template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
       compat::wait();
     }
 
+    compat::memset(block_ref_O.get(), 0, block_ref_O.size() * sizeof(ElementO));
+
     // loop over the batch dimension to compute the output
     // to avoid the risk of running out of device memory
-    int q_group_size = num_heads_q/num_heads_kv;
+    int q_group_size = num_heads_q / num_heads_kv;
     for (int b = 0; b < batch; b++) {
       if constexpr (isVarLen) {
-        auto logical_seq_shape = cutlass::fmha::collective::apply_variable_length(make_shape(shape.seq_len_qo, shape.seq_len_kv, shape.seq_len_kv_cache), b);
+        auto logical_seq_shape = cutlass::fmha::collective::apply_variable_length(
+            make_shape(shape.seq_len_qo, shape.seq_len_kv, shape.seq_len_kv_cache), b);
         seq_len_qo = get<0>(logical_seq_shape);
         seq_len_kv = get<1>(logical_seq_shape);
         seq_len_kv_cache = get<2>(logical_seq_shape);
@@ -375,214 +427,262 @@ template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
         seq_len_kv = shape.seq_len_kv;
         seq_len_kv_cache = shape.seq_len_kv_cache;
       }
-      int seq_len_kv_total = seq_len_kv + seq_len_kv_cache;
 
-      int kv_group_update=1;
+      int seq_len_kv_total = seq_len_kv + seq_len_kv_cache;
+      int batch_idx = isVarLen ? 0 : b;
+      int q_base = isVarLen ? cumulative_seqlen_q[b] : 0;
+      int kv_base = isVarLen ? cumulative_seqlen_kv[b] : 0;
+      int kv_cache_base = isVarLen ? cumulative_seqlen_kv_cache[b] : 0;
+      auto q = block_Q_.get();
+      auto k = block_K_.get();
+      auto v = block_V_.get();
+      auto k_cache = block_K_cache_.get();
+      auto v_cache = block_V_cache_.get();
+      auto o = block_ref_O.get();
+      auto dQ = stride_Q;
+      auto dK = stride_K;
+      auto dV = stride_V;
+      auto dK_cache = stride_K_cache;
+      auto dV_cache = stride_V_cache;
+      auto dO = stride_O;
+
+      if constexpr (isVarLen) {
+        if (options.layout == "HND") {
+          q += static_cast<std::size_t>(q_base) * num_heads_q * get<0>(stride_Q);
+          k += static_cast<std::size_t>(kv_base) * num_heads_kv * get<0>(stride_K);
+          v += static_cast<std::size_t>(kv_base) * num_heads_kv * get<1>(stride_V);
+          o += static_cast<std::size_t>(q_base) * num_heads_q * get<0>(stride_O);
+          if (seq_len_kv_cache > 0) {
+            k_cache += static_cast<std::size_t>(kv_cache_base) * num_heads_kv * get<0>(stride_K_cache);
+            v_cache += static_cast<std::size_t>(kv_cache_base) * num_heads_kv * get<1>(stride_V_cache);
+            dK_cache = make_stride(get<0>(stride_K_cache), get<1>(stride_K_cache), int(seq_len_kv_cache * get<0>(stride_K_cache)), int(num_heads_kv * seq_len_kv_cache * get<0>(stride_K_cache)));
+            dV_cache = make_stride(get<0>(stride_V_cache), get<1>(stride_V_cache), int(seq_len_kv_cache * get<1>(stride_V_cache)), int(num_heads_kv * seq_len_kv_cache * get<1>(stride_V_cache)));
+          }
+          dQ = make_stride(get<0>(stride_Q), get<1>(stride_Q), int(seq_len_qo * get<0>(stride_Q)), int(num_heads_q * seq_len_qo * get<0>(stride_Q)));
+          dK = make_stride(get<0>(stride_K), get<1>(stride_K), int(seq_len_kv * get<0>(stride_K)), int(num_heads_kv * seq_len_kv * get<0>(stride_K)));
+          dV = make_stride(get<0>(stride_V), get<1>(stride_V), int(seq_len_kv * get<1>(stride_V)), int(num_heads_kv * seq_len_kv * get<1>(stride_V)));
+          dO = make_stride(get<0>(stride_O), get<1>(stride_O), int(seq_len_qo * get<0>(stride_O)), int(num_heads_q * seq_len_qo * get<0>(stride_O)));
+          q_base = kv_base = kv_cache_base = 0;
+        }
+      }
+
       for (int h = 0; h < num_heads_q; h++) {
-        ElementK_* k_ptr;
-        ElementV_* v_ptr;
+        int head_kv = h / q_group_size;
+
         cutlass::DeviceAllocation<ElementK_> block_K_concat;
         cutlass::DeviceAllocation<ElementV_> block_V_concat;
+        block_K_concat.reset(static_cast<std::size_t>(head_size_qk) * seq_len_kv_total);
+        block_V_concat.reset(static_cast<std::size_t>(seq_len_kv_total) * head_size_vo);
 
         if (seq_len_kv_cache > 0) {
-            block_K_concat.reset(head_size_qk * seq_len_kv_total);
-            block_V_concat.reset(seq_len_kv_total * head_size_vo);
-            
-            if (paged_kv_cache.page_size > 0) {
-              int page_size = paged_kv_cache.page_size;
-              int start_page_idx = isVarLen ? num_pages_per_seq_host[b] : b * (seq_len_kv_cache / page_size);
-              int num_pages = ceil_div(seq_len_kv_cache, page_size);
+          int page_size = paged_kv_cache.page_size;
+          const int* page_table = page_size > 0 ? paged_kv_cache.page_table.get() : nullptr;
+          int start_page_idx = 0;
+          if (page_table != nullptr) {
+            start_page_idx = isVarLen ? num_pages_per_seq_host[b] : b * (seq_len_kv_cache / page_size);
+          }
 
-              for (int i = 0; i < num_pages; ++i) {
-                int physical_page_id = page_table_host[start_page_idx + i];
-                int current_copy_len = std::min(page_size, seq_len_kv_cache - i * page_size);
+          copy_slice<ExampleRunner, CopySliceOp::KCache>(
+            k_cache,
+            block_K_concat.get(),
+            kv_cache_base,
+            seq_len_kv_cache,
+            head_size_qk,
+            head_kv,
+            batch_idx,
+            dK_cache,
+            false,
+            false,
+            page_size,
+            page_table,
+            start_page_idx);
 
-                compat::memcpy<ElementK_>(
-                    block_K_concat.get() + head_size_qk * i * page_size,
-                    block_K_cache_.get() + offset_k_cache + head_size_qk * physical_page_id * page_size,
-                    head_size_qk * current_copy_len);
-                
-                compat::memcpy<ElementV_>(
-                    block_V_concat.get() + i * page_size * head_size_vo,
-                    block_V_cache_.get() + offset_v_cache + physical_page_id * page_size * head_size_vo,
-                    current_copy_len * head_size_vo);
-              }
-            } else {
-              compat::memcpy<ElementK_>(
-                    block_K_concat.get(),
-                    block_K_cache_.get() + offset_k_cache,
-                    head_size_qk * seq_len_kv_cache);
-              compat::memcpy<ElementV_>(
-                    block_V_concat.get(),
-                    block_V_cache_.get() + offset_v_cache,
-                    seq_len_kv_cache * head_size_vo);
-            }
-
-            compat::memcpy<ElementK_>(
-                  block_K_concat.get() + head_size_qk * seq_len_kv_cache,
-                  block_K_.get() + offset_k,
-                  head_size_qk * seq_len_kv);
-            
-            compat::memcpy<ElementV_>(
-                  block_V_concat.get() + seq_len_kv_cache * head_size_vo,
-                  block_V_.get() + offset_v,
-                  seq_len_kv * head_size_vo);
-
-            k_ptr = block_K_concat.get();
-            v_ptr = block_V_concat.get();
-        } else {
-            k_ptr = block_K_.get() + offset_k;
-            v_ptr = block_V_.get() + offset_v;
+          copy_slice<ExampleRunner, CopySliceOp::VCache>(
+            v_cache,
+            block_V_concat.get(),
+            kv_cache_base,
+            seq_len_kv_cache,
+            head_size_vo,
+            head_kv,
+            batch_idx,
+            dV_cache,
+            true,
+            false,
+            page_size,
+            page_table,
+            start_page_idx);
         }
 
-        int q_chunk_size = 128; // Process 128 rows at a time
+        copy_slice<ExampleRunner, CopySliceOp::K>(
+          k,
+          block_K_concat.get() + static_cast<std::size_t>(head_size_qk) * seq_len_kv_cache,
+          kv_base,
+          seq_len_kv,
+          head_size_qk,
+          head_kv,
+          batch_idx,
+          dK);
+
+        copy_slice<ExampleRunner, CopySliceOp::V>(
+          v,
+          block_V_concat.get() + static_cast<std::size_t>(seq_len_kv_cache) * head_size_vo,
+          kv_base,
+          seq_len_kv,
+          head_size_vo,
+          head_kv,
+          batch_idx,
+          dV,
+          true);
+
+        int q_chunk_size = 128;
         for (int q_start = 0; q_start < seq_len_qo; q_start += q_chunk_size) {
-            int q_end = std::min(seq_len_qo, q_start + q_chunk_size);
-            int current_q_len = q_end - q_start;
+          int q_end = std::min(seq_len_qo, q_start + q_chunk_size);
+          int current_q_len = q_end - q_start;
+          int q_seq_start = q_base + q_start;
 
-            cutlass::DeviceAllocation<ElementS> block_S;
-            block_S.reset(current_q_len * seq_len_kv_total);
+          cutlass::DeviceAllocation<std::remove_pointer_t<decltype(block_Q_.get())>> block_Q_chunk;
+          block_Q_chunk.reset(static_cast<std::size_t>(current_q_len) * head_size_qk);
+          copy_slice<ExampleRunner, CopySliceOp::Q>(
+            q, block_Q_chunk.get(), q_seq_start, current_q_len, head_size_qk, h, batch_idx, dQ);
 
-            cutlass::TensorRef ref_Q(block_Q_.get() + offset_q + q_start * head_size_qk, LayoutQ::packed({current_q_len, head_size_qk}));
-            cutlass::TensorRef ref_K(k_ptr, LayoutK::packed({head_size_qk, seq_len_kv_total}));
-            cutlass::TensorRef ref_V(v_ptr, LayoutV::packed({seq_len_kv_total, head_size_vo}));
-            cutlass::TensorRef ref_S(block_S.get(), LayoutQ::packed({current_q_len, seq_len_kv_total}));
+          cutlass::DeviceAllocation<ElementS> block_S;
+          block_S.reset(current_q_len * seq_len_kv_total);
 
-            // GEMM 1: S = Q_chunk * K^T
-            cutlass::reference::device::GemmComplex({current_q_len, seq_len_kv_total, head_size_qk}, 1.f, ref_Q,
-                                                    cutlass::ComplexTransform::kNone, ref_K, cutlass::ComplexTransform::kNone,
-                                                    0.f, ref_S, ref_S, ElementS(0),
-                                                    1,                               // batch_count
-                                                    current_q_len * head_size_qk,    // batch_stride_Q
-                                                    seq_len_kv_total * head_size_qk, // batch_stride_K
-                                                    current_q_len * seq_len_kv_total,// batch_stride_S
-                                                    current_q_len * seq_len_kv_total // batch_stride_S
-            );
+          cutlass::TensorRef ref_Q(block_Q_chunk.get(), LayoutQ::packed({current_q_len, head_size_qk}));
+          cutlass::TensorRef ref_K(block_K_concat.get(), LayoutK::packed({head_size_qk, seq_len_kv_total}));
+          cutlass::TensorRef ref_V(block_V_concat.get(), LayoutV::packed({seq_len_kv_total, head_size_vo}));
+          cutlass::TensorRef ref_S(block_S.get(), LayoutQ::packed({current_q_len, seq_len_kv_total}));
 
-            compat::wait();
+          // GEMM 1: S = Q_chunk * K^T
+          cutlass::reference::device::GemmComplex({current_q_len, seq_len_kv_total, head_size_qk}, 1.f, ref_Q,
+                                                  cutlass::ComplexTransform::kNone, ref_K, cutlass::ComplexTransform::kNone,
+                                                  0.f, ref_S, ref_S, ElementS(0),
+                                                  1,                               // batch_count
+                                                  current_q_len * head_size_qk,    // batch_stride_Q
+                                                  seq_len_kv_total * head_size_qk, // batch_stride_K
+                                                  current_q_len * seq_len_kv_total,// batch_stride_S
+                                                  current_q_len * seq_len_kv_total // batch_stride_S
+          );
 
-            std::vector<ElementS> host_S(block_S.size());
-            compat::memcpy<ElementS>(host_S.data(), block_S.get(), host_S.size());
+          compat::wait();
 
-            // delete this memory as it is no longer needed
-            block_S.reset();
-            auto offset = cute::min(seq_len_qo, seq_len_kv);
-            auto discard_seq_coord = seq_len_qo - offset;
-            auto full_tile_offset = seq_len_kv - offset;
-            if (is_causal) {
-              // apply mask to S
-              for (int row = 0; row < current_q_len; row++) {
-                int global_row = row + q_start; // Use global row index for masking check
-                for (int col = seq_len_kv_cache; col < seq_len_kv_total; col++) {
-                    if ((col - seq_len_kv_cache - full_tile_offset) > (global_row - discard_seq_coord))
-                      host_S[col + row * seq_len_kv_total] = ElementS{-INFINITY};
+          std::vector<ElementS> host_S(block_S.size());
+          compat::memcpy<ElementS>(host_S.data(), block_S.get(), host_S.size());
+
+          // delete this memory as it is no longer needed
+          block_S.reset();
+          auto offset = cute::min(seq_len_qo, seq_len_kv);
+          auto discard_seq_coord = seq_len_qo - offset;
+          auto full_tile_offset = seq_len_kv - offset;
+          if (options.is_causal) {
+            // apply mask to S
+            for (int row = 0; row < current_q_len; row++) {
+              int global_row = row + q_start; // Use global row index for masking check
+              for (int col = seq_len_kv_cache; col < seq_len_kv_total; col++) {
+                if ((col - seq_len_kv_cache - full_tile_offset) > (global_row - discard_seq_coord)) {
+                  host_S[col + row * seq_len_kv_total] = ElementS{-INFINITY};
                 }
               }
             }
+          }
 
-            // compute max element per row of S
-            std::vector<ElementS> max_vec(current_q_len, ElementS{-INFINITY});
-            for (int row = 0; row < current_q_len; row++) {
-              int idx = row * seq_len_kv_total;
-              int max_idx = row;
-              max_vec[max_idx] = host_S[idx++];
-              for (int col = 1; col < seq_len_kv_total; col++, idx++) {
-                if (max_vec[max_idx] < host_S[idx])
-                  max_vec[max_idx] = host_S[idx];
+          // compute max element per row of S
+          std::vector<ElementS> max_vec(current_q_len, ElementS{-INFINITY});
+          for (int row = 0; row < current_q_len; row++) {
+            int idx = row * seq_len_kv_total;
+            int max_idx = row;
+            max_vec[max_idx] = host_S[idx++];
+            for (int col = 1; col < seq_len_kv_total; col++, idx++) {
+              if (max_vec[max_idx] < host_S[idx]) {
+                max_vec[max_idx] = host_S[idx];
               }
             }
+          }
 
-            // compute exp of S
-            for (int row = 0; row < current_q_len; row++) {
-              int idx = row * seq_len_kv_total;
-              int max_idx = row;
-              for (int col = 0; col < seq_len_kv_total; col++, idx++) {
-                /* FIXME: use softmax_scale instead of assuming its value here */
-                host_S[idx] = expf((host_S[idx] - max_vec[max_idx]) / sqrt(static_cast<ElementS>((head_size_qk))));
-              }
+          // compute exp of S
+          for (int row = 0; row < current_q_len; row++) {
+            int idx = row * seq_len_kv_total;
+            int max_idx = row;
+            for (int col = 0; col < seq_len_kv_total; col++, idx++) {
+              /* FIXME: use softmax_scale instead of assuming its value here */
+              host_S[idx] = expf((host_S[idx] - max_vec[max_idx]) / sqrt(static_cast<ElementS>((head_size_qk))));
+            }
+          }
+
+          // compute sum per row of S
+          std::vector<ElementS> sum_vec(current_q_len, ElementS{0});
+          for (int row = 0; row < current_q_len; row++) {
+            int idx = row * seq_len_kv_total;
+            int sum_idx = row;
+            for (int col = 0; col < seq_len_kv_total; col++, idx++) {
+              sum_vec[sum_idx] += host_S[idx];
             }
 
-            // compute sum per row of S
-            std::vector<ElementS> sum_vec(current_q_len, ElementS{0});
-            for (int row = 0; row < current_q_len; row++) {
-              int idx = row * seq_len_kv_total;
-              int sum_idx = row;
-              for (int col = 0; col < seq_len_kv_total; col++, idx++) {
-                sum_vec[sum_idx] += host_S[idx];
-              }
-
-              // scale each row with the sum to compute softmax
-              idx = row * seq_len_kv_total;
-              sum_idx = row;
-              for (int col = 0; col < seq_len_kv_total; col++, idx++) {
-                int global_row = row + q_start;
-                if(is_causal && global_row < discard_seq_coord) {
-                  host_S[idx] = 0;
-                } else {
-                  host_S[idx] /= sum_vec[sum_idx];
-                }
+            // scale each row with the sum to compute softmax
+            idx = row * seq_len_kv_total;
+            sum_idx = row;
+            for (int col = 0; col < seq_len_kv_total; col++, idx++) {
+              int global_row = row + q_start;
+              if (options.is_causal && global_row < discard_seq_coord) {
+                host_S[idx] = 0;
+              } else {
+                host_S[idx] /= sum_vec[sum_idx];
               }
             }
+          }
 
-            std::vector<ElementV_> host_P(host_S.size());
-            for (int p = 0; p < host_P.size(); p++)
-              host_P[p] = static_cast<ElementV_>(host_S[p]);
+          std::vector<ElementV_> host_P(host_S.size());
+          for (int p = 0; p < host_P.size(); p++) {
+            host_P[p] = static_cast<ElementV_>(host_S[p]);
+          }
 
-            cutlass::DeviceAllocation<ElementV_> block_P;
-            block_P.reset(host_P.size());
+          cutlass::DeviceAllocation<ElementV_> block_P;
+          block_P.reset(host_P.size());
 
-            compat::memcpy<ElementV_>(block_P.get(), host_P.data(), host_P.size());
+          compat::memcpy<ElementV_>(block_P.get(), host_P.data(), host_P.size());
 
-            cutlass::TensorRef ref_P(block_P.get(), LayoutQ::packed({current_q_len, seq_len_kv_total}));
+          cutlass::TensorRef ref_P(block_P.get(), LayoutQ::packed({current_q_len, seq_len_kv_total}));
 
-            cutlass::DeviceAllocation<ElementS> block_acc;
-            block_acc.reset(current_q_len * head_size_vo);
-            cutlass::TensorRef ref_acc(block_acc.get(), LayoutO::packed({current_q_len, head_size_vo}));
+          cutlass::DeviceAllocation<ElementS> block_acc;
+          block_acc.reset(current_q_len * head_size_vo);
+          cutlass::TensorRef ref_acc(block_acc.get(), LayoutO::packed({current_q_len, head_size_vo}));
 
-            // GEMM 2: O = P_chunk * V
-            cutlass::reference::device::GemmComplex({current_q_len, head_size_vo, seq_len_kv_total}, ElementS{1}, ref_P,
-                                                    cutlass::ComplexTransform::kNone, ref_V, cutlass::ComplexTransform::kNone,
-                                                    ElementS{0}, ref_acc, ref_acc, ElementS{0},
-                                                    1,                               // batch_count
-                                                    current_q_len * seq_len_kv_total,// batch_stride_P
-                                                    seq_len_kv_total * head_size_vo, // batch_stride_V
-                                                    current_q_len * head_size_vo,    // batch_stride_O
-                                                    current_q_len * head_size_vo     // batch_stride_O
+          // GEMM 2: O = P_chunk * V
+          cutlass::reference::device::GemmComplex({current_q_len, head_size_vo, seq_len_kv_total}, ElementS{1}, ref_P,
+                                                  cutlass::ComplexTransform::kNone, ref_V, cutlass::ComplexTransform::kNone,
+                                                  ElementS{0}, ref_acc, ref_acc, ElementS{0},
+                                                  1,                               // batch_count
+                                                  current_q_len * seq_len_kv_total,// batch_stride_P
+                                                  seq_len_kv_total * head_size_vo, // batch_stride_V
+                                                  current_q_len * head_size_vo,    // batch_stride_O
+                                                  current_q_len * head_size_vo     // batch_stride_O
             );
 
-            compat::wait();
-            block_P.reset();
+          compat::wait();
+          block_P.reset();
 
-            std::vector<ElementS> vec_acc(block_acc.size());
-            compat::memcpy<ElementS>(vec_acc.data(), block_acc.get(), vec_acc.size());
+          std::vector<ElementS> vec_acc(block_acc.size());
+          compat::memcpy<ElementS>(vec_acc.data(), block_acc.get(), vec_acc.size());
 
-            block_acc.reset();
-            std::vector<ElementO> vec_out(vec_acc.size());
-            for(int i = 0; i < vec_out.size(); i++) {
-              vec_out[i] = static_cast<ElementO>(vec_acc[i]);
-            }
-            compat::memcpy<ElementO>(block_ref_O.get() + offset_o + q_start * head_size_vo, vec_out.data(), vec_out.size());
+          block_acc.reset();
+          std::vector<ElementO> vec_out(vec_acc.size());
+          for (int i = 0; i < vec_out.size(); i++) {
+            vec_out[i] = static_cast<ElementO>(vec_acc[i]);
+          }
+
+          cutlass::DeviceAllocation<ElementO> block_O_chunk;
+          block_O_chunk.reset(vec_out.size());
+          compat::memcpy<ElementO>(block_O_chunk.get(), vec_out.data(), vec_out.size());
+          copy_slice<ExampleRunner, CopySliceOp::O>(
+            block_O_chunk.get(), o, q_seq_start, current_q_len, head_size_vo, h, batch_idx, dO, false, true);
         }
-
-        offset_q += seq_len_qo * head_size_qk;
-        if(kv_group_update % q_group_size==0) {
-          offset_k += seq_len_kv * head_size_qk;
-          offset_v += seq_len_kv * head_size_vo;
-          offset_k_cache += seq_len_kv_cache * head_size_qk;
-          offset_v_cache += seq_len_kv_cache * head_size_vo;
-        }
-        kv_group_update++;
-        offset_o += seq_len_qo * head_size_vo;
       }
     }
 
     compat::wait();
-
-    // Check if output from CUTLASS kernel and reference kernel are equal or not
-    bool passed = cutlass::reference::device::BlockCompareRelativelyEqual(block_ref_O.get(), block_O.get(),
-                                                                          block_O.size(), ElementO{0.05}, ElementO{0.05});
-
-    return passed;
+    // Check if output from CUTLASS kernel and reference kernel are equal within tolerance.
+    return cutlass::reference::device::BlockCompareRelativelyEqual(
+        block_ref_O.get(), block_O.get(), block_O.size(), ElementO{0.05}, ElementO{0.05});
   }
 
   /// Initialize operands to be used in the GEMM and reference GEMM
@@ -616,12 +716,21 @@ template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
     auto shape_V_cache = cute::make_shape(head_size_vo, seq_len_kv_cache, num_heads_kv, batch);
     auto shape_O = cute::make_shape(seq_len_qo, head_size_vo, num_heads_q,  batch);
 
-    stride_Q = cutlass::make_cute_packed_stride(StrideQ{}, shape_Q);
-    stride_K = cutlass::make_cute_packed_stride(StrideK{}, shape_K);
-    stride_V = cutlass::make_cute_packed_stride(StrideV{}, shape_V);
-    stride_K_cache = cutlass::make_cute_packed_stride(StrideK{}, shape_K_cache);
-    stride_V_cache = cutlass::make_cute_packed_stride(StrideV{}, shape_V_cache);
-    stride_O = cutlass::make_cute_packed_stride(StrideO{}, shape_O);
+    if (options.layout == "NHD") {
+      stride_Q = stride(make_ordered_layout(shape_Q, NHDQLayoutStep{}));
+      stride_K = stride(make_ordered_layout(shape_K, NHDQLayoutStep{}));
+      stride_V = stride(make_ordered_layout(shape_V, NHDVLayoutStep{}));
+      stride_K_cache = stride(make_ordered_layout(shape_K_cache, NHDQLayoutStep{}));
+      stride_V_cache = stride(make_ordered_layout(shape_V_cache, NHDVLayoutStep{}));
+      stride_O = stride(make_ordered_layout(shape_O, NHDQLayoutStep{}));
+    } else {
+      stride_Q = stride(make_ordered_layout(shape_Q, HNDQLayoutStep{}));
+      stride_K = stride(make_ordered_layout(shape_K, HNDQLayoutStep{}));
+      stride_V = stride(make_ordered_layout(shape_V, HNDVLayoutStep{}));
+      stride_K_cache = stride(make_ordered_layout(shape_K_cache, HNDQLayoutStep{}));
+      stride_V_cache = stride(make_ordered_layout(shape_V_cache, HNDVLayoutStep{}));
+      stride_O = stride(make_ordered_layout(shape_O, HNDQLayoutStep{}));
+    }
 
     block_Q.reset(static_cast<std::size_t>(batch) * num_heads_q * seq_len_qo * head_size_qk);
     block_K.reset(static_cast<std::size_t>(batch) * num_heads_kv * seq_len_kv * head_size_qk);
@@ -775,7 +884,7 @@ template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
 
     if (options.verify != 0) {
       // Verify that the result is correct
-      bool passed = verify(shape, options.is_causal);
+      bool passed = verify(shape, options);
       std::cout << "Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
 
       if (!passed) {
@@ -946,17 +1055,55 @@ struct FMHAConfig {
     >;
 
     static_assert(!(persistent & Causal), "persistent SDPA kernel not support Causal yet");
-    using FMHAKernel = conditional_t<is_same_v<Scheduler, cutlass::fmha::kernel::XeFHMAIndividualPersistentTileScheduler>,
-      cutlass::fmha::kernel::XeFMHAFwdDynamicSplitKernel<
-        ProblemShapeType, CollectiveMainloop, CollectiveEpilogue, Scheduler>,
-        cutlass::fmha::kernel::XeFMHAFwdKernel<
-        ProblemShapeType, CollectiveMainloop, CollectiveEpilogue, Scheduler>
-        >;
-
-    ExampleRunner<FMHAKernel, isVarLen> runner;
-
-    CUTLASS_CHECK(runner.run(options, hw_info));
-    return 0;
+    if (options.layout == "NHD") {
+      using FMHAKernel = cute::conditional_t<
+          is_same_v<Scheduler, cutlass::fmha::kernel::XeFHMAIndividualPersistentTileScheduler>,
+          cutlass::fmha::kernel::XeFMHAFwdDynamicSplitKernel<
+            ProblemShapeType,
+            CollectiveMainloop,
+            CollectiveEpilogue,
+            Scheduler,
+            NHDQLayoutStep,
+            NHDQLayoutStep,
+            NHDVLayoutStep,
+            NHDQLayoutStep>,
+          cutlass::fmha::kernel::XeFMHAFwdKernel<
+            ProblemShapeType,
+            CollectiveMainloop,
+            CollectiveEpilogue,
+            Scheduler,
+            NHDQLayoutStep,
+            NHDQLayoutStep,
+            NHDVLayoutStep,
+            NHDQLayoutStep>>;
+      ExampleRunner<FMHAKernel, isVarLen> runner;
+      CUTLASS_CHECK(runner.run(options, hw_info));
+      return 0;
+    } else {
+      using FMHAKernel = cute::conditional_t<
+          is_same_v<Scheduler, cutlass::fmha::kernel::XeFHMAIndividualPersistentTileScheduler>,
+          cutlass::fmha::kernel::XeFMHAFwdDynamicSplitKernel<
+            ProblemShapeType,
+            CollectiveMainloop,
+            CollectiveEpilogue,
+            Scheduler,
+            HNDQLayoutStep,
+            HNDQLayoutStep,
+            HNDVLayoutStep,
+            HNDQLayoutStep>,
+          cutlass::fmha::kernel::XeFMHAFwdKernel<
+            ProblemShapeType,
+            CollectiveMainloop,
+            CollectiveEpilogue,
+            Scheduler,
+            HNDQLayoutStep,
+            HNDQLayoutStep,
+            HNDVLayoutStep,
+            HNDQLayoutStep>>;
+      ExampleRunner<FMHAKernel, isVarLen> runner;
+      CUTLASS_CHECK(runner.run(options, hw_info));
+      return 0;
+    }
   }
 
   static int run(const Options &options) {

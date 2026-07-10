@@ -54,6 +54,47 @@ using namespace cute;
 
 namespace cutlass::benchmark {
 
+using HNDQLayoutStep = Step<_1, _0, _2, _3>;
+using HNDVLayoutStep = Step<_0, _1, _2, _3>;
+using NHDQLayoutStep = Step<_2, _0, _1, _3>;
+using NHDVLayoutStep = Step<_0, _2, _1, _3>;
+
+enum class CopySliceOp { Q, KCache, VCache, K, V, O };
+
+template <typename Owner, CopySliceOp Op, typename SrcT, typename DstT, typename Stride>
+class CopySliceKernelTag {};
+
+template <typename Owner, CopySliceOp Op, typename SrcT, typename DstT, typename Stride>
+void copy_slice(const SrcT* src, DstT* dst, int seq_start, int seq_len, int head_size,
+                int head_idx, int batch_idx, Stride stride, bool is_v = false,
+                bool store = false, int page_size = 0, const int* page_table = nullptr,
+                int start_page_idx = 0) {
+  std::size_t size = static_cast<std::size_t>(seq_len) * head_size;
+  if (size == 0) {
+    return;
+  }
+  using Tag = CopySliceKernelTag<Owner, Op, SrcT, DstT, Stride>;
+  compat::get_default_queue().parallel_for<Tag>(size, [=](auto indx) {
+    int linear_idx = indx;
+    int row = linear_idx / head_size;
+    int col = linear_idx % head_size;
+    int seq_idx = seq_start + row;
+    if (page_table != nullptr && page_size > 0) {
+      int page_offset = row % page_size;
+      int logical_page = row / page_size;
+      seq_idx = seq_start + page_table[start_page_idx + logical_page] * page_size + page_offset;
+    }
+    int tensor_idx = is_v ? col * get<0>(stride) + seq_idx * get<1>(stride)
+                          : seq_idx * get<0>(stride) + col * get<1>(stride);
+    tensor_idx += head_idx * get<2>(stride) + batch_idx * get<3>(stride);
+    if (store) {
+      dst[tensor_idx] = src[linear_idx];
+    } else {
+      dst[linear_idx] = src[tensor_idx];
+    }
+  }).wait();
+}
+
 // Command line options parsing
 struct FMHAOptions {
 
@@ -62,11 +103,11 @@ struct FMHAOptions {
   int batch, num_heads_q, num_heads_kv, seq_len_qo, seq_len_kv, seq_len_kv_cache, head_size_qk,
       head_size_vo, iterations, page_size;
   float softmax_scale;
-  std::string bm_name;
+  std::string bm_name, layout;
 
   FMHAOptions()
       : error(false), batch(32), num_heads_q(16), num_heads_kv(16), seq_len_qo(1), head_size_qk(128),
-        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), softmax_scale(1.f), bm_name("Flash Attention v2") {}
+        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), softmax_scale(1.f), bm_name("Flash Attention v2"), layout("HND") {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -83,11 +124,23 @@ struct FMHAOptions {
     cmd.get_cmd_line_argument("head_size_qk", head_size_qk, head_size_vo);
     cmd.get_cmd_line_argument("iterations", iterations, 100);
     cmd.get_cmd_line_argument("bm_name", bm_name, std::string("Flash Attention v2"));
+    cmd.get_cmd_line_argument("layout", layout, std::string("HND"));
+
+    std::transform(layout.begin(), layout.end(), layout.begin(), [](unsigned char c) {
+      return static_cast<char>(std::toupper(c));
+    });
+
+    if (layout != "HND" && layout != "NHD") {
+      std::cerr << "Invalid: layout must be HND or NHD" << std::endl;
+      error = true;
+      return;
+    }
 
     softmax_scale = 1 / std::sqrt(static_cast<float>(head_size_qk));
 
     if (seq_len_kv_cache % page_size != 0) {
       std::cerr << "Invalid: seq_len_kv_cache must be divisible by page_size" << std::endl;
+      error = true;
       return;
     }
   }
@@ -102,7 +155,8 @@ struct FMHAOptions {
                                    std::to_string(head_size_qk) + "x" +
                                    std::to_string(seq_len_kv) + "x" +
                                    std::to_string(seq_len_kv_cache) + "x" +
-                                   std::to_string(head_size_vo);
+                                   std::to_string(head_size_vo) + "x" +
+                                   layout;
     full_name << test_name_suffix;
 
     return full_name.str();
@@ -134,9 +188,9 @@ template <typename InT> inline auto in_memory(cutlass::DeviceAllocation<InT>& in
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
+template <class FMHAConfiguration, class FMHAKernel_ = typename FMHAConfiguration::FMHAKernel> struct BenchmarkRunnerFMHA {
 
-  using FMHAKernel = typename FMHAConfiguration::FMHAKernel;
+  using FMHAKernel = FMHAKernel_;
 
   using StrideQ = typename FMHAKernel::StrideQ;
   using StrideK = typename FMHAKernel::StrideK;
@@ -202,7 +256,7 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
   };
   PagedKVParams paged_kv_cache;
 
-  bool verify(ProblemShapeType shape, bool is_causal) {
+  bool verify(ProblemShapeType shape, const FMHAOptions& options) {
 
     if constexpr (isVarLen) {
       int max_seq_len_q = shape.seq_len_qo;
@@ -225,25 +279,17 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     auto block_V_ = in_memory(block_V);
     auto block_K_cache_ = in_memory(block_K_cache);
     auto block_V_cache_ = in_memory(block_V_cache);
-    using ElementV_ = ElementV;
-    using ElementK_ = ElementK;
+    using ElementV_ = std::remove_pointer_t<decltype(block_V_.get())>;
+    using ElementK_ = std::remove_pointer_t<decltype(block_K_.get())>;
 
-    int offset_q = 0;
-    int offset_k = 0;
-    int offset_v = 0;
-    int offset_k_cache = 0;
-    int offset_v_cache = 0;
-    int offset_o = 0;
-
-    std::vector<int> page_table_host;
     std::vector<int> num_pages_per_seq_host;
     if (paged_kv_cache.page_size > 0) {
-      page_table_host.resize(paged_kv_cache.page_table.size());
-      compat::memcpy(page_table_host.data(), paged_kv_cache.page_table.get(), page_table_host.size() * sizeof(int));
       num_pages_per_seq_host.resize(paged_kv_cache.num_pages_per_seq.size());
       compat::memcpy(num_pages_per_seq_host.data(), paged_kv_cache.num_pages_per_seq.get(), num_pages_per_seq_host.size() * sizeof(int));
       compat::wait();
     }
+
+    compat::memset(block_ref_O.get(), 0, block_ref_O.size() * sizeof(ElementO));
 
     // loop over the batch dimension to compute the output
     // to avoid the risk of running out of device memory
@@ -261,70 +307,85 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
       }
       int seq_len_kv_total = seq_len_kv + seq_len_kv_cache;
 
-      int kv_group_update=1;
+      int batch_idx = isVarLen ? 0 : b;
+      int q_base = 0;
+      int kv_base = 0;
+      int kv_cache_base = 0;
+      auto q = block_Q_.get();
+      auto k = block_K_.get();
+      auto v = block_V_.get();
+      auto k_cache = block_K_cache_.get();
+      auto v_cache = block_V_cache_.get();
+      auto o = block_ref_O.get();
+      auto q_stride = stride_Q;
+      auto k_stride = stride_K;
+      auto v_stride = stride_V;
+      auto k_cache_stride = stride_K_cache;
+      auto v_cache_stride = stride_V_cache;
+      auto o_stride = stride_O;
+
+      if constexpr (isVarLen) {
+        q_base = cumulative_seqlen_q[b];
+        kv_base = cumulative_seqlen_kv[b];
+        kv_cache_base = cumulative_seqlen_kv_cache[b];
+        if (options.layout == "HND") {
+          q += static_cast<std::size_t>(q_base) * num_heads_q * get<0>(stride_Q);
+          k += static_cast<std::size_t>(kv_base) * num_heads_kv * get<0>(stride_K);
+          v += static_cast<std::size_t>(kv_base) * num_heads_kv * get<1>(stride_V);
+          o += static_cast<std::size_t>(q_base) * num_heads_q * get<0>(stride_O);
+          if (seq_len_kv_cache > 0) {
+            k_cache += static_cast<std::size_t>(kv_cache_base) * num_heads_kv * get<0>(stride_K_cache);
+            v_cache += static_cast<std::size_t>(kv_cache_base) * num_heads_kv * get<1>(stride_V_cache);
+            k_cache_stride = make_stride(get<0>(stride_K_cache), get<1>(stride_K_cache), int(seq_len_kv_cache * get<0>(stride_K_cache)), int(num_heads_kv * seq_len_kv_cache * get<0>(stride_K_cache)));
+            v_cache_stride = make_stride(get<0>(stride_V_cache), get<1>(stride_V_cache), int(seq_len_kv_cache * get<1>(stride_V_cache)), int(num_heads_kv * seq_len_kv_cache * get<1>(stride_V_cache)));
+          }
+          q_stride = make_stride(get<0>(stride_Q), get<1>(stride_Q), int(seq_len_qo * get<0>(stride_Q)), int(num_heads_q * seq_len_qo * get<0>(stride_Q)));
+          k_stride = make_stride(get<0>(stride_K), get<1>(stride_K), int(seq_len_kv * get<0>(stride_K)), int(num_heads_kv * seq_len_kv * get<0>(stride_K)));
+          v_stride = make_stride(get<0>(stride_V), get<1>(stride_V), int(seq_len_kv * get<1>(stride_V)), int(num_heads_kv * seq_len_kv * get<1>(stride_V)));
+          o_stride = make_stride(get<0>(stride_O), get<1>(stride_O), int(seq_len_qo * get<0>(stride_O)), int(num_heads_q * seq_len_qo * get<0>(stride_O)));
+          q_base = kv_base = kv_cache_base = 0;
+        }
+      }
+
       for (int h = 0; h < num_heads_q; h++) {
         cutlass::DeviceAllocation<ElementS> block_S;
         block_S.reset(seq_len_qo * seq_len_kv_total);
 
-        ElementK_* k_ptr;
-        ElementV_* v_ptr;
+        int kv_head_idx = h / q_group_size;
+        cutlass::DeviceAllocation<ElementQ> block_Q_head;
         cutlass::DeviceAllocation<ElementK_> block_K_concat;
         cutlass::DeviceAllocation<ElementV_> block_V_concat;
+        block_Q_head.reset(seq_len_qo * head_size_qk);
+        block_K_concat.reset(head_size_qk * seq_len_kv_total);
+        block_V_concat.reset(seq_len_kv_total * head_size_vo);
+
+        copy_slice<BenchmarkRunnerFMHA, CopySliceOp::Q>(
+          q, block_Q_head.get(), q_base, seq_len_qo, head_size_qk, h, batch_idx, q_stride);
 
         if (seq_len_kv_cache > 0) {
-            block_K_concat.reset(head_size_qk * seq_len_kv_total);
-            block_V_concat.reset(seq_len_kv_total * head_size_vo);
-
-            if (paged_kv_cache.page_size > 0) {
-              int page_size = paged_kv_cache.page_size;
-              int start_page_idx = isVarLen ? num_pages_per_seq_host[b] : b * (seq_len_kv_cache / page_size);
-              int num_pages = ceil_div(seq_len_kv_cache, page_size);
-
-              for (int i = 0; i < num_pages; ++i) {
-                int physical_page_id = page_table_host[start_page_idx + i];
-                int current_copy_len = std::min(page_size, seq_len_kv_cache - i * page_size);
-
-                compat::memcpy<ElementK_>(
-                    block_K_concat.get() + head_size_qk * i * page_size,
-                    block_K_cache_.get() + offset_k_cache + head_size_qk * physical_page_id * page_size,
-                    head_size_qk * current_copy_len);
-                
-                compat::memcpy<ElementV_>(
-                    block_V_concat.get() + i * page_size * head_size_vo,
-                    block_V_cache_.get() + offset_v_cache + physical_page_id * page_size * head_size_vo,
-                    current_copy_len * head_size_vo);
-              }
-            } else {
-              compat::memcpy<ElementK_>(
-                    block_K_concat.get(),
-                    block_K_cache_.get() + offset_k_cache,
-                    head_size_qk * seq_len_kv_cache);
-              compat::memcpy<ElementV_>(
-                    block_V_concat.get(),
-                    block_V_cache_.get() + offset_v_cache,
-                    seq_len_kv_cache * head_size_vo);
-            }
-
-            compat::memcpy<ElementK_>(
-                  block_K_concat.get() + head_size_qk * seq_len_kv_cache,
-                  block_K_.get() + offset_k,
-                  head_size_qk * seq_len_kv);
-
-            compat::memcpy<ElementV_>(
-                  block_V_concat.get() + seq_len_kv_cache * head_size_vo,
-                  block_V_.get() + offset_v,
-                  seq_len_kv * head_size_vo);
-
-            k_ptr = block_K_concat.get();
-            v_ptr = block_V_concat.get();
-        } else {
-            k_ptr = block_K_.get() + offset_k;
-            v_ptr = block_V_.get() + offset_v;
+          int page_size = paged_kv_cache.page_size;
+          int start_page_idx = page_size > 0 ? (isVarLen ? num_pages_per_seq_host[b] : b * (seq_len_kv_cache / page_size)) : 0;
+          const int* page_table = page_size > 0 ? paged_kv_cache.page_table.get() : nullptr;
+          copy_slice<BenchmarkRunnerFMHA, CopySliceOp::KCache>(
+            k_cache, block_K_concat.get(), kv_cache_base, seq_len_kv_cache, head_size_qk,
+            kv_head_idx, batch_idx, k_cache_stride, false, false, page_size, page_table,
+            start_page_idx);
+          copy_slice<BenchmarkRunnerFMHA, CopySliceOp::VCache>(
+            v_cache, block_V_concat.get(), kv_cache_base, seq_len_kv_cache, head_size_vo,
+            kv_head_idx, batch_idx, v_cache_stride, true, false, page_size, page_table,
+            start_page_idx);
         }
 
-        cutlass::TensorRef ref_Q(block_Q_.get() + offset_q, LayoutQ::packed({seq_len_qo, head_size_qk}));
-        cutlass::TensorRef ref_K(k_ptr, LayoutK::packed({head_size_qk, seq_len_kv_total}));
-        cutlass::TensorRef ref_V(v_ptr, LayoutV::packed({seq_len_kv_total, head_size_vo}));
+        copy_slice<BenchmarkRunnerFMHA, CopySliceOp::K>(
+          k, block_K_concat.get() + static_cast<std::size_t>(head_size_qk) * seq_len_kv_cache,
+          kv_base, seq_len_kv, head_size_qk, kv_head_idx, batch_idx, k_stride);
+        copy_slice<BenchmarkRunnerFMHA, CopySliceOp::V>(
+          v, block_V_concat.get() + static_cast<std::size_t>(seq_len_kv_cache) * head_size_vo,
+          kv_base, seq_len_kv, head_size_vo, kv_head_idx, batch_idx, v_stride, true);
+
+        cutlass::TensorRef ref_Q(block_Q_head.get(), LayoutQ::packed({seq_len_qo, head_size_qk}));
+        cutlass::TensorRef ref_K(block_K_concat.get(), LayoutK::packed({head_size_qk, seq_len_kv_total}));
+        cutlass::TensorRef ref_V(block_V_concat.get(), LayoutV::packed({seq_len_kv_total, head_size_vo}));
         cutlass::TensorRef ref_S(block_S.get(), LayoutQ::packed({seq_len_qo, seq_len_kv_total}));
 
         cutlass::reference::device::GemmComplex({seq_len_qo, seq_len_kv_total, head_size_qk}, 1.f, ref_Q,
@@ -347,7 +408,7 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
         auto offset = cute::min(seq_len_qo, seq_len_kv);
         auto discard_seq_coord = seq_len_qo - offset;
         auto full_tile_offset = seq_len_kv - offset;
-        if (is_causal) {
+        if (Causal) {
           // apply mask to S
           for (int row = 0; row < seq_len_qo; row++) {
             for (int col = seq_len_kv_cache; col < seq_len_kv_total; col++) {
@@ -392,7 +453,7 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
           idx = row * seq_len_kv_total;
           sum_idx = row;
           for (int col = 0; col < seq_len_kv_total; col++, idx++) {
-            if(is_causal && row < discard_seq_coord) {
+            if(Causal && row < discard_seq_coord) {
               host_S[idx] = 0;
             } else {
               host_S[idx] /= sum_vec[sum_idx];
@@ -438,17 +499,12 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
         for(int i = 0; i < vec_out.size(); i++) {
           vec_out[i] = static_cast<ElementO>(vec_acc[i]);
         }
-        compat::memcpy<ElementO>(block_ref_O.get() + offset_o, vec_out.data(), vec_out.size());
-
-        offset_q += seq_len_qo * head_size_qk;
-        if(kv_group_update % q_group_size==0) {
-          offset_k += seq_len_kv * head_size_qk;
-          offset_v += seq_len_kv * head_size_vo;
-          offset_k_cache += seq_len_kv_cache * head_size_qk;
-          offset_v_cache += seq_len_kv_cache * head_size_vo;
-        }
-        kv_group_update++;
-        offset_o += seq_len_qo * head_size_vo;
+        cutlass::DeviceAllocation<ElementO> block_out;
+        block_out.reset(vec_out.size());
+        compat::memcpy<ElementO>(block_out.get(), vec_out.data(), vec_out.size());
+        copy_slice<BenchmarkRunnerFMHA, CopySliceOp::O>(
+          block_out.get(), o, q_base, seq_len_qo, head_size_vo, h, batch_idx, o_stride,
+          false, true);
       }
     }
 
@@ -564,12 +620,21 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     auto shape_V_cache = cute::make_shape(head_size_vo, seq_len_kv_cache, num_heads_kv, batch);
     auto shape_O = cute::make_shape(seq_len_qo, head_size_vo, num_heads_q,  batch);
 
-    stride_Q = cutlass::make_cute_packed_stride(StrideQ{}, shape_Q);
-    stride_K = cutlass::make_cute_packed_stride(StrideK{}, shape_K);
-    stride_V = cutlass::make_cute_packed_stride(StrideV{}, shape_V);
-    stride_K_cache = cutlass::make_cute_packed_stride(StrideK{}, shape_K_cache);
-    stride_V_cache = cutlass::make_cute_packed_stride(StrideV{}, shape_V_cache);
-    stride_O = cutlass::make_cute_packed_stride(StrideO{}, shape_O);
+    if (options.layout == "NHD") {
+      stride_Q = stride(make_ordered_layout(shape_Q, NHDQLayoutStep{}));
+      stride_K = stride(make_ordered_layout(shape_K, NHDQLayoutStep{}));
+      stride_V = stride(make_ordered_layout(shape_V, NHDVLayoutStep{}));
+      stride_K_cache = stride(make_ordered_layout(shape_K_cache, NHDQLayoutStep{}));
+      stride_V_cache = stride(make_ordered_layout(shape_V_cache, NHDVLayoutStep{}));
+      stride_O = stride(make_ordered_layout(shape_O, NHDQLayoutStep{}));
+    } else {
+      stride_Q = stride(make_ordered_layout(shape_Q, HNDQLayoutStep{}));
+      stride_K = stride(make_ordered_layout(shape_K, HNDQLayoutStep{}));
+      stride_V = stride(make_ordered_layout(shape_V, HNDVLayoutStep{}));
+      stride_K_cache = stride(make_ordered_layout(shape_K_cache, HNDQLayoutStep{}));
+      stride_V_cache = stride(make_ordered_layout(shape_V_cache, HNDVLayoutStep{}));
+      stride_O = stride(make_ordered_layout(shape_O, HNDQLayoutStep{}));
+    }
 
     block_Q.reset(static_cast<std::size_t>(batch) * num_heads_q * seq_len_qo * head_size_qk);
     block_K.reset(static_cast<std::size_t>(batch) * num_heads_kv * seq_len_kv * head_size_qk);
@@ -720,7 +785,7 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     compat::wait();
 
     // Verify that the result is correct
-    bool passed = verify(problem_size, Causal);
+    bool passed = verify(problem_size, options);
     if(not passed) {
       state.SkipWithError("Disposition Failed.");
     }
@@ -740,9 +805,7 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     state.counters["paged_kv"] = PagedKV;
 
     std::stringstream extra_label;
-    extra_label << "layoutQ=RowMajor ";
-    extra_label << "layoutK=ColumnMajor ";
-    extra_label << "layoutV=RowMajor ";
+    extra_label << "layout=" << options.layout << " ";
 
     state.SetLabel(extra_label.str());
     // when seq_len_qo is not equal to seq_len_kv we use bottom up approach for the masking. 
@@ -847,6 +910,30 @@ private:
       ::benchmark::State& state,                                  \
       cutlass::benchmark::FMHAOptions const& options,                 \
       cutlass::KernelHardwareInfo const& hw_info) {               \
-    auto bench = cutlass::benchmark::BenchmarkRunnerFMHA<F>();    \
-    bench.run(state, options, hw_info);                           \
+    if (options.layout == "NHD") {                                \
+      using NHDKernel = cute::conditional_t<F::Persistent,        \
+          cutlass::fmha::kernel::XeFMHAFwdDynamicSplitKernel<     \
+            typename F::ProblemShapeType,                         \
+            typename F::CollectiveMainloop,                       \
+            typename F::CollectiveEpilogue,                       \
+            typename F::Scheduler,                                \
+            cutlass::benchmark::NHDQLayoutStep,                   \
+            cutlass::benchmark::NHDQLayoutStep,                   \
+            cutlass::benchmark::NHDVLayoutStep,                   \
+            cutlass::benchmark::NHDQLayoutStep>,                  \
+          cutlass::fmha::kernel::XeFMHAFwdKernel<                 \
+            typename F::ProblemShapeType,                         \
+            typename F::CollectiveMainloop,                       \
+            typename F::CollectiveEpilogue,                       \
+            typename F::Scheduler,                                \
+            cutlass::benchmark::NHDQLayoutStep,                   \
+            cutlass::benchmark::NHDQLayoutStep,                   \
+            cutlass::benchmark::NHDVLayoutStep,                   \
+            cutlass::benchmark::NHDQLayoutStep>>;                 \
+      auto bench = cutlass::benchmark::BenchmarkRunnerFMHA<F, NHDKernel>(); \
+      bench.run(state, options, hw_info);                         \
+    } else {                                                       \
+      auto bench = cutlass::benchmark::BenchmarkRunnerFMHA<F>();  \
+      bench.run(state, options, hw_info);                         \
+    }                                                             \
   }

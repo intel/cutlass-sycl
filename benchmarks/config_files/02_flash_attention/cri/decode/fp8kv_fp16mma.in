@@ -1,0 +1,4 @@
+# Flash attention decode fp8kv_fp16mma
+
+# fp8kv, fp16mma
+CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=1 --seq_len_qo=1 --seq_len_kv=256 --num_heads_q=4 --num_heads_kv=4 --head_size_qk=64 --head_size_vo=64

@@ -42,7 +42,7 @@ path.
 | Block size | 32 (fixed by MX standard) | **Arbitrary** |
 | ISA instruction | `bdpas` | `dpas` + FP32 multiply |
 | Target use case | GPT-OSS / MX models | **DeepSeek MoE FP8** |
-| CollectiveMma | `xe_blockscaled_mma.hpp` | **`xe_mma_blockscaled_fp8.hpp`** (new) |
+| CollectiveMma | `xe_blockscaled_mma.hpp` | **`xe_mma_blockscaled_fallback.hpp`** (new) |
 
 ### Usage
 
@@ -50,10 +50,10 @@ path.
 // DeepSeek-style: block size 128, float scales, float_e4m3_t operands
 using TiledMma = TiledMMAHelper<MMA_Atom<XE_BDPAS_TT<8, float, float_e4m3_t>>, ...>::TiledMMA;
 
-// cute::tuple GroupSize → new xe_mma_blockscaled_fp8.hpp mainloop
+// cute::tuple GroupSize → new xe_mma_blockscaled_fallback.hpp mainloop
 // <1, 128, 128>: per-row A scaling, 128-column and 128-K scale blocks for B
 using GroupSizeMNK = cute::tuple<cute::_1, cute::Int<128>, cute::Int<128>>;
-using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroupImpl<Stages, GroupSizeMNK>;
+using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroup<Stages, GroupSizeMNK>;
 
 using CollectiveMainloop = CollectiveMma<GEMMDispatchPolicy, TileShape,
     cute::tuple<float_e4m3_t, float>, StridePairA,   // (FP8 data, float scale)
@@ -72,8 +72,8 @@ dual-dispatch `mma_unpack` in `MMA_Traits<XE_BDPAS_TT>`. The mainloop signals wh
 execution path to use via the **arity of the zip tensor** passed to `cute::gemm`:
 
 ```
-include/cutlass/gemm/collective/xe_mma_blockscaled_mxfp.hpp  →  make_zip_tensor(data, scale, m_offset, k_offset)  →  arity 4
-include/cutlass/gemm/collective/xe_mma_blockscaled_fp8.hpp   →  make_zip_tensor(data, scale)                      →  arity 2
+include/cutlass/gemm/collective/xe_mma_blockscaled_native.hpp         →  make_zip_tensor(data, scale, m_offset, k_offset)  →  arity 4
+include/cutlass/gemm/collective/xe_mma_blockscaled_fallback.hpp       →  make_zip_tensor(data, scale)                      →  arity 2
 ```
 
 `mma_unpack` reads this at compile time:
@@ -90,13 +90,13 @@ if constexpr (use_hardware_bdpas) {
 }
 ```
 
-### New Mainloop: `xe_mma_blockscaled_fp8.hpp`
+### New Mainloop: `xe_mma_blockscaled_fallback.hpp`
 
 The new `CollectiveMma` specialisation is selected when `GroupSize` is a `cute::tuple`:
 
 ```cpp
-// Specialisation condition (dispatch_policy.hpp + xe_mma_blockscaled_fp8.hpp)
-MainloopIntelXeXMX16BlockScaledImpl<Stages, cute::tuple<GroupSizeM, GroupSizeN, GroupSizeK>, Schedule>
+// Specialisation condition (dispatch_policy.hpp + xe_mma_blockscaled_fallback.hpp)
+MainloopIntelXeXMX16BlockScaled<Stages, cute::tuple<GroupSizeM, GroupSizeN, GroupSizeK>, Schedule>
 ```
 
 Key properties:
@@ -113,8 +113,8 @@ Key properties:
 | File | Role |
 |---|---|
 | `include/cute/atom/mma_traits_xe.hpp` | Added dual-path `mma_unpack` to `MMA_Traits<XE_BDPAS_TT>` |
-| `include/cutlass/gemm/collective/xe_mma_blockscaled_fp8.hpp` | New mainloop for software-scaled path |
-| `include/cutlass/gemm/dispatch_policy.hpp` | `MainloopIntelXeXMX16BlockScaledImpl<Stages, cute::tuple<M,N,K>>` wires to the new mainloop |
+| `include/cutlass/gemm/collective/xe_mma_blockscaled_fallback.hpp` | New mainloop for software-scaled path |
+| `include/cutlass/gemm/dispatch_policy.hpp` | `MainloopIntelXeXMX16BlockScaled<Stages, cute::tuple<M,N,K>>` wires to the new mainloop |
 | `examples/51_xe35_block_scaled_grouped_gemm/51_xe35_block_scaled_grouped_gemm_fp8_e4m3.cpp` | End-to-end example for DeepSeek-style block-128 FP8 MoE GEMM |
 
 ---

@@ -1,0 +1,40 @@
+#############################################################################
+### Activation-fused epilogue GEMM benchmarks (CRI simulator)             ###
+#############################################################################
+#
+# Sync from example 05_bmg_gemm_with_epilogues:
+#   05_bmg_gemm_with_epilogue_relu
+#   05_bmg_gemm_with_epilogue_silu
+#   05_bmg_gemm_with_epilogue_gelu
+#
+# These compute D = Act(alpha * (A * B) + beta * C) on a BF16 RowMajor GEMM,
+# using MainloopXeL1Staged + IntelXeGeneric epilogue, TileShape <256,256,32>.
+#
+# IMPORTANT: the generic benchmark verify() compares against a plain GEMM
+# reference and does NOT apply the activation function. Verification is
+# disabled under CUTLASS_TEST_FOR_CRI, so these cases are only meant for the
+# CRI simulator path (here). Do NOT add them to the BMG/PVC CI input files,
+# where verify() runs and would (correctly) report a mismatch.
+#
+# Compare against the upstream examples with matching problem sizes, e.g.:
+#   ./examples/sycl/05_bmg_gemm_with_epilogues/05_bmg_gemm_with_epilogue_relu --m=1024 --n=1024 --k=1024
+#   ./examples/sycl/05_bmg_gemm_with_epilogues/05_bmg_gemm_with_epilogue_silu --m=1024 --n=1024 --k=1024
+#   ./examples/sycl/05_bmg_gemm_with_epilogues/05_bmg_gemm_with_epilogue_gelu --m=1024 --n=1024 --k=1024
+
+# --- ReLU ---
+#GemmReLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=1024 --n=1024 --k=1024
+GemmReLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=1024
+#GemmReLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=2048
+#GemmReLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=4096
+
+# --- SiLU ---
+#GemmSiLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=1024 --n=1024 --k=1024
+GemmSiLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=1024
+#GemmSiLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=2048
+#GemmSiLU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=4096
+
+# --- GELU ---
+#GemmGELU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=1024 --n=1024 --k=1024
+GemmGELU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=1024
+#GemmGELU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=2048
+#GemmGELU_BF16BF16FP32FP32FP32_RRR_WG256x256x32_SG32x64x32 --m=512 --n=256 --k=4096

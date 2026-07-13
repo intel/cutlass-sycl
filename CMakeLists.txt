@@ -192,6 +192,15 @@ if (CUTLASS_ENABLE_SYCL)
       set(SYCL_TARGET_INTEL_GPU_CRI ON)
     endif()
 
+
+    # BMG (Xe20) is the default Intel baseline, so features are supported there
+    # unless explicitly excluded; only special tiers (CRI, PVC) get a positive
+    # flag. This flag lets gates opt PVC out without inverting the BMG default.
+    if(("intel_gpu_pvc" IN_LIST DPCPP_SYCL_TARGET_LIST) OR
+       ("pvc" IN_LIST DPCPP_SYCL_TARGET_LIST))
+      set(SYCL_TARGET_INTEL_GPU_PVC ON)
+    endif()
+
     option(CUTLASS_TEST_FOR_CRI "Enable CUTLASS_TEST_FOR_CRI" OFF)
     if(CUTLASS_TEST_FOR_CRI)
       add_compile_definitions(CUTLASS_TEST_FOR_CRI)
@@ -871,9 +880,9 @@ set(CUTLASS_GENERATOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/library CACHE INTERN
 
 # The following utility directory is needed even if the tools build is disabled, so it exists here.
 set(CUTLASS_TOOLS_UTIL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/util/include CACHE INTERNAL "")
+include_directories(${CUTLASS_TOOLS_UTIL_INCLUDE_DIR})
 
 include_directories(${CUTLASS_INCLUDE_DIR})
-include_directories(${CUTLASS_TOOLS_UTIL_INCLUDE_DIR})
 
 target_compile_features(CUTLASS INTERFACE cxx_std_11)
 
@@ -1319,7 +1328,9 @@ endif()
 
 if (CUTLASS_ENABLE_BENCHMARKS)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/googlebenchmark.cmake)
-  add_subdirectory(benchmarks)
+  # Use binary dir "benchmarks" so the Ninja aggregate target is "benchmarks/all"
+  # while keeping the source layout under benchmarks/applications/.
+  add_subdirectory(benchmarks/applications benchmarks)
 endif()
 
 if (CUTLASS_INSTALL_TESTS)

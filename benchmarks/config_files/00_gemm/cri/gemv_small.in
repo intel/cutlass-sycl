@@ -1,0 +1,13 @@
+#############################################################################
+### Benchmarks for a small scope ###
+#############################################################################
+
+Gemm_BF16BF16FP32FP32FP32_RRR_WG512x256x32_SG64x64x32 --m=1 --n=4096 --k=4096
+Gemm_BF16BF16FP32FP32FP32_RRR_WG8x128x32_SG8x32x32 --m=1 --n=4096 --k=4096
+Gemm_BF16BF16FP32FP32FP32_RRR_WG16x64x32_SG8x16x32 --m=1 --n=4096 --k=4096
+Gemm_BF16BF16FP32FP32FP32_RRR_WG8x128x32_SG8x32x32 --m=4 --n=4096 --k=4096
+Gemm_BF16BF16FP32FP32FP32_RRR_WG16x64x32_SG8x16x32 --m=4 --n=4096 --k=4096
+Gemm_BF16BF16FP32FP32FP32_RRR_WG8x128x32_SG8x32x32 --m=32 --n=4096 --k=4096
+Gemm_BF16BF16FP32FP32FP32_RRR_WG16x64x32_SG8x16x32 --m=32 --n=4096 --k=4096
+Gemm_BF16BF16FP32FP32FP32_RRR_WG8x128x32_SG8x32x32 --m=4 --n=4096 --k=8192
+Gemm_BF16BF16FP32FP32FP32_RRR_WG16x64x32_SG8x16x32 --m=4 --n=4096 --k=8192

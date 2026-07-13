@@ -41,23 +41,23 @@ from utils.grafana_push import push_results
 TEST_SUITES = [
     {
         "name": "gemm_sycl",
-        "executable": "./benchmarks/gemm/cutlass_benchmarks_gemm_sycl",
-        "config_file": "../benchmarks/device/bmg/input_files/bmg_small_input.in",
+        "executable": "./benchmarks/00_gemm/cutlass_benchmarks_gemm_sycl",
+        "config_file": "../benchmarks/config_files/00_gemm/bmg/small.in",
     },
     {
         "name": "flash_attention_prefill",
-        "executable": "./benchmarks/flash_attention/cutlass_benchmarks_flash_attention_prefill_xe",
-        "config_file": "../benchmarks/device/bmg/input_files/input_flash_attention_prefill_bf16.in",
+        "executable": "./benchmarks/02_flash_attention/cutlass_benchmarks_flash_attention_prefill_xe",
+        "config_file": "../benchmarks/config_files/02_flash_attention/bmg/prefill/bf16.in",
     },
     {
         "name": "flash_attention_decode",
-        "executable": "./benchmarks/flash_attention/cutlass_benchmarks_flash_attention_decode_xe",
-        "config_file": "../benchmarks/device/bmg/input_files/input_flash_attention_decode_bf16.in",
+        "executable": "./benchmarks/02_flash_attention/cutlass_benchmarks_flash_attention_decode_xe",
+        "config_file": "../benchmarks/config_files/02_flash_attention/bmg/decode/bf16.in",
     },
     {
         "name": "cutlass_benchmarks_gemm_sycl_legacy",
-        "executable": "./benchmarks/gemm/legacy/cutlass_benchmarks_gemm_sycl_legacy",
-        "config_file": "../benchmarks/device/bmg/input_files/all_in_one.in",
+        "executable": "./benchmarks/00_gemm/legacy/cutlass_benchmarks_gemm_sycl_legacy",
+        "config_file": "../benchmarks/config_files/00_gemm/bmg/legacy/all_in_one.in",
     }
 ]
 
@@ -81,6 +81,27 @@ def run_command(command, cwd, log_path=None):
     else:
         subprocess.run(command, cwd=cwd, check=True)
 
+def find_tabular_header(lines):
+    """Locate the TabularConsoleReporter header (used by the gemm_sycl suite)
+    and return (column_names, column_offsets) so data rows can be sliced by
+    character offset instead of split(), which would drop blank cells and
+    misalign columns.
+    """
+    for line in lines:
+        tokens = line.split()
+        if tokens and tokens[0] == "Benchmark" and "avg_tflops" in tokens:
+            offsets = [m.start() for m in re.finditer(r"\S+", line)]
+            return tokens, offsets
+    return None, None
+
+def extract_tabular_column(line, header_names, header_offsets, column_name):
+    if column_name not in header_names:
+        return ""
+    idx = header_names.index(column_name)
+    start = header_offsets[idx]
+    end = header_offsets[idx + 1] if idx + 1 < len(header_offsets) else len(line)
+    return line[start:end].strip()
+
 def parse_benchmark_log(log_path):
     records = []
     total=0
@@ -90,48 +111,66 @@ def parse_benchmark_log(log_path):
         return records
 
     with open(log_path, "r") as handle:
-        for line in handle:
-            if not re.search(r"(Gemm|manual_time)", line):
-                continue
+        lines = handle.readlines()
 
-            parts = line.strip().split()
-            if not parts:
-                continue
+    header_names, header_offsets = find_tabular_header(lines)
 
-            benchmark_token = parts[0]
-            tokens = benchmark_token.split("/")
-            if len(tokens) < 3:
-                continue
+    for line in lines:
+        if not re.search(r"(Gemm|Gdn|gdn|manual_time)", line):
+            continue
 
-            kernel_name = tokens[0]
-            dimensions = tokens[2]
+        parts = line.strip().split()
+        if not parts:
+            continue
+
+        benchmark_token = parts[0]
+        tokens = benchmark_token.split("/")
+        if len(tokens) < 3:
+            continue
+
+        kernel_name = tokens[0]
+        dimensions = tokens[2]
+        result = "Fail"
+        reason=""
+        avg_tflops = ""
+        avg_throughput = ""
+
+        if any(sub in line for sub in ["ERROR OCCURRED", "ERROR"]):
             result = "Fail"
-            reason=""
-            avg_tflops = ""
-            avg_throughput = ""
-
-            if any(sub in line for sub in ["ERROR OCCURRED", "ERROR"]):
-                result = "Fail"
-                reason=line.strip()
-                failed+=1
-            elif "avg_tflops" in line:
+            reason=line.strip()
+            failed+=1
+        elif header_names is not None:
+            # TabularConsoleReporter output: columns are fixed-width, so pull
+            # values by character offset rather than by regex/split.
+            avg_tflops = extract_tabular_column(line, header_names, header_offsets, "avg_tflops")
+            avg_throughput = extract_tabular_column(line, header_names, header_offsets, "avg_bandwidth_gbs")
+            if avg_tflops:
                 result = "Pass"
                 passed+=1
-                tflops_match = re.search(r"avg_tflops=([0-9.]+[a-z]*)", line)
-                throughput_match = re.search(r"avg_throughput=([0-9.]+)", line)
-                if tflops_match:
-                    avg_tflops = tflops_match.group(1)
-                if throughput_match:
-                    avg_throughput = throughput_match.group(1)
-            total+=1
-            records.append({
-                "Kernel": kernel_name,
-                "Shape": dimensions,
-                "Result": result,
-                "Tflops": avg_tflops,
-                "Throughput": avg_throughput,
-                "Reason": reason
-            })
+            else:
+                reason=line.strip()
+                failed+=1
+        elif "avg_tflops" in line:
+            result = "Pass"
+            passed+=1
+            tflops_match = re.search(r"avg_tflops=([0-9.]+[a-z]*)", line)
+            throughput_match = re.search(r"avg_(?:bandwidth_gbs|throughput)=([0-9.]+[a-z]*)", line)
+            if tflops_match:
+                avg_tflops = tflops_match.group(1)
+            if throughput_match:
+                avg_throughput = throughput_match.group(1)
+        else:
+            reason=line.strip()
+            failed+=1
+        total+=1
+        records.append({
+            "Kernel": kernel_name,
+            "Shape": dimensions,
+            "Result": result,
+            "Tflops": avg_tflops,
+            "Throughput": avg_throughput,
+            "Reason": reason
+        })
     print("failed: ", failed)
     print("passed: ", passed)
     print("total: ", total)

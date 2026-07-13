@@ -155,7 +155,7 @@ template <class DispatchPolicy>
 struct RunnerScalePolicy;
 
 template <int Stages, int GroupSize, class KernelSchedule>
-struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroupImpl<Stages, cute::Int<GroupSize>, KernelSchedule>> {
+struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroup<Stages, cute::Int<GroupSize>, KernelSchedule>> {
   static constexpr int group_k = GroupSize;
   static constexpr int group_n = 1;
   static constexpr bool has_n_block_scale = false;
@@ -172,7 +172,7 @@ struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroupImpl
 };
 
 template <int Stages, class GroupSizeM, class GroupSizeN, class GroupSizeK, class KernelSchedule>
-struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroupImpl<Stages, cute::tuple<GroupSizeM, GroupSizeN, GroupSizeK>, KernelSchedule>> {
+struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroup<Stages, cute::tuple<GroupSizeM, GroupSizeN, GroupSizeK>, KernelSchedule>> {
   static constexpr int group_k = GroupSizeK::value;
   static constexpr int group_n = GroupSizeN::value;
   static constexpr bool has_n_block_scale = true;
@@ -189,6 +189,21 @@ struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroupImpl
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Non-owning view into a single pooled DeviceAllocation. Drop-in for the subset of
+// DeviceAllocation<T> API the runner uses (.get()/.size()). Allocating one big pool per
+// tensor type and slicing it into per-group views avoids the many small device allocations
+// (~9 per group) that fragment / exhaust the simulated GPU address space at high group
+// counts, which makes big-MOE block-scaled runs crawl and crash during allocation.
+template <class T>
+struct PooledView {
+  T* ptr_ = nullptr;
+  size_t size_ = 0;
+  PooledView() = default;
+  PooledView(T* p, size_t n) : ptr_(p), size_(n) {}
+  T* get() const { return ptr_; }
+  size_t size() const { return size_; }
+};
 
 template <
   class Gemm
@@ -260,12 +275,20 @@ struct ExampleRunner {
 
   uint64_t seed = 0;
 
-  std::vector<cutlass::DeviceAllocation<ElementA>> block_A;
-  std::vector<cutlass::DeviceAllocation<ElementB>> block_B;
-  std::vector<cutlass::DeviceAllocation<ElementC>> block_C;
-  std::vector<cutlass::DeviceAllocation<ElementScaleA>> block_scaleA;
-  std::vector<cutlass::DeviceAllocation<ElementScaleB>> block_scaleB;
-  std::vector<cutlass::DeviceAllocation<ElementOutput>> block_D;
+  // Pooled allocation: one big DeviceAllocation per tensor type, sliced into per-group views.
+  std::vector<PooledView<ElementA>> block_A;
+  std::vector<PooledView<ElementB>> block_B;
+  std::vector<PooledView<ElementC>> block_C;
+  std::vector<PooledView<ElementScaleA>> block_scaleA;
+  std::vector<PooledView<ElementScaleB>> block_scaleB;
+  std::vector<PooledView<ElementOutput>> block_D;
+
+  cutlass::DeviceAllocation<ElementA> pool_A;
+  cutlass::DeviceAllocation<ElementB> pool_B;
+  cutlass::DeviceAllocation<ElementC> pool_C;
+  cutlass::DeviceAllocation<ElementScaleA> pool_scaleA;
+  cutlass::DeviceAllocation<ElementScaleB> pool_scaleB;
+  cutlass::DeviceAllocation<ElementOutput> pool_D;
 
   cutlass::DeviceAllocation<const ElementA *> ptr_A;
   cutlass::DeviceAllocation<const ElementB *> ptr_B;
@@ -279,9 +302,12 @@ struct ExampleRunner {
   cutlass::DeviceAllocation<ElementAccumulator> block_alpha;
   cutlass::DeviceAllocation<ElementAccumulator> block_beta;
 
-  std::vector<cutlass::DeviceAllocation<ElementMMAVerify>> block_A_dq; // Dequantized copy of A for validation
-  std::vector<cutlass::DeviceAllocation<ElementMMAVerify>> block_B_dq; // Dequantized copy of B for validation
-  std::vector<cutlass::DeviceAllocation<ElementOutput>> block_ref_D;
+  std::vector<PooledView<ElementMMAVerify>> block_A_dq; // Dequantized copy of A for validation
+  std::vector<PooledView<ElementMMAVerify>> block_B_dq; // Dequantized copy of B for validation
+  std::vector<PooledView<ElementOutput>> block_ref_D;
+  cutlass::DeviceAllocation<ElementMMAVerify> pool_A_dq;
+  cutlass::DeviceAllocation<ElementMMAVerify> pool_B_dq;
+  cutlass::DeviceAllocation<ElementOutput> pool_ref_D;
   //
   // Methods
   //
@@ -375,7 +401,7 @@ struct ExampleRunner {
 
   template <class Element>
   bool initialize_scale(
-    cutlass::DeviceAllocation<Element>& block,
+    Element* block_ptr, size_t block_size,
     Options const& options) {
     const float elt_max_f = float(cutlass::platform::numeric_limits<Element>::max());
     // Need to fix max_dequant_val and min_dequant_val?
@@ -385,10 +411,10 @@ struct ExampleRunner {
     const float scale_min = min_dequant_val / elt_max_f;
 #if defined(CUTLASS_TEST_FOR_CRI)
     cutlass::reference::device::BlockFillRandomUniformCopyFromHost(
-        block.get(), block.size(), seed, Element(scale_max), Element(scale_min));
+        block_ptr, block_size, seed, Element(scale_max), Element(scale_min));
 #else
     cutlass::reference::device::BlockFillRandomUniform(
-        block.get(), block.size(), seed, Element(scale_max), Element(scale_min));
+        block_ptr, block_size, seed, Element(scale_max), Element(scale_min));
 #endif
     return true;
   }
@@ -530,50 +556,50 @@ struct ExampleRunner {
   }
 
   void allocate(const Options &options) {
-    for(int32_t i = 0; i < options.groups; ++i) {
+    auto sizes = [&](int32_t i) {
       auto problem = options.problem_sizes_host.at(i);
-      auto M = get<0>(problem);
-      auto N = get<1>(problem);
-      auto K = get<2>(problem);
+      int64_t M = get<0>(problem), N = get<1>(problem), K = get<2>(problem);
+      int64_t scale_k = cute::ceil_div(K, scaleGroupK);
+      // Scale storage is padded so the 2D block-load pitch stays 4-byte aligned.
+      int64_t padded_M = cute::round_up(M, scaleAlignA);
+      int64_t padded_N_scale = cute::round_up((int)ScalePolicy::scale_n_extent(N), scaleAlignB);
+      // {A, B, C==D, SFA, SFB} element counts for group i.
+      return std::array<int64_t, 5>{M * K, N * K, M * N, scale_k * padded_M, scale_k * padded_N_scale};
+    };
 
-      int64_t elements_A = M * K;
-      int64_t elements_B = N * K;
-      int64_t elements_C = M * N;
-      int64_t elements_D = M * N;
-      
-      const int scale_k = cute::ceil_div(K, scaleGroupK);
-      int padded_M = cute::round_up(M, scaleAlignA);
-      int padded_N_scale = cute::round_up(ScalePolicy::scale_n_extent(N), scaleAlignB);
-      int64_t elements_SFA = static_cast<int64_t>(scale_k) * padded_M;
-      int64_t elements_SFB = static_cast<int64_t>(scale_k) * padded_N_scale;
-      cutlass::DeviceAllocation<ElementA> a;
-      a.reset(elements_A);
-      block_A.push_back(a);
-      cutlass::DeviceAllocation<ElementMMAVerify> ver_a;
-      ver_a.reset(elements_A);
-      block_A_dq.push_back(ver_a);
-      cutlass::DeviceAllocation<ElementB> b;
-      b.reset(elements_B);
-      block_B.push_back(b);
-      cutlass::DeviceAllocation<ElementMMAVerify> ver_b;
-      ver_b.reset(elements_B);
-      block_B_dq.push_back(ver_b);
-      cutlass::DeviceAllocation<ElementC> c;
-      c.reset(elements_C);
-      block_C.push_back(c);
-      cutlass::DeviceAllocation<ElementOutput> d;
-      d.reset(elements_D);
-      block_D.push_back(d);
-      cutlass::DeviceAllocation<ElementOutput> ref_d;
-      ref_d.reset(elements_D);
-      block_ref_D.push_back(ref_d);
-      cutlass::DeviceAllocation<ElementScaleA> sa;
-      sa.reset(elements_SFA);
-      block_scaleA.push_back(sa);
-      cutlass::DeviceAllocation<ElementScaleB> sb;
-      sb.reset(elements_SFB);
-      block_scaleB.push_back(sb);
+    // Pass 1: sum per-group element counts to size one pool per tensor type.
+    int64_t tot_A = 0, tot_B = 0, tot_CD = 0, tot_SFA = 0, tot_SFB = 0;
+    for (int32_t i = 0; i < options.groups; ++i) {
+      auto s = sizes(i);
+      tot_A += s[0]; tot_B += s[1]; tot_CD += s[2]; tot_SFA += s[3]; tot_SFB += s[4];
     }
+
+    // One big reset() per pool (A_dq/B_dq are float verify copies; C and ref_D share D's shape).
+    pool_A.reset(tot_A);   pool_A_dq.reset(tot_A);
+    pool_B.reset(tot_B);   pool_B_dq.reset(tot_B);
+    pool_C.reset(tot_CD);  pool_D.reset(tot_CD);  pool_ref_D.reset(tot_CD);
+    pool_scaleA.reset(tot_SFA);
+    pool_scaleB.reset(tot_SFB);
+
+    // Pass 2: carve non-owning per-group views out of each pool via running offsets.
+    block_A.clear(); block_B.clear(); block_C.clear(); block_D.clear();
+    block_ref_D.clear(); block_A_dq.clear(); block_B_dq.clear();
+    block_scaleA.clear(); block_scaleB.clear();
+    int64_t oA = 0, oB = 0, oCD = 0, oSFA = 0, oSFB = 0;
+    for (int32_t i = 0; i < options.groups; ++i) {
+      auto s = sizes(i);
+      block_A.emplace_back(pool_A.get() + oA, s[0]);
+      block_A_dq.emplace_back(pool_A_dq.get() + oA, s[0]);
+      block_B.emplace_back(pool_B.get() + oB, s[1]);
+      block_B_dq.emplace_back(pool_B_dq.get() + oB, s[1]);
+      block_C.emplace_back(pool_C.get() + oCD, s[2]);
+      block_D.emplace_back(pool_D.get() + oCD, s[2]);
+      block_ref_D.emplace_back(pool_ref_D.get() + oCD, s[2]);
+      block_scaleA.emplace_back(pool_scaleA.get() + oSFA, s[3]);
+      block_scaleB.emplace_back(pool_scaleB.get() + oSFB, s[4]);
+      oA += s[0]; oB += s[1]; oCD += s[2]; oSFA += s[3]; oSFB += s[4];
+    }
+
     block_alpha.reset(options.groups);
     block_beta.reset(options.groups);
   }
@@ -622,21 +648,19 @@ struct ExampleRunner {
       stride_SFA_host.push_back(stride_sfa);
       stride_SFB_host.push_back(stride_sfb);
 
-      initialize_block(block_A.at(i), seed + 2023 + i);
-      initialize_block(block_B.at(i), seed + 2022 + i);
-      initialize_block(block_C.at(i), seed + 2021 + i);
+      cutlass::initialize_block(block_A.at(i).get(), block_A.at(i).size(), seed + 2023 + i);
+      cutlass::initialize_block(block_B.at(i).get(), block_B.at(i).size(), seed + 2022 + i);
+      cutlass::initialize_block(block_C.at(i).get(), block_C.at(i).size(), seed + 2021 + i);
 
       convert_dtype<ElementA, ElementMMAVerify, ExampleRunner>(
-          block_A.at(i),
-          block_A_dq.at(i)
+          block_A.at(i).get(), block_A_dq.at(i).get(), block_A.at(i).size()
       );
       convert_dtype<ElementB, ElementMMAVerify, ExampleRunner>(
-          block_B.at(i),
-          block_B_dq.at(i)
+          block_B.at(i).get(), block_B_dq.at(i).get(), block_B.at(i).size()
       );
 
-      initialize_scale(block_scaleA.at(i), options);
-      initialize_scale(block_scaleB.at(i), options);
+      initialize_scale(block_scaleA.at(i).get(), block_scaleA.at(i).size(), options);
+      initialize_scale(block_scaleB.at(i).get(), block_scaleB.at(i).size(), options);
 
       auto layout_A = make_layout(shape_A, stride_a);
       auto layout_B = make_layout(shape_B, stride_b);
@@ -759,6 +783,8 @@ struct ExampleRunner {
         std::cout << "Datatype: float_e4m3_t"<< std::endl;
       } else if constexpr (std::is_same_v<ElementA, float_e5m2_t>) {
         std::cout << "Datatype: float_e5m2_t"<< std::endl;
+      } else if constexpr (std::is_same_v<ElementA, bfloat16_t>) {
+        std::cout << "Datatype: bfloat16_t"<< std::endl;
       }
       std::cout << "Groups: " << options.groups << std::endl;
       if constexpr (ScalePolicy::has_n_block_scale) {

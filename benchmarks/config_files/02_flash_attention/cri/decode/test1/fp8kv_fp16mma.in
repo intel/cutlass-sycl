@@ -1,0 +1,23 @@
+#############################################################################
+### Flash attention decode fp8kv_fp16mma - selected sweep cases          ###
+### Common shape: H_q=16, H_kv=8, D=64                                   ###
+### Sweep dimensions: batch / cache_len / q_len                          ###
+### Kernel has no seq_len_kv_cache; seq_len_kv = cache_len + q_len       ###
+#############################################################################
+
+# ===== Sweep batch (q_len=1, cache_len=2048) =====
+CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=12 --seq_len_qo=1 --seq_len_kv=2049 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=1 --seq_len_kv=2049 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=24 --seq_len_qo=1 --seq_len_kv=2049 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=32 --seq_len_qo=1 --seq_len_kv=2049 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+
+# ===== Sweep cache_len (B=16, q_len=1) =====
+CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=1 --seq_len_kv=1025  --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=1 --seq_len_kv=4097  --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=1 --seq_len_kv=8193  --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=1 --seq_len_kv=16385 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+
+# ===== Sweep q_len (B=16, cache_len=2048) =====
+CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=2 --seq_len_kv=2050 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=3 --seq_len_kv=2051 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64
+# CriFMHADecode_FP16_E4M3_E4M3_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8kv_fp16mma --batch=16 --seq_len_qo=4 --seq_len_kv=2052 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64

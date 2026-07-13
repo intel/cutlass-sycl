@@ -53,6 +53,9 @@ target_link_libraries(
 if (CUTLASS_ENABLE_SYCL)
   if (CUTLASS_USING_SYSTEM_ONEMKL)
     target_link_libraries(cutlass_tools_util_includes INTERFACE MKL::MKL)
+    # MKL::MKL provides a CBLAS implementation (cblas_sgemm/cblas_dgemm) and is
+    # actually linked here, so it is safe to enable the CBLAS host reference.
+    target_compile_definitions(cutlass_tools_util_includes INTERFACE CUTLASS_ENABLE_CBLAS)
   else()
     target_include_directories(cutlass_tools_util_includes INTERFACE 
       $<BUILD_INTERFACE:${ONEMKL_INCLUDE_DIR}>)

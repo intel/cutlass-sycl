@@ -3,3 +3,14 @@ __pycache__/
 cutlass_library.egg-info/
 cutlass_sycl.egg-info/
 /build*
+
+# Credentials / secret files. The cutlass-jira and cutlass-confluence-wiki
+# skills (and any future skill that talks to an authenticated service) read
+# from ~/.cred, which lives outside the repo. These patterns are belt-and-
+# suspenders — nothing matching them should ever land in a commit.
+.cred
+*.cred
+*.pem
+*.key
+.env
+.env.*

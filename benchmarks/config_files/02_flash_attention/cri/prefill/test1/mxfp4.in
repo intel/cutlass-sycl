@@ -1,0 +1,6 @@
+#############################################################################
+### Flash attention prefill mxfp4 - single representative shape          ###
+### Shape: B=1, H_q=16, H_kv=8, S=2048, D=64                             ###
+#############################################################################
+
+CriFMHAPrefill_MXFP4_MXFP4_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=attention_prefill_mxfp4 --batch=1 --seq_len_qo=2048 --seq_len_kv=2048 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64

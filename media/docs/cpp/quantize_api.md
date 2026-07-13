@@ -17,7 +17,7 @@ Provide a `quantize_block_wise` API that:
 - Operates directly on `SubgroupTensor` (data in GPU registers)
 - Enables fusion with GEMM prologue/epilogue
 - Supports MX floating-point formats (MXFP8, MXFP4) and native FP8 with flexible scale types (E8M0, BF16, FP32)
-- Leverages hardware-specific instructions optimized for each architecture
+- Leverages hardware instructions (FPU on CRI)
 
 ### Target fusion patterns
 

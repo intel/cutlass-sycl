@@ -121,6 +121,29 @@ struct Options {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+template <class DispatchPolicy>
+struct RunnerScalePolicy;
+
+template <int Stages, int GroupSize, class KernelSchedule>
+struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaled<Stages, cute::Int<GroupSize>, KernelSchedule>> {
+  static constexpr int group_k = GroupSize;
+  static constexpr int group_n = 1;
+
+  static int scale_n_extent(int N) { return N; }
+  static int scale_n_coord(int n) { return n; }
+};
+
+template <int Stages, class GroupSizeM, class GroupSizeN, class GroupSizeK, class KernelSchedule>
+struct RunnerScalePolicy<cutlass::gemm::MainloopIntelXeXMX16BlockScaled<Stages, cute::tuple<GroupSizeM, GroupSizeN, GroupSizeK>, KernelSchedule>> {
+  static constexpr int group_k = GroupSizeK::value;
+  static constexpr int group_n = GroupSizeN::value;
+
+  static int scale_n_extent(int N) { return cute::ceil_div(N, group_n); }
+  static int scale_n_coord(int n) { return n / group_n; }
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 template <
   class Gemm
 >
@@ -150,6 +173,9 @@ struct ExampleRunner {
 
   using StrideScaleA = typename CollectiveMainloop::StrideScaleA;
   using StrideScaleB = typename CollectiveMainloop::StrideScaleB;
+
+  using DispatchPolicy = typename CollectiveMainloop::DispatchPolicy;
+  using ScalePolicy = RunnerScalePolicy<DispatchPolicy>;
 
   using ElementC = typename Gemm::ElementC;
   using ElementOutput = typename CollectiveEpilogue::ElementOutput;
@@ -319,22 +345,89 @@ struct ExampleRunner {
     compat::wait();
   }
 
+  template <
+  class DstElement,
+  class SrcElement,
+  class Layout,
+  class ElementScale,
+  class ScaleLayout>
+  static void apply_scale_B(DstElement* dq_buffer,
+                       SrcElement const* q_buffer,
+                       Layout const operand_layout,
+                       ElementScale const* scale_buffer,
+                       ScaleLayout const scale_layout,
+                       Options const& options,
+                       int group_k) {
+
+    std::vector<uint8_t> dst(size(operand_layout) * sizeof_bits_v<DstElement> / 8, 0);
+    cutlass::device_memory::copy_to_host(dst.data(), (uint8_t*)dq_buffer, dst.size());
+
+    std::vector<uint8_t> src(size(operand_layout) * sizeof_bits_v<SrcElement> / 8, 0);
+    cutlass::device_memory::copy_to_host(src.data(), (uint8_t*)q_buffer, src.size());
+
+    std::vector<uint8_t> scale(size(scale_layout) * sizeof_bits_v<ElementScale> / 8, 0);
+    cutlass::device_memory::copy_to_host(scale.data(), (uint8_t*)scale_buffer, scale.size());
+
+    compat::wait();
+
+    static_assert(sizeof_bits_v<DstElement> >= 8);
+
+    auto dst_tensor = make_tensor(make_gmem_ptr(reinterpret_cast<DstElement*>(dst.data())), operand_layout);
+
+    auto src_tensor = [&]() {
+      if constexpr (sizeof_bits_v<SrcElement> < 8) {
+        return make_tensor(cute::subbyte_iterator<const SrcElement>(src.data()), operand_layout);
+      } else {
+        return make_tensor(make_gmem_ptr(reinterpret_cast<SrcElement const *>(src.data())), operand_layout);
+      }
+    }();
+
+    auto scale_tensor = make_tensor(make_gmem_ptr(reinterpret_cast<ElementScale const *>(scale.data())), scale_layout);
+
+    auto N = size<0>(src_tensor);
+    auto K = size<1>(src_tensor);
+    auto L = size<2>(src_tensor);
+
+    using ret_type = float;
+
+    for (int l = 0; l < L; l++) {
+      for (int k= 0; k < K; k++) {
+        for (int n = 0; n < N; n++) {
+          auto src_data = [&]() {
+            if constexpr (sizeof_bits_v<SrcElement> >= 8) {
+              return  (ret_type)(src_tensor(n, k, l));
+            } else {
+              return (ret_type)(src_tensor(n, k, l).get());
+            }
+          }();
+
+          auto scale_data = (ret_type)(scale_tensor(ScalePolicy::scale_n_coord(n), k / group_k, l));
+
+          dst_tensor(n, k, l) = (src_data) * scale_data;
+        }
+      }
+    }
+
+    cutlass::device_memory::copy_to_device(dq_buffer, (DstElement*)(raw_pointer_cast(dst_tensor.data())), dst_tensor.size());
+    compat::wait();
+  }
+
   /// Initialize operands to be used in the GEMM and reference GEMM
   void initialize(Options const& options) {
     auto [M, N, K, L] = ProblemShapeType{options.m, options.n, options.k, options.l};
 
-    constexpr int scaleGroupSize = CollectiveMainloop::GroupK;
+    constexpr int scaleGroupSize = ScalePolicy::group_k;
     const int scale_k = cute::ceil_div(options.k, scaleGroupSize);
     auto shape_A = cute::make_shape(M, K, L);
     auto shape_B = cute::make_shape(N, K, L);
     auto shape_CD = cute::make_shape(M, N, L);
 
     // 2D block load requires surface width to be 4-byte aligned
-    constexpr int scaleAlign = cute::ceil_div(4, (int)sizeof(ElementScaleA));
+    constexpr int scaleAlign = 1;
     int padded_M = cute::round_up(options.m, scaleAlign);
-    int padded_N = cute::round_up(options.n, scaleAlign);
+    int padded_N_scale = cute::round_up(ScalePolicy::scale_n_extent(options.n), scaleAlign);
     auto shape_scale_A_padded = cute::make_shape(padded_M, scale_k, L);
-    auto shape_scale_B_padded = cute::make_shape(padded_N, scale_k, L);
+    auto shape_scale_B_padded = cute::make_shape(padded_N_scale, scale_k, L);
 
     stride_A = cutlass::make_cute_packed_stride(StrideA{}, shape_A);
     stride_B = cutlass::make_cute_packed_stride(StrideB{}, shape_B);
@@ -351,7 +444,7 @@ struct ExampleRunner {
     block_D.reset(static_cast<std::size_t>(M) * N * L);
     block_ref_D.reset(static_cast<std::size_t>(M) * N * L);
     block_scaleA.reset(static_cast<std::size_t>(scale_k) * L * padded_M);
-    block_scaleB.reset(static_cast<std::size_t>(scale_k) * L * padded_N);
+    block_scaleB.reset(static_cast<std::size_t>(scale_k) * L * padded_N_scale);
     if constexpr (std::is_same_v<ElementA, half_t> || std::is_same_v<ElementA, float>) {
       initialize_block(block_A, seed + 2023, ElementA(0.f), ElementA(1.f));
     } else {
@@ -378,7 +471,7 @@ struct ExampleRunner {
     auto layout_scale_B = make_layout(shape_scale_B_padded, stride_SB);
 
     apply_scale(block_A_dq.get(), block_A.get(), layout_A, block_scaleA.get(),  layout_scale_A, options, scaleGroupSize);
-    apply_scale(block_B_dq.get(), block_B.get(), layout_B, block_scaleB.get(),  layout_scale_B, options, scaleGroupSize);
+    apply_scale_B(block_B_dq.get(), block_B.get(), layout_B, block_scaleB.get(),  layout_scale_B, options, scaleGroupSize);
   }
   
   cutlass::Status run(const Options& options, const cutlass::KernelHardwareInfo& hw_info) {

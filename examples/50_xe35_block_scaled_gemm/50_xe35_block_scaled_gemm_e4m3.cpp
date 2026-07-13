@@ -46,36 +46,31 @@
 
 #include "50_xe35_block_scaled_gemm_runner.hpp"
 
-template <typename ElementType,
+template <typename ElementInputA,
+          typename ElementInputB,
+          typename ElementScale,
+          typename StrideScaleA,
+          typename StrideScaleB,
           typename TileShape,
-          int GroupSize = 32,
+          typename GEMMDispatchPolicy,
           typename ThreadLayout = Layout<Shape<_8, _4, _1>, Stride<_4, _1, _0>>,
           typename LayoutA = cutlass::layout::RowMajor,
           typename LayoutB = cutlass::layout::RowMajor>
-cutlass::Status run_mx_case(Options & options){
-  
-  using MmaType = typename ElementType::DataType;
+cutlass::Status run_block_scaled_gemm(Options & options){
 
   using ElementAccumulator = float;
   using ElementComputeEpilogue = float;
-  using ElementInputA = typename ElementType::DataType;
-  using ElementInputB = typename ElementType::DataType;
-  using ElementOutput = float;
+  using ElementOutput = float_e4m3_t;
 
   using LayoutC = cutlass::layout::RowMajor;
   using LayoutD = cutlass::layout::RowMajor;
-
-  using ElementScale = typename ElementType::ScaleFactorType;
-  using StrideScale = cute::Stride<_1, int64_t, int64_t>;
 
   using GmemTiledCopyA = void;
   using GmemTiledCopyB = void;
   using GmemTiledCopyScaleA = void;
   using GmemTiledCopyScaleB = void;
 
-  using TiledMma = typename TiledMMAHelper<MMA_Atom<XE_BDPAS_TT<8, float, ElementInputA>>, Layout<TileShape>, ThreadLayout>::TiledMMA;
-
-  constexpr int PipelineStages = 2;
+  using TiledMma = typename TiledMMAHelper<MMA_Atom<XE_BDPAS_TT<8, float, ElementInputB>>, Layout<TileShape>, ThreadLayout>::TiledMMA;
   using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeGeneric;
 
   using EpilogueOp = cutlass::epilogue::fusion::LinearCombination<ElementOutput, ElementComputeEpilogue,
@@ -86,7 +81,7 @@ cutlass::Status run_mx_case(Options & options){
   using CollectiveEpilogue = cutlass::epilogue::collective::CollectiveEpilogue<
           EpilogueDispatchPolicy,
           TileShape,
-          void,
+          Shape<_8, Int<64 / sizeof(ElementOutput)>>, // Epilogue tile (void = automatic)
           ElementAccumulator,
           cutlass::gemm::TagToStrideC_t<LayoutC>,
           ElementOutput,
@@ -94,14 +89,13 @@ cutlass::Status run_mx_case(Options & options){
           FusionCallBacks,
           void, void>;
 
-  using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16BlockScaled<PipelineStages, GroupSize>;
   using CollectiveMainloop = cutlass::gemm::collective::CollectiveMma<
           GEMMDispatchPolicy,
           TileShape,
           cute::tuple<ElementInputA, ElementScale>,
-          cute::tuple<cutlass::gemm::TagToStrideA_t<LayoutA>, StrideScale>,
+          cute::tuple<cutlass::gemm::TagToStrideA_t<LayoutA>, StrideScaleA>,
           cute::tuple<ElementInputB, ElementScale>,
-          cute::tuple<cutlass::gemm::TagToStrideB_t<LayoutB>, StrideScale>,
+          cute::tuple<cutlass::gemm::TagToStrideB_t<LayoutB>, StrideScaleB>,
           TiledMma,
           cute::tuple<GmemTiledCopyA, GmemTiledCopyScaleA>, void, void, cute::identity,
           cute::tuple<GmemTiledCopyB, GmemTiledCopyScaleB>, void, void, cute::identity
@@ -122,28 +116,41 @@ cutlass::Status run_mx_case(Options & options){
 }
 
 int main(int argc, const char** argv) {
-  //
-  // Parse options
-  //
-
   Options options;
-
   options.parse(argc, argv);
 
   if (options.help) {
     options.print_usage(std::cout) << std::endl;
     return 0;
   }
-
   if (options.error) {
     std::cerr << "Aborting execution." << std::endl;
     return -1;
   }
 
-  CUTLASS_CHECK((run_mx_case
-    <cutlass::mx_float8_t<float_e4m3_t>, Shape<_512, _256, _64>, 32>(options)));
-  CUTLASS_CHECK((run_mx_case
-    <cutlass::mx_float8_t<float_e4m3_t>, Shape<_512, _256, _64>, 128>(options)));
+  using MxType = cutlass::mx_float8_t<float_e4m3_t>;
+  using MxStrideScale = cute::Stride<_1, int64_t, int64_t>;
+
+  // MXFP hardware block-scaled path (ue8m0 scales, GroupSize=32)
+  CUTLASS_CHECK((run_block_scaled_gemm<
+      MxType::DataType, MxType::DataType, MxType::ScaleFactorType,
+      MxStrideScale, MxStrideScale, Shape<_512, _256, _64>,
+      cutlass::gemm::MainloopIntelXeXMX16BlockScaled<2>>(options)));
+
+  // MXFP hardware block-scaled path (ue8m0 scales, GroupSize=128)
+  CUTLASS_CHECK((run_block_scaled_gemm<
+      MxType::DataType, MxType::DataType, MxType::ScaleFactorType,
+      MxStrideScale, MxStrideScale, Shape<_512, _256, _64>,
+      cutlass::gemm::MainloopIntelXeXMX16BlockScaled<2, _128>>(options)));
+
+  // Software block-scaled path (fp32 scale factors, per-block MNK scaling)
+  using SwStrideScaleA = cute::Stride<_1, int64_t, int64_t>;
+  using SwStrideScaleB = cute::Stride<int64_t, _1, int64_t>;
+  using GroupSizeMNK = cute::tuple<cute::_1, cute::Int<64>, cute::Int<128>>;
+  CUTLASS_CHECK((run_block_scaled_gemm<
+      float_e4m3_t, float_e4m3_t, float,
+      SwStrideScaleA, SwStrideScaleB, Shape<_256, _256, _32>,
+      cutlass::gemm::MainloopIntelXeXMX16BlockScaled<2, GroupSizeMNK>>(options)));
 
   return 0;
 }

@@ -1,0 +1,22 @@
+# Flash attention prefill mxfp8
+
+# mxfp8 - E5M2 custom tiles
+CriFMHAPrefill_MXFP8E5M2_MXFP8E5M2_MXFP8E5M2_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=512 --seq_len_kv=512 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E5M2_MXFP8E5M2_MXFP8E5M2_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E5M2_MXFP8E5M2_MXFP8E5M2_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=8 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E5M2_MXFP8E5M2_MXFP8E5M2_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=2048 --seq_len_kv=2048 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E5M2_MXFP8E5M2_MXFP8E5M2_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=8 --num_heads_kv=8 --seq_len_qo=2048 --seq_len_kv=2048 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E5M2_MXFP8E5M2_MXFP8E5M2_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E5M2_MXFP8E5M2_MXFP8E5M2_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=2048 --seq_len_kv=2048 --head_size_qk=128 --head_size_vo=128
+
+# mxfp8 - E4M3 custom tiles
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=512 --seq_len_kv=512 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=8 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=2048 --seq_len_kv=2048 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=8 --num_heads_kv=8 --seq_len_qo=2048 --seq_len_kv=2048 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_prefill_mxfp8 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=2048 --seq_len_kv=2048 --head_size_qk=128 --head_size_vo=128
+
+# mxfp8 - Standard configs
+CriFMHAPrefill_MXFP8E4M3_MXFP8E4M3_MXFP8E4M3_BF16_RCR_h64_NonCausal_FixedLen_Persistent --bm_name=attention_prefill_mxfp8 --batch=1 --seq_len_qo=256 --seq_len_kv=256 --num_heads_q=4 --num_heads_kv=4 --head_size_qk=64 --head_size_vo=64

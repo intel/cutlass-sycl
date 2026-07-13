@@ -1,0 +1,2 @@
+# BF16, tile 64x1536, M sweep (64)
+CriGroupedGemmBF16BF16BF16_RRR_TileShape_64_1536_32 --bm_name=best_bf16 --n=3072 --k=256 --uniform_m=64 --num_experts=2 --verify=true

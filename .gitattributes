@@ -1,0 +1,15 @@
+# Mirror / archive controls.
+#
+# Files marked `export-ignore` are excluded from `git archive` output (the
+# tarballs/zips produced by GitHub release downloads or `git archive HEAD`).
+# This is a defensive line of protection for content that should stay
+# internal even when this repo is mirrored or sampled out to a public
+# project (e.g. the public github.com/intel/sycl-tla mirror).
+#
+# `export-ignore` does NOT block `git push` to a remote that has the
+# corresponding files — for that, the public mirror's sync configuration
+# must filter these paths explicitly. Treat this file as belt-and-suspenders.
+
+# In-repo agent skills. Some skills (e.g. cutlass-jira, cutlass-confluence-wiki)
+# describe internal-only infrastructure and are not useful publicly.
+.claude/                                   export-ignore

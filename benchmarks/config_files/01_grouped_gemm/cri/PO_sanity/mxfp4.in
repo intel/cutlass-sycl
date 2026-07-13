@@ -1,0 +1,2 @@
+# MXFP4, tile 256x512
+CriBLockScalingGroupedGemm_E2M1E2M1BF16_RCR_TileShape_256_512_128  --bm_name=best_mxfp4 --n=3584 --k=256 --uniform_m=64 --num_experts=2 --verify=true

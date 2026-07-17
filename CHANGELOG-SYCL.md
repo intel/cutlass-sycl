@@ -10,7 +10,8 @@
 - **Fix NumericConverter for SYCL device code (float→int32/int8/uint8) ([#817](https://github.com/intel/sycl-tla/pull/817))**
 - **Fix inductor UTs workflow ([#823](https://github.com/intel/sycl-tla/pull/823))**
 - **Fix BMG EVT workflow to run on any BMG runner ([#831](https://github.com/intel/sycl-tla/pull/831))**
-
+- **Fix bare ushort in host-context templates on Windows ([#835](https://github.com/intel/sycl-tla/pull/835))**
+  
 ### Documentation
 - **Clean up NV references, make public repo Intel-first ([#821](https://github.com/intel/sycl-tla/pull/821))**
 

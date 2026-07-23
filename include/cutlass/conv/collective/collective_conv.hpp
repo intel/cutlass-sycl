@@ -58,6 +58,10 @@ struct CollectiveConv {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
+#if defined(SYCL_INTEL_XE4_TARGET)
+#include "cutlass/conv/collective/xe4_implicit_gemm_gmma_ss_warpspecialized.hpp"
+#else
 #include "sm90_implicit_gemm_gmma_ss_warpspecialized.hpp"
-#include "sm100_implicit_gemm_umma_warpspecialized.hpp" 
+#include "sm100_implicit_gemm_umma_warpspecialized.hpp"
+#endif
 /////////////////////////////////////////////////////////////////////////////////////////////////

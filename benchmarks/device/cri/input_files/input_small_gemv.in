@@ -1,0 +1,13 @@
+#############################################################################
+### Benchmarks for a small scope ###
+#############################################################################
+
+BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=1 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_8_128_32 --bm_name=cri_gemm --m=1 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_16_64_32 --bm_name=cri_gemm --m=1 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_8_128_32 --bm_name=cri_gemm --m=4 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_16_64_32 --bm_name=cri_gemm --m=4 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_8_128_32 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_16_64_32 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_8_128_32 --bm_name=cri_gemm --m=4 --n=4096 --k=8192
+BmgGemmBF16BF16FP32_RRR_TileShape_16_64_32 --bm_name=cri_gemm --m=4 --n=4096 --k=8192

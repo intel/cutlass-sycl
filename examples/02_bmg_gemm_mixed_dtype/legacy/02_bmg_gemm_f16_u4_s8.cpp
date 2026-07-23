@@ -140,8 +140,8 @@ struct Options {
       << "  --g=<int>                   The size of each group for the scales and zeros. To broadcast a vector of scales or zeros, set the group size to K.\n"
       << "  --mode=<int>                The mode to run the gemm. 0 is Convert Only, 1 is Convert and Scale, 2 is Convert and Scale with Zero Point\n"
       << "  --alpha=<s32>               Epilogue scalar alpha\n"
-      << "  --beta=<s32>                Epilogue scalar beta\n\n"
-      << "  --verify=<int>              Specify whether to verify.\n\n"
+      << "  --beta=<s32>                Epilogue scalar beta\n"
+      << "  --verify=<int>              Specify whether to verify.\n"
       << "  --iterations=<int>          Iterations\n\n";
 
     return out;

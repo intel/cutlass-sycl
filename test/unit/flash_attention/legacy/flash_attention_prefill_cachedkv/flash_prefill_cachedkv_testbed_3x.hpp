@@ -762,11 +762,17 @@ struct Testbed3x {
 template <typename FlashPrefillCachedKV>
 bool TestFlashPrefillCachedKVAll(int head_size) {
   Testbed3x<FlashPrefillCachedKV> testbed;
-
+#if defined(CUTLASS_TEST_FOR_CRI)
+  std::vector<int> problem_size_batch{1};
+  std::vector<int> problem_size_num_heads{4};
+  std::vector<int> problem_size_seq_len{16};
+  std::vector<int> problem_size_seq_len_cache{16};
+#else
   std::vector<int> problem_size_batch{8};
   std::vector<int> problem_size_num_heads{8};
   std::vector<int> problem_size_seq_len{1024};
   std::vector<int> problem_size_seq_len_cache{0, 1024};
+#endif
   std::vector<float> problem_size_softmax_scale{ 1.f / sqrt(static_cast<float>(head_size)) };
   bool passed = true;
 

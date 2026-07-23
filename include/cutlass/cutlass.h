@@ -36,6 +36,15 @@
 
 #pragma once
 
+#if defined(SYCL_INTEL_TARGET)
+#undef SYCL_INTEL_TARGET
+#if __SYCL_TARGET_INTEL_GPU_CRI__
+#define SYCL_INTEL_TARGET 35
+#else
+#define SYCL_INTEL_TARGET 20
+#endif
+#endif
+
 #include "cutlass/detail/helper_macros.hpp"
 #include <cutlass/gpu_generics.h>
 
@@ -144,6 +153,8 @@ CUTLASS_DEVICE
 int canonical_warp_idx_sync() {
   #if defined(__CUDA_ARCH__)
     return __shfl_sync(0xffffffff, threadIdx.x / NumThreadsPerWarp, 0);
+  #elif defined(SYCL_INTEL_TARGET)
+    return sycl::ext::oneapi::this_work_item::get_sub_group().get_group_linear_id();
   #else
     return 0;
   #endif
@@ -155,6 +166,8 @@ CUTLASS_DEVICE
 int canonical_warp_idx() {
   #if defined(__CUDA_ARCH__)
     return threadIdx.x / NumThreadsPerWarp;
+  #elif defined(SYCL_INTEL_TARGET)
+    return sycl::ext::oneapi::this_work_item::get_sub_group().get_group_linear_id();
   #else
     return 0;
   #endif
@@ -166,6 +179,8 @@ CUTLASS_DEVICE
 int canonical_warp_group_idx() {
   #if defined(__CUDA_ARCH__)
     return __shfl_sync(0xffffffff, threadIdx.x / NumThreadsPerWarpGroup, 0);
+  #elif defined(SYCL_INTEL_TARGET)
+    return sycl::ext::oneapi::this_work_item::get_sub_group().get_group_linear_id();
   #else
     return 0;
   #endif

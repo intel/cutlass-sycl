@@ -814,12 +814,19 @@ struct Testbed3x {
 template <typename FlashDecode>
 bool TestFlashDecodeAll(int head_size) {
   Testbed3x<FlashDecode> testbed;
-
+#if defined(CUTLASS_TEST_FOR_CRI)
+  std::vector<int> problem_size_batch{1};
+  std::vector<int> problem_size_num_heads{4};
+  std::vector<int> problem_size_seq_len{16};
+  std::vector<int> problem_size_seq_len_cache{0};
+  std::vector<int> cache_page_size{64};
+#else
   std::vector<int> problem_size_batch{16};
   std::vector<int> problem_size_num_heads{32};
   std::vector<int> problem_size_seq_len{1024};
   std::vector<int> problem_size_seq_len_cache{0, 1024};
   std::vector<int> cache_page_size{64, 128};
+#endif
   std::vector<float> problem_size_softmax_scale{ 1.f / sqrt(static_cast<float>(head_size)) };
   bool passed = true;
 

@@ -130,8 +130,8 @@ struct Options {
     cmd.get_cmd_line_argument("alpha", alpha, 1.f);
     cmd.get_cmd_line_argument("beta", beta, 0.f);
     cmd.get_cmd_line_argument("iterations", iterations, 100);
-    cmd.get_cmd_line_argument("splits", splits, 1);
     cmd.get_cmd_line_argument("verify", verify, 1);
+    cmd.get_cmd_line_argument("splits", splits, 1);
   }
 
   /// Prints the usage statement.
@@ -148,7 +148,7 @@ struct Options {
       << "  --l=<int>                   Sets the L extent (batch count) of the GEMM\n"
       << "  --splits=<int>              Sets the splitting factor for GEMM\n"
       << "  --alpha=<s32>               Epilogue scalar alpha\n"
-      << "  --beta=<s32>                Epilogue scalar beta\n\n"
+      << "  --beta=<s32>                Epilogue scalar beta\n"
       << "  --iterations=<int>          Iterations\n"
       << "  --verify=<int>              Specify whether to verify.\n\n";
 

@@ -101,5 +101,4 @@ struct Copy_Traits<XE_1D_STORE_GLOBAL<S, D>> {
     // Reference map from (thr,val) to bit
     using RefLayout = SrcLayout;
 };
-
 } // end namespace cute

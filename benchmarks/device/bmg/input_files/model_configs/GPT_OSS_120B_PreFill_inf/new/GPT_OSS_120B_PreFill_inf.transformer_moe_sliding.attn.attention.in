@@ -2,4 +2,4 @@
 # Suite: new
 # Config Group: attention
 
-BmgFMHAPrefill_BF16_BF16_BF16_FP32_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=transformer_moe_sliding.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=128 --head_size_qk=64 --head_size_vo=64
+BmgFMHAPrefill_BF16_BF16_BF16_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=transformer_moe_sliding.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=128 --head_size_qk=64 --head_size_vo=64

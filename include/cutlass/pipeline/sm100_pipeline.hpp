@@ -413,7 +413,9 @@ public:
       else {
         is_signaling_thread_ = 0;
         #ifndef NDEBUG
+        #if defined(__CUDA_ARCH__)
           asm volatile ("brkpt;\n" ::);
+        #endif
         #endif
       }
 

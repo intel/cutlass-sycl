@@ -39,7 +39,7 @@
 
 #include "cute/container/array.hpp"
 
-#if ! defined(__CUDACC_RTC__)
+#if ! defined(__CUDACC_RTC__) && ! defined(CUTLASS_ENABLE_SYCL)
 #include <initializer_list>
 #endif
 
@@ -182,7 +182,7 @@ struct ConvProblemShape {
         groups) {
     }
 
-#if ! defined(__CUDACC_RTC__)
+#if ! defined(__CUDACC_RTC__) && ! defined(CUTLASS_ENABLE_SYCL)
   // Constructor accepts user facing arguments and computes to stores the corners as its internal state
   ConvProblemShape(
       conv::Mode                     mode,

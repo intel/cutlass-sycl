@@ -1,0 +1,28 @@
+#############################################################################
+### Dual GEMM — sync test cases (task G)                                   ###
+###                                                                        ###
+### Verifies benchmark performance matches example                         ###
+###   examples/07_bmg_dual_gemm/07_bmg_dual_gemm                           ###
+###                                                                        ###
+### Aligned configuration:                                                 ###
+###   A (shared) = bfloat16 (RowMajor), B0/B1 = bfloat16 (RowMajor)        ###
+###   Output D   = float (RowMajor)                                        ###
+###   TileShape  = <_128, _128, _64>                                       ###
+###   MMA Atom   = XE_8x16x16_F32BF16BF16F32_TT (bf16 inputs, f32 acc)     ###
+###   GmemCopy   = XE_2D_U16x16x32_LD_N (A) / XE_2D_U16x32x32_LD_V (B)     ###
+###   Dispatch   = MainloopIntelXeXMX16<2> (PipelineStages=2)              ###
+###   Epilogue   = two LinearCombination + SiLU fused activation           ###
+###                                                                        ###
+### Dual GEMM = two M x N x K GEMMs sharing operand A, fused as            ###
+###   D = SiLU(alpha0 * A * B0) * (alpha1 * A * B1)                        ###
+###                                                                        ###
+### Compare against the (no-bias) example invocation:                      ###
+###   ./examples/07_bmg_dual_gemm/07_bmg_dual_gemm \                       ###
+###       --m=<M> --n=<N> --k=<K> --iterations=20                          ###
+#############################################################################
+
+# Test case 1: example 07 default shape (m=5120 n=4096 k=4096)
+# BmgDualGemmBF16BF16FP32_RRR_TileShape_128_128_64 --bm_name=bmg_dual_gemm --m=5120 --n=4096 --k=4096
+
+# Test case 2: small shape for fast simulator validation
+# BmgDualGemmBF16BF16FP32_RRR_TileShape_128_128_64 --bm_name=bmg_dual_gemm --m=256 --n=256 --k=256

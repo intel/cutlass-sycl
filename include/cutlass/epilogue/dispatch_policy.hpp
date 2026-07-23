@@ -297,7 +297,30 @@ struct Sm120PtrArrayTmaWarpSpecialized {
   constexpr static int NumEpilogueWarpGroups = NumEpilogueWarpGroups_;
 };
 
-#if defined (SYCL_INTEL_TARGET)
+#if defined (SYCL_INTEL_XE4_TARGET)
+template<
+  int StagesC_,
+  int StagesD_,
+  int FragmentSize_,
+  bool ReuseSmemC_,
+  bool DelayTmaStore_,
+  int NumControlWarps_,
+  int NumEpilogueWarps_
+>
+struct Xe4DmaWarpSpecialized {
+  constexpr static int StagesC = StagesC_;
+  constexpr static int StagesD = StagesD_;
+  constexpr static int FragmentSize = FragmentSize_;
+  constexpr static bool ReuseSmemC = ReuseSmemC_;
+  constexpr static bool DelayTmaStore = DelayTmaStore_;
+  constexpr static int NumControlWarps = NumControlWarps_;
+  constexpr static int NumEpilogueWarps = NumEpilogueWarps_;
+};
+
+#elif defined (SYCL_INTEL_TARGET)
+// Specialization of the GEMM Epilogue for Intel Xe architectures.
+// This version is tuned for operations with a subgroup size of 16.
+// Suitable for use with Intel Battlemage (Xe2) and PVC (Xe) architectures.
 // Standard Xe epilogue.
 struct IntelXeGeneric {
   static constexpr int SubgroupSize = 16;

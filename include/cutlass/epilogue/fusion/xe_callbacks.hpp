@@ -51,6 +51,7 @@
 #include "cutlass/epilogue/fusion/sm90_visitor_compute_tma_warpspecialized.hpp"
 #include "cutlass/epilogue/fusion/xe_visitor_softmax.hpp"
 #include "cutlass/epilogue/fusion/xe_visitor_splitk.hpp"
+#include "cutlass/epilogue/fusion/xe_visitor_topk_softmax.hpp"
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -728,11 +729,28 @@ struct FusionCallbacks<
   using Impl::Impl;
 };
 
-// TODO: move to new epilogue
+// XE-native TopK + Column Softmax: visitor does its own output store
+template <
+  class CtaTileShapeMNK,
+  class EpilogueTile,
+  class ElementOutput,
+  class ElementCompute,
+  class CopyOpR2G,
+  int TopK,
+  class ElementSource = ElementOutput,
+  class ElementScalar = ElementCompute,
+  FloatRoundStyle RoundStyle = FloatRoundStyle::round_to_nearest
+>
+using XeLinCombTopKSoftmaxColImpl =
+  Sm90EVT<XeTopKSoftmaxColReduction<TopK, CtaTileShapeMNK, EpilogueTile, ElementOutput, ElementCompute, CopyOpR2G, RoundStyle>,
+    Sm90LinearCombination<ElementCompute, ElementCompute, ElementSource, ElementScalar, RoundStyle>
+  >;
+
 template <
   int TopK,
   class ElementOutput_,
   class ElementCompute_,
+  class CopyOpR2G_,
   class ElementSource_,
   class ElementScalar_,
   FloatRoundStyle RoundStyle,
@@ -741,30 +759,30 @@ template <
 >
 struct FusionCallbacks<
   epilogue::IntelXeXMX16,
-  fusion::LinCombTopKSoftmaxCol<TopK, ElementOutput_, ElementCompute_, ElementSource_, ElementScalar_, RoundStyle>,
+  fusion::XeLinCombTopKSoftmaxCol<TopK, ElementOutput_, ElementCompute_, CopyOpR2G_, ElementSource_, ElementScalar_, RoundStyle>,
   CtaTileShapeMNK,
   EpilogueTile
-> : Sm90LinCombTopKSoftmaxCol<TopK, 8 /*FragmentSize*/, CtaTileShapeMNK, EpilogueTile, ElementOutput_, ElementCompute_, ElementSource_, ElementScalar_, RoundStyle> {
+> : XeLinCombTopKSoftmaxColImpl<CtaTileShapeMNK, EpilogueTile, ElementOutput_, ElementCompute_, CopyOpR2G_, TopK, ElementSource_, ElementScalar_, RoundStyle> {
 
-  static constexpr int FragmentSize = 8;
   using ElementOutput = ElementOutput_;
   using ElementCompute = ElementCompute_;
   using ElementSource = ElementSource_;
   using ElementScalar = ElementScalar_;
-  using Impl = Sm90LinCombTopKSoftmaxCol<TopK, FragmentSize, CtaTileShapeMNK, EpilogueTile,
-                                        typename cutlass::detail::get_unpacked_element_type<ElementOutput>::type,
-                                        ElementCompute, ElementSource, ElementScalar, RoundStyle>;
-  using Operation = fusion::LinCombTopKSoftmaxCol<TopK, ElementOutput, ElementCompute, ElementSource, ElementScalar, RoundStyle>;
+  using Impl = XeLinCombTopKSoftmaxColImpl<CtaTileShapeMNK, EpilogueTile,
+                                           typename cutlass::detail::get_unpacked_element_type<ElementOutput>::type,
+                                           ElementCompute, CopyOpR2G_, TopK, ElementSource, ElementScalar, RoundStyle>;
+  using Operation = fusion::XeLinCombTopKSoftmaxCol<TopK, ElementOutput, ElementCompute, CopyOpR2G_, ElementSource, ElementScalar, RoundStyle>;
 
   struct Arguments {
     ElementScalar alpha = ElementScalar(1);
     ElementScalar beta = ElementScalar(0);
     ElementScalar const* alpha_ptr = nullptr;
     ElementScalar const* beta_ptr = nullptr;
+    ElementOutput* ptr_D = nullptr;
 
     operator typename Impl::Arguments() const {
       return
-        {    // unary op: activation(beta * C + (alpha * acc))
+        {    // child op_0: Sm90LinearCombination args
           {    // ternary op : beta * C + (alpha * acc)
             {{beta}, {beta_ptr}}, // leaf args : beta
             {},                   // leaf args : C
@@ -775,8 +793,8 @@ struct FusionCallbacks<
             },                    // end binary op
             {} // ternary args : multiply_add
           },   // end ternary op
-          {} // unary args: activation
-        };   // end unary op
+          {ptr_D} // node op_1: XeTopKSoftmaxColReduction args
+        };
     }
   };
 

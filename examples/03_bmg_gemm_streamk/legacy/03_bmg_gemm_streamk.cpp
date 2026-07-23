@@ -94,7 +94,7 @@ struct Options {
   bool splitk;
   bool dp;
 
-  int m, n, k, l, iterations, splits, verify;
+  int m, n, k, l, iterations, verify, splits;
   float alpha, beta;
 
   Options():

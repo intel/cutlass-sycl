@@ -90,6 +90,8 @@ struct Options {
   bool error;
 
   int m, n, k, l, iterations, verify;
+  // The `verify` controls whether verification will be executed, which is true
+  // by default. Users can skip the verification step by specifying it with 0.  
   float alpha, beta;
 
   Options():
@@ -129,8 +131,8 @@ struct Options {
       << "  --k=<int>                   Sets the K extent of the GEMM\n"
       << "  --l=<int>                   Sets the L extent (batch count) of the GEMM\n"
       << "  --alpha=<s32>               Epilogue scalar alpha\n"
-      << "  --beta=<s32>                Epilogue scalar beta\n\n"
-      << "  --iterations=<int>          Iterations\n\n"
+      << "  --beta=<s32>                Epilogue scalar beta\n"
+      << "  --iterations=<int>          Iterations\n"
       << "  --verify=<int>              Specify whether to verify.\n\n";
 
     return out;

@@ -1232,7 +1232,9 @@ void synclog_print() {
         continue;
       }
     }
+    #if defined(__CUDA_ARCH__)
     asm volatile ("brkpt;\n" ::);
+    #endif
   }
   if (synclog_buf[0] >= synclog_cap) {
     printf(

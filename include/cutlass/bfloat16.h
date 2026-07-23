@@ -52,6 +52,10 @@
 #include "cutlass/cutlass.h"
 #include "cutlass/platform/platform.h"
 
+#if defined(CUTLASS_ENABLE_SYCL) && defined(__SYCL_DEVICE_ONLY__) && defined(SYCL_INTEL_TARGET)
+extern SYCL_EXTERNAL __attribute__((convergent)) uint16_t __spirv_ConvertFToBF16INTEL(float) noexcept;
+#endif
+
 namespace cutlass {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -121,9 +125,13 @@ public:
   explicit bfloat16_t(float x) {
 
     #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800) && (__CUDACC_VER_MAJOR__ >= 11)
-
     asm("cvt.rn.bf16.f32 %0, %1;\n" : "=h"(storage) : "f"(x));
+    #elif defined(CUTLASS_ENABLE_SYCL) && defined(__SYCL_DEVICE_ONLY__) && defined(SYCL_INTEL_TARGET)
+    // Temporary patch to avoid linking in the devicelib fallback unconditionally.
+    // This is the work around to fix performance regression in AOT build.
+    // TODO: remove it when compiler fixed the issue: https://jira.devtools.intel.com/browse/IGC-15066
 
+    storage = __spirv_ConvertFToBF16INTEL(x);
     #elif defined(CUTLASS_ENABLE_SYCL)
 
     storage = cutlass::platform::bit_cast<decltype(storage)>(sycl::ext::oneapi::bfloat16(x));
@@ -373,7 +381,7 @@ struct numeric_limits<cutlass::bfloat16_t> {
 
   /// Returns smallest finite value
   CUTLASS_HOST_DEVICE
-  static cutlass::bfloat16_t epsilon() { return cutlass::bfloat16_t::bitcast(0x1000); }
+  static cutlass::bfloat16_t epsilon() { return cutlass::bfloat16_t::bitcast(0x3c00); }
 
   /// Returns smallest finite value
   CUTLASS_HOST_DEVICE

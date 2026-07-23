@@ -102,23 +102,43 @@ struct MainloopIntelW8A8_GemmConfig {
 };
 
 TEST(MainloopIntelW8A8_Special, LargeModel_LLaMA2_7B) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    const int scale = 16;
+#else
+    const int scale = 1;
+#endif
     using Gemm = typename MainloopIntelW8A8_GemmConfig<layout::RowMajor, layout::RowMajor>::Gemm;
-    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096, 4096, 11008, 1, 1.0, 0.0));
+    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096 / scale, 4096 / scale, 11008 / scale, 1, 1.0, 0.0));
 }
 
 TEST(MainloopIntelW8A8_Special, LargeModel_Mistral_7B) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    const int scale = 16;
+#else
+    const int scale = 1;
+#endif
     using Gemm = typename MainloopIntelW8A8_GemmConfig<layout::RowMajor, layout::RowMajor>::Gemm;
-    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096, 4096, 14336, 1, 1.0, 0.0));
+    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096 / scale, 4096 / scale, 14336 / scale, 1, 1.0, 0.0));
 }
 
 TEST(MainloopIntelW8A8_Special, TensorParallel) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    const int scale = 16;
+#else
+    const int scale = 1;
+#endif
     using Gemm = typename MainloopIntelW8A8_GemmConfig<layout::RowMajor, layout::RowMajor>::Gemm;
-    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096, 1024, 4096, 1, 1.0, 0.0));
+    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096 / scale, 1024 / scale, 4096 / scale, 1, 1.0, 0.0));
 }
 
 TEST(MainloopIntelW8A8_Special, ModelParallel) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    const int scale = 16;
+#else
+    const int scale = 1;
+#endif
     using Gemm = typename MainloopIntelW8A8_GemmConfig<layout::RowMajor, layout::RowMajor>::Gemm;
-    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(1024, 4096, 4096, 1, 1.0, 0.0));
+    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(1024 / scale, 4096 / scale, 4096 / scale, 1, 1.0, 0.0));
 }
 
 TEST(MainloopIntelW8A8_Special, MicroBatch) {
@@ -142,18 +162,33 @@ TEST(MainloopIntelW8A8_Special, SquareMedium) {
 }
 
 TEST(MainloopIntelW8A8_Special, SquareLarge) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    const int scale = 16;
+#else
+    const int scale = 1;
+#endif
     using Gemm = typename MainloopIntelW8A8_GemmConfig<layout::RowMajor, layout::RowMajor>::Gemm;
-    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(2048, 2048, 2048, 1, 1.0, 0.0));
+    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(2048 / scale, 2048 / scale, 2048 / scale, 1, 1.0, 0.0));
 }
 
 TEST(MainloopIntelW8A8_Special, TallMatrix) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    const int scale = 16;
+#else
+    const int scale = 1;
+#endif
     using Gemm = typename MainloopIntelW8A8_GemmConfig<layout::RowMajor, layout::RowMajor>::Gemm;
-    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096, 512, 4096, 1, 1.0, 0.0));
+    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(4096 / scale, 512 / scale, 4096 / scale, 1, 1.0, 0.0));
 }
 
 TEST(MainloopIntelW8A8_Special, WideMatrix) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    const int scale = 16;
+#else
+    const int scale = 1;
+#endif
     using Gemm = typename MainloopIntelW8A8_GemmConfig<layout::RowMajor, layout::RowMajor>::Gemm;
-    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(512, 4096, 4096, 1, 1.0, 0.0));
+    EXPECT_TRUE(test::gemm::device::TestXe<Gemm>(512 / scale, 4096 / scale, 4096 / scale, 1, 1.0, 0.0));
 }
 
 TEST(MainloopIntelW8A8_Special, Batch8) {

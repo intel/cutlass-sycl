@@ -26,77 +26,92 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set(TEST_BATCHES --l=2)
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_BASE "--m=${CRI_GEMM_DEFAULT_SIZE} --n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+  set(TEST_SPLITK ${TEST_BASE} --num-head=2 --nope-dim=64 --rope-dim=64) # Splitk specific parameters
+else()
+  set(TEST_BASE "")
+  set(TEST_SPLITK ${TEST_BASE}) # No extra parameters when not in CRI mode
+endif()
+
+set(TEST_MULTIPLE_BATCHES ${TEST_BASE} --l=2)
+set(TEST_SINGLE_BATCH ${TEST_BASE} "") # The default batch size is 1
 
 cutlass_example_add_executable(
   05_bmg_gemm_with_epilogue_gelu
   05_bmg_gemm_with_epilogue_gelu.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
-)
-
-#TODO(Codeplay): enable batch > 1 test once implementation is fixed.
-cutlass_example_add_executable(
-  05_bmg_gemm_with_epilogue_lincombdeeltact
-  05_bmg_gemm_with_epilogue_lincombdeeltact.cpp
+  TEST_MULTIPLE_BATCHES
 )
 
 cutlass_example_add_executable(
   05_bmg_gemm_with_epilogue_relu
   05_bmg_gemm_with_epilogue_relu.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_MULTIPLE_BATCHES
 )
 
 cutlass_example_add_executable(
   05_bmg_gemm_with_epilogue_silu
   05_bmg_gemm_with_epilogue_silu.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
-)
-
-#TODO(Codeplay): enable batch > 1 test once implementation is fixed.
-cutlass_example_add_executable(
-  05_bmg_gemm_with_epilogue_softmax
-  05_bmg_gemm_with_epilogue_softmax.cpp
-)
-
-cutlass_example_add_executable(
-  05_bmg_gemm_with_epilogue_splitk
-  05_bmg_gemm_with_epilogue_splitk.cpp
+  TEST_MULTIPLE_BATCHES
 )
 
 cutlass_example_add_executable(
   05_bmg_gemm_with_per_row_bias
   05_bmg_gemm_with_per_row_bias.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_MULTIPLE_BATCHES
 )
 
 cutlass_example_add_executable(
   05_bmg_gemm_single_b_with_per_col_bias
   05_bmg_gemm_single_b_with_per_col_bias.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_MULTIPLE_BATCHES
 )
 
 cutlass_example_add_executable(
   05_bmg_gemm_with_topk_and_softmax
   05_bmg_gemm_with_topk_and_softmax.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_MULTIPLE_BATCHES
+)
+
+#TODO(Codeplay): enable batch > 1 test once implementation is fixed.
+cutlass_example_add_executable(
+  05_bmg_gemm_with_epilogue_lincombdeeltact
+  05_bmg_gemm_with_epilogue_lincombdeeltact.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_SINGLE_BATCH
+)
+
+#TODO(Codeplay): enable batch > 1 test once implementation is fixed.
+cutlass_example_add_executable(
+  05_bmg_gemm_with_epilogue_softmax
+  05_bmg_gemm_with_epilogue_softmax.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_SINGLE_BATCH
+)
+
+cutlass_example_add_executable(
+  05_bmg_gemm_with_epilogue_splitk
+  05_bmg_gemm_with_epilogue_splitk.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_SPLITK
 )
 
 cutlass_example_add_executable(
   05_bmg_gemm_with_epilogue_lincombperrowbiaseltactaux
   05_bmg_gemm_with_epilogue_lincombperrowbiaseltactaux.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_MULTIPLE_BATCHES
 )
 
 cutlass_example_add_executable(
   05_bmg_gemm_with_epilogue_lincombauxstore
   05_bmg_gemm_with_epilogue_lincombauxstore.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_MULTIPLE_BATCHES
 )

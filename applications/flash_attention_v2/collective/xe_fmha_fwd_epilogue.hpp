@@ -135,21 +135,28 @@ public:
   CUTLASS_HOST_DEVICE
   FMHAFwdEpilogue(Params const&, SharedStorage& shared_) : shared(shared_) {}
 
-  template <typename QVCoord>
+  template <bool SumIsReduced = false, typename QVCoord, typename FragSPRow>
   CUTLASS_DEVICE
   void
   operator()(TensorO2D const& O,        // Global O tensor: (q,v)
              FragA          & tArA,     // O accumulator:   (q,v)
              FragARow       & tA_max,   // Softmax row-wise max accumulator
-             FragARow       & tA_sum,   // Softmax row-wise sum accumulator
+             FragSPRow      & tA_sum,   // Softmax row-wise partial sum (per-lane, deferred hreduce)
              QVCoord          blk_qv,   // WG tile indices: (q,v)
-             int              thr_id) { // Work-item ID
+             int              thr_id,   // Work-item ID
+             float            v_scale = 1.0f) { // Per-tensor V dequant scale (fp8 path)
 
     using namespace cute;
     using ElementA = typename FragA::element_type;
+    auto tA_sum_full = [&]() -> decltype(auto) {
+      if constexpr (SumIsReduced)
+        return (tA_sum);
+      else
+        return reduce<0, ReduceMode::Horizontal>(tA_sum, sycl::plus<void>{});
+    }();
 
     // Reduce k-blocks of A and A_sum across WG, if needed.
-    auto [rA, rA_sum, active] = reduce_A(tArA, tA_max, tA_sum, thr_id);
+    auto [rA, rA_sum, active] = reduce_A(tArA, tA_max, tA_sum_full, thr_id);
 
     /* Some subgroups may not have any work to do; if so, quit early. */
     if (!active) return;
@@ -157,11 +164,10 @@ public:
     /* Complete softmax, dividing out sums. */
     CUTLASS_PRAGMA_UNROLL
     for (int i = 0; i < rA_sum.size(); i++)
-      rA_sum(i) = ElementA(1) / rA_sum(i);
-
-    CUTLASS_PRAGMA_UNROLL
-    for (int i = 0; i < rA.size(); i++)
-      rA(i) *= broadcast<0>(rA_sum, rA, i);
+      if constexpr (CollectiveMainloop::PerTensorScale)
+        rA_sum(i) = ElementA(v_scale) / rA_sum(i);
+      else
+        rA_sum(i) = ElementA(1) / rA_sum(i);
 
     /* Tile output */
     Tensor cO = make_identity_tensor(O.shape());          // (q,v)
@@ -174,20 +180,22 @@ public:
     auto tOrO = thr_copy_o.partition_sg_fragment_S(gO);
     auto tOgO = thr_copy_o.partition_D(gO);
 
-    /* Reorder tile and write out */
-    reorder(rA, tOrO);
+    /* Fused rescale + reorder*/
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < rA.size(); i++)
+      tOrO(i) = static_cast<ElementO>(rA(i) * broadcast<0>(rA_sum, rA, i));
     copy(copy_o, tOrO, tOgO);
   }
 
   // Reduce k-blocks of A and A_sum across WG, if needed.
   // Note that each k block has its own scale factor based on A_max,
   //   so A/A_sum contributions need to be rescaled to match.
-  template <typename FragA, typename FragARow>
+  template <typename FragA, typename FragARow, typename FragSPRow>
   CUTLASS_DEVICE
   decltype(auto)
   reduce_A(FragA        & tArA,     // O accumulator:   (q,v)
            FragARow     & tA_max,   // Softmax row-wise max accumulator
-           FragARow     & tA_sum,   // Softmax row-wise sum accumulator
+           FragSPRow    & tA_sum,   // Softmax row-wise partial sum (per-lane)
            int            thr_id) { // Work-item ID
 
     using namespace sycl::ext::oneapi::this_work_item;
@@ -215,14 +223,19 @@ public:
       auto sA_coords = make_layout(append(SGTileShapeO{}, shape(ReduceSGLayout{})),
                                    append(basis2, product_each(zip(SGTileShapeO{}, basis2))));
 
+      auto basis1 = make_basis_like(take<0,1>(SGTileShapeO{}));
+      auto sA_row_coords = make_layout(
+          append(take<0,1>(SGTileShapeO{}), shape(ReduceSGLayout{})),
+          append(basis1, make_stride(get<0>(product_each(zip(take<0,1>(SGTileShapeO{}), basis1))), _0{})));
+
       auto sA     = make_tensor(make_smem_ptr<ElementA>(&shared.a_data),     sA_layout);      // (q,v,rblk_dst,rblk_src,a_tile)
       auto sA_max = make_tensor(make_smem_ptr<ElementA>(&shared.a_max_data), sA_row_layout);  // (q,rblk_dst,rblk_src,a_tile)
       auto sA_sum = make_tensor(make_smem_ptr<ElementA>(&shared.a_sum_data), sA_row_layout);  // (q,rblk_dst,rblk_src,a_tile)
 
       /* Write my contributions to SLM. */
-      copy_block_r2s(tA_max, sA_max(_,_,k_blk,a_tile));
+      copy_block_r2s(tA_max, sA_max(_,_,k_blk,a_tile), sA_row_coords);
       barrier_arrive(ScopeWorkgroup, SemanticsRelease | SemanticsWGMemory);
-      copy_block_r2s(tA_sum, sA_sum(_,_,k_blk,a_tile));
+      copy_block_r2s(tA_sum, sA_sum(_,_,k_blk,a_tile), sA_row_coords);
       copy_block_r2s(tArA, sA(_,_,_,k_blk,a_tile), sA_coords);
 
       bool active = (k_blk      < size(ReduceSGLayout{}))
@@ -239,18 +252,21 @@ public:
         /* Read A_max back from SLM and reduce. */
         CUTLASS_PRAGMA_UNROLL
         for (int kr = 0; kr < ReduceK{}; kr++) {
-          copy_block_s2r(sA_max(_,k_blk,kr,a_tile), rA_kmax[kr]);
+          copy_block_s2r(sA_max(_,k_blk,kr,a_tile), sA_row_coords(_,0), rA_kmax[kr]);
         }
 
         rA_max = rA_kmax[0];
-        for (int kr = 1; kr < ReduceK{}; kr++)
-          cute::transform(rA_max, rA_kmax[kr], rA_max, cute::max_fn{});
+        for (int kr = 1; kr < ReduceK{}; kr++) {
+          CUTLASS_PRAGMA_UNROLL
+          for (int i = 0; i < rA_max.size(); i++)
+            rA_max(i) = sycl::max(rA_max(i), rA_kmax[kr](i));
+        }
 
         /* Calculate scale factors for aligning per-block maxima. */
         for (int kr = 0; kr < ReduceK{}; kr++) {
-          cute::transform(rA_max, rA_kmax[kr], rA_kmax[kr], [](auto gmax, auto kmax) {
-            return sycl::native::exp2(kmax - gmax);
-          });
+          CUTLASS_PRAGMA_UNROLL
+          for (int i = 0; i < rA_max.size(); i++)
+            rA_kmax[kr](i) = sycl::native::exp2(rA_kmax[kr](i) - rA_max(i));
         }
       }
 
@@ -264,7 +280,7 @@ public:
         CUTLASS_PRAGMA_UNROLL
         for (int kr = 0; kr < ReduceK{}; kr++) {
           ReduceFragARow rA_sum_read;
-          copy_block_s2r(sA_sum(_,k_blk,kr,a_tile), rA_sum_read);
+          copy_block_s2r(sA_sum(_,k_blk,kr,a_tile), sA_row_coords(_,0), rA_sum_read);
 
           CUTLASS_PRAGMA_UNROLL
           for (int i = 0; i < rA_sum_read.size(); i++) {

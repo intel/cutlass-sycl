@@ -2,11 +2,11 @@
 # Suite: new
 # Config Group: attention
 
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1664 --head_size_qk=64 --head_size_vo=64
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1920 --head_size_qk=64 --head_size_vo=64
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1280 --head_size_qk=64 --head_size_vo=64
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=2048 --head_size_qk=64 --head_size_vo=64
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1408 --head_size_qk=64 --head_size_vo=64
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1792 --head_size_qk=64 --head_size_vo=64
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1536 --head_size_qk=64 --head_size_vo=64
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1152 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1664 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1920 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1280 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=2048 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1408 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1792 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1536 --head_size_qk=64 --head_size_vo=64
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_VarLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=64 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1152 --head_size_qk=64 --head_size_vo=64

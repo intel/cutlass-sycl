@@ -26,25 +26,30 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set(TEST_BATCHES --l=2)
-set(TEST_MODE_0 --l=2 --mode=0)
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_BASE "--m=${CRI_GEMM_DEFAULT_SIZE} --n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+else()
+  set(TEST_BASE --l=2)
+endif()
+
+set(TEST_MODE_0 ${TEST_BASE} --mode=0)
 
 cutlass_example_add_executable(
   08_bmg_gemm_f8
   08_bmg_gemm_f8.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_BASE
 )
 
 cutlass_example_add_executable(
   08_bmg_gemm_f8_scaling
   08_bmg_gemm_f8_scaling.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_BASE
   TEST_MODE_0
 )
 
-if(NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
+if (NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
   # TODO(codeplay): Remove these once IGC block load loop hoisting bug is fixed
   target_link_options( 08_bmg_gemm_f8_scaling PRIVATE -Xs "-options \"-igc_opts 'allowDecompose2DBlockFuncs=0'\"" )
 endif()

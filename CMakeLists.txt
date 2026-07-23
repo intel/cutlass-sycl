@@ -122,11 +122,25 @@ option(CUTLASS_SYCL_RUNNING_CI "Enable this option when building in a CI environ
                                 disabling tests that cannot run in CI." OFF)
 option(CUTLASS_SYCL_BUILTIN_ENABLE "Enable this option to use builtin functions instead of SPIR-V for Block Copy & MMA operations" OFF)
 
+# Two-tier build parallelism (Ninja only): memory-hungry FA/FMHA translation units
+# are routed into a constrained job pool so they can't all compile at once and thrash
+# memory, while the global -j stays high to keep cheap TUs flowing. The CI build script
+# sets the depth (≈ MEM_GB/10); the global -j it passes is the larger budget (≈ MEM_GB/5).
+# 0 (default) disables the pool entirely -> fully backward compatible.
+set(CUTLASS_HEAVY_BUILD_JOBS "0" CACHE STRING "Max concurrent heavy (FA/FMHA) compile jobs via a Ninja job pool. 0 disables the pool.")
+if(CUTLASS_HEAVY_BUILD_JOBS GREATER 0)
+  set_property(GLOBAL PROPERTY JOB_POOLS heavy_compile=${CUTLASS_HEAVY_BUILD_JOBS})
+  message(STATUS "CUTLASS: heavy (FA/FMHA) compile job pool depth = ${CUTLASS_HEAVY_BUILD_JOBS}")
+endif()
+
 if (CUTLASS_ENABLE_SYCL)
   set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
   string(REPLACE "," ";" DPCPP_SYCL_TARGET_LIST "${DPCPP_SYCL_TARGET}")
-  message(STATUS "DPCPP_SYCL_TARGET as list ${DPCPP_SYCL_TARGET_LIST}")
+  list(LENGTH DPCPP_SYCL_TARGET_LIST DPCPP_SYCL_TARGET_LIST_LENGTH)
+  if(DPCPP_HOST_COMPILER AND NOT DPCPP_SYCL_TARGET_LIST_LENGTH EQUAL 1)
+    message(FATAL_ERROR "DPCPP_SYCL_TARGET_LIST_LENGTH should be 1 if g++ is specified.")
+  endif()
 
   if("nvptx64-nvidia-cuda" IN_LIST DPCPP_SYCL_TARGET_LIST)
     set(SYCL_NVIDIA_TARGET ON)
@@ -135,12 +149,16 @@ if (CUTLASS_ENABLE_SYCL)
   endif()
 
   set(INTEL_SYCL_TARGETS
-    intel_gpu_pvc
     spir64
+    intel_gpu_pvc
+    pvc
     intel_gpu_bmg_g21
     intel_gpu_bmg_g31
     bmg
-    pvc
+    intel_gpu_cri
+    cri
+    intel_gpu_pisa
+    pisa
   )
 
   foreach(ITEM IN LISTS DPCPP_SYCL_TARGET_LIST)
@@ -157,8 +175,30 @@ if (CUTLASS_ENABLE_SYCL)
     message(FATAL_ERROR "Both SYCL_NVIDIA_TARGET and SYCL_INTEL_TARGET are unset.")
   endif()
 
+  if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 2026.0)
+    message(STATUS "IntelLLVM version greater than or equal to 2026.x")
+    set(COMPILER_VERSION_2026_ONWARDS ON)
+  else()
+    message(STATUS "IntelLLVM version less than 2026.x")
+    set(COMPILER_VERSION_2026_ONWARDS OFF)
+  endif()
+
   if(SYCL_INTEL_TARGET)
-      add_compile_definitions(SYCL_INTEL_TARGET)
+    add_compile_definitions(SYCL_INTEL_TARGET)
+    if(("intel_gpu_cri" IN_LIST DPCPP_SYCL_TARGET_LIST) OR ("cri" IN_LIST DPCPP_SYCL_TARGET_LIST))
+      if((NOT COMPILER_VERSION_2026_ONWARDS) AND (NOT DPCPP_SYCL_TARGET_LIST_LENGTH EQUAL 1))
+        message(FATAL_ERROR "CRI Target with multi-target build is supported only with compiler version 2026 onwards")
+      endif()
+      set(SYCL_TARGET_INTEL_GPU_CRI ON)
+    endif()
+
+    option(CUTLASS_TEST_FOR_CRI "Enable CUTLASS_TEST_FOR_CRI" OFF)
+    if(CUTLASS_TEST_FOR_CRI)
+      add_compile_definitions(CUTLASS_TEST_FOR_CRI)
+    endif()
+  endif()
+
+  if(SYCL_INTEL_TARGET)
       add_compile_options(
         -Wall
         -Wno-unused-variable
@@ -171,7 +211,6 @@ if (CUTLASS_ENABLE_SYCL)
         -Wno-unknown-pragmas
       )
   endif()
-
   add_compile_definitions(CUTLASS_ENABLE_SYCL)
   find_package(DPCPP)
   include(${CMAKE_CURRENT_SOURCE_DIR}/SYCL.cmake)
@@ -834,6 +873,7 @@ set(CUTLASS_GENERATOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/library CACHE INTERN
 set(CUTLASS_TOOLS_UTIL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/util/include CACHE INTERNAL "")
 
 include_directories(${CUTLASS_INCLUDE_DIR})
+include_directories(${CUTLASS_TOOLS_UTIL_INCLUDE_DIR})
 
 target_compile_features(CUTLASS INTERFACE cxx_std_11)
 

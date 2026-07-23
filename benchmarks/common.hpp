@@ -35,7 +35,20 @@
 #include <sstream>
 #include <fstream>
 
+#ifndef ITERATIONS
+#ifdef CUTLASS_TEST_FOR_CRI
+#define ITERATIONS 1
+#else
+#define ITERATIONS 100
+#endif
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+#include "cutlass/cutlass.h"
+#include "cutlass/util/device_memory.h"
+#include "cutlass/util/reference/device/sycl_tensor_fill.h"
+#include "cutlass/util/initialize_block.hpp"
 
 namespace cutlass {
   static inline std::size_t get_llc_size() {
@@ -53,6 +66,42 @@ namespace cutlass {
 
 
 namespace benchmark {
+
+  template <class, class, class> class convert_dtype_name;
+
+  template <typename SrcT, typename DstT, typename Runner>
+  static inline void convert_dtype(const SrcT* d_src, DstT* d_dst, size_t size) {
+    compat::get_default_queue().parallel_for<convert_dtype_name<SrcT, DstT, Runner>>(size, [=](auto indx) {
+      if constexpr (cute::sizeof_bits_v<SrcT> < 8) {
+        d_dst[indx] = static_cast<DstT>(cute::subbyte_iterator<const SrcT>(d_src)[indx].get());
+      } else {
+        d_dst[indx] = static_cast<DstT>(d_src[indx]);
+      }
+    }).wait();
+  }
+
+  template <typename SrcT, typename DstT, typename Runner>
+  static inline void convert_dtype(const cutlass::DeviceAllocation<SrcT>& src, cutlass::DeviceAllocation<DstT>& dst) {
+  #if defined(CUTLASS_TEST_FOR_CRI)
+    if constexpr (cute::sizeof_bits_v<SrcT> < 8) {
+      convert_dtype<SrcT, DstT, Runner>(src.get(), dst.get(), src.size());
+    } else {
+      auto src_buff = std::vector<SrcT>(src.size());
+      compat::memcpy<SrcT>(src_buff.data(), src.get(), src.size());
+      compat::wait();
+
+      auto dst_buff = std::vector<DstT>(dst.size());
+      for (auto indx = 0; indx < src.size(); ++indx) {
+        dst_buff[indx] = static_cast<DstT>(src_buff[indx]);
+      }
+
+      compat::memcpy<DstT>(dst.get(), dst_buff.data(), dst.size());
+      compat::wait();
+    }
+  #else
+    convert_dtype<SrcT, DstT, Runner>(src.get(), dst.get(), src.size());
+  #endif
+  }
 
   template<typename Options>
   class BenchmarkRegistry {
@@ -149,7 +198,12 @@ auto benchmark_main(int argc, const char **argv) -> int {
 
   std::stringstream benchmark_name;
   benchmark_name << benchmark_config << "/" << options.benchmark_name();
+#ifdef CUTLASS_TEST_FOR_CRI
+  ::benchmark::RegisterBenchmark(benchmark_name.str(), runner, options, hw_info)->UseManualTime()->Iterations(ITERATIONS)->MinTime(0.0);
+#else
   ::benchmark::RegisterBenchmark(benchmark_name.str(), runner, options, hw_info)->UseManualTime();
+#endif
+
   return 0;
 }
 

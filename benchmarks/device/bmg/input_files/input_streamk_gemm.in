@@ -1,0 +1,5 @@
+#############################################################################
+### StreamK GEMM benchmark — matches example 03_bmg_gemm_streamk defaults ###
+#############################################################################
+
+BmgGemmBF16BF16FP32_StreamK_TileShape_256_256_32 --bm_name=bmg_streamk --m=5120 --n=4096 --k=4096

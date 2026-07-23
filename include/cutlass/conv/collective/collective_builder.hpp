@@ -89,6 +89,10 @@ struct CollectiveBuilder {
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
+#if defined(SYCL_INTEL_XE4_TARGET)
+#include "cutlass/conv/collective/builders/xe4_amma_builder.inl"
+#else
 #include "builders/sm90_gmma_builder.inl"
-#include "builders/sm100_umma_builder.inl" 
+#include "builders/sm100_umma_builder.inl"
+#endif 
 /////////////////////////////////////////////////////////////////////////////////////////////////

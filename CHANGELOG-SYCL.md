@@ -1,5 +1,20 @@
 # SYCL*TLA (previously referred to as cutlass-sycl) Changelog
 
+## [SYCL*TLA 0.9.2](https://github.com/intel/sycl-tla/releases/tag/v0.9.2) (2026-07-17)
+### Enhancements
+- **Support CRI platform ([#833](https://github.com/intel/sycl-tla/pull/833))**
+- **Fix register spills in XeRowBroadcast/XeColBroadcast ([#815](https://github.com/intel/sycl-tla/pull/815))**
+- **Fix identity fast path double-rounding and add EpilogueTile divisibility guard ([#832](https://github.com/intel/sycl-tla/pull/832))**
+
+### Bug Fixes
+- **Fix NumericConverter for SYCL device code (float→int32/int8/uint8) ([#817](https://github.com/intel/sycl-tla/pull/817))**
+- **Fix inductor UTs workflow ([#823](https://github.com/intel/sycl-tla/pull/823))**
+- **Fix BMG EVT workflow to run on any BMG runner ([#831](https://github.com/intel/sycl-tla/pull/831))**
+- **Fix bare ushort in host-context templates on Windows ([#835](https://github.com/intel/sycl-tla/pull/835))**
+  
+### Documentation
+- **Clean up NV references, make public repo Intel-first ([#821](https://github.com/intel/sycl-tla/pull/821))**
+
 ## [SYCL*TLA 0.9.1](https://github.com/intel/sycl-tla/releases/tag/v0.9.1) (2026-06-11)
 ### Enhancements
 - **Support Stream-K GEMM ops in Python API ([#800](https://github.com/intel/sycl-tla/pull/800))**
@@ -63,7 +78,7 @@
 - **GEMM Enhancements**:
   - Support all GEMM tile shapes ([#738](https://github.com/intel/sycl-tla/pull/738))
   - Enhance examples ([#726](https://github.com/intel/sycl-tla/pull/726))
-  
+
 ## [SYCL*TLA 0.7](https://github.com/intel/sycl-tla/releases/tag/v0.7) (2026-01-28)
 ### Major Architecture Improvements
 - **Epilogue Visitor Tree (EVT) Support ([#647](https://github.com/intel/sycl-tla/pull/647))**: EVT support for Intel Xe architecture
@@ -184,7 +199,6 @@
 ### Notes and Known Issues
 - Python Operations for FP8 and INT8 not generated for CUTLASS library in this release.
 - Unit tests and benchmark tests are not yet migrated to newly re architected CuTe APIs.
-
 
 ## [SYCL*TLA 0.5](https://github.com/intel/cutlass-sycl/releases/tag/v0.5) (2025-09-26)
 ### Major Architecture Changes

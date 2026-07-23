@@ -72,7 +72,6 @@
 #include "cutlass/util/reference/device/tensor_compare.h"
 #include "sycl_common.hpp"
 #include "helper.h"
-#include "cutlass/util/mixed_dtype_utils.hpp"
 
 using namespace cute;
 
@@ -102,6 +101,7 @@ struct Options {
     help(false),
     error(false),
     m(5120), n(4096), k(4096), l(1), iterations(20), verify(1),
+    g(128), mode(2),
     alpha(1.f), beta(0.f)
   { }
 
@@ -139,7 +139,7 @@ struct Options {
       << "  --g=<int>                   The size of each group for the scales and zeros. To broadcast a vector of scales or zeros, set the group size to K.\n"
       << "  --mode=<int>                The mode to run the gemm. 0 is Convert Only, 1 is Convert and Scale, 2 is Convert and Scale with Zero Point\n"
       << "  --alpha=<s32>               Epilogue scalar alpha\n"
-      << "  --beta=<s32>                Epilogue scalar beta\n\n"
+      << "  --beta=<s32>                Epilogue scalar beta\n"
       << "  --iterations=<int>          Iterations\n"
       << "  --verify=<int>              Specify whether to verify.\n\n";
 
@@ -239,87 +239,38 @@ struct ExampleRunner {
   // Methods
   //
 
-  bool verify(const Options &options) {
+  bool verify(const ProblemShapeType& problem_size, ElementCompute alpha, ElementCompute beta) {
+    auto [M, N, K, L] = problem_size;
 
-    //
-    // Compute reference output (default gemm kernel w/ ElementA == ElementB)
-    //
+    cutlass::TensorRef ref_A(block_A_dq.get(), LayoutA::packed({M, K}));
+    cutlass::TensorRef ref_B(block_B_dq.get(), LayoutB::packed({K, N}));
+    cutlass::TensorRef ref_C(block_C.get(), LayoutC::packed({M, N}));
+    cutlass::TensorRef ref_D(block_ref_D.get(), LayoutD::packed({M, N}));
 
-    // Copy atoms (void = automatic selection by CUTLASS)
-    using GmemTiledCopyA = void;
-    using GmemTiledCopyB = void;
+    cutlass::reference::device::GemmComplex(
+          {M, N, K},
+          alpha,
+          ref_A,
+          cutlass::ComplexTransform::kNone,
+          ref_B,
+          cutlass::ComplexTransform::kNone,
+          beta,
+          ref_C,
+          ref_D,
+          ElementAccumulator(0),
+          L,     // batch_count
+          M * K, // batch_stride_A
+          K * N, // batch_stride_B
+          M * N, // batch_stride_C
+          M * N  // batch_stride_D
+        );
 
-    // Workgroup-level tile
-    using TileShape = Shape<_32, _64, _32>;
+    // CUTLASS on SYCL uses the compatibility library compat for e.g. default in-order queue
+    compat::wait();
 
-    // MMA atom (new API using XE_DPAS_TT)
-    using TiledMma =
-        typename TiledMMAHelper<MMA_Atom<XE_DPAS_TT<8, int32_t, int8_t, int8_t>>, Layout<TileShape>,
-                                      Layout<Shape<_1, _2, _1>, Stride<_2, _1, _0>>>::TiledMMA;
-
-    constexpr int PipelineStages = 3;
-    using GEMMDispatchPolicy = cutlass::gemm::MainloopXeL1Staged<PipelineStages>;
-    using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeGeneric;
-
-    using EpilogueOp = cutlass::epilogue::fusion::LinearCombination<ElementAccumulator, ElementCompute,
-            ElementAccumulator, ElementAccumulator, cutlass::FloatRoundStyle::round_to_nearest>;
-
-    using FusionCallBacks = cutlass::epilogue::fusion::FusionCallbacks<EpilogueDispatchPolicy, EpilogueOp, TileShape,
-            decltype(tile_shape(TiledMma()))>;
-
-    using CollectiveEpilogueRef = cutlass::epilogue::collective::CollectiveEpilogue<
-            EpilogueDispatchPolicy,
-            TileShape,
-            void,   // Epilogue tile (void = automatic)
-            ElementAccumulator,
-            cutlass::gemm::TagToStrideC_t<LayoutC>,
-            ElementOutput,
-            cutlass::gemm::TagToStrideC_t<LayoutD>,
-            FusionCallBacks,
-            void,   // Copy atom for C (void = automatic)
-            void>;  // Copy atom for D (void = automatic)
-
-    // Mainloop
-    using CollectiveMainloopRef = cutlass::gemm::collective::CollectiveMma<
-            GEMMDispatchPolicy,
-            TileShape,
-            ElementMMA,
-            cutlass::gemm::TagToStrideA_t<LayoutA>,
-            ElementMMA,
-            cutlass::gemm::TagToStrideB_t<LayoutB>,
-            TiledMma,
-            GmemTiledCopyA, void, void, cute::identity,  // A
-            GmemTiledCopyB, void, void, cute::identity   // B
-    >;
-
-    using GemmKernelRef = cutlass::gemm::kernel::GemmUniversal<
-    Shape<int, int, int, int>,
-    CollectiveMainloopRef,
-    CollectiveEpilogueRef
-    >;
-
-    using GemmRef = cutlass::gemm::device::GemmUniversalAdapter<GemmKernelRef>;
-
-    typename GemmRef::Arguments arguments{
-      cutlass::gemm::GemmUniversalMode::kGemm,
-      {options.m, options.n, options.k, options.l},
-      {block_A_dq.get(), stride_A, block_B_dq.get(), stride_B},
-      {{options.alpha, options.beta}, block_C.get(), stride_C, block_ref_D.get(), stride_D}
-    };
-
-    // Run the gemm where the scaling is performed outside of the kernel.
-    GemmRef gemm_ref;
-    size_t workspace_size = GemmRef::get_workspace_size(arguments);
-    cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
-    CUTLASS_CHECK(gemm_ref.can_implement(arguments));
-    CUTLASS_CHECK(gemm_ref.initialize(arguments, workspace.get()));
-    CUTLASS_CHECK(gemm_ref.run());
-
-    // compare_reference
     ElementOutput const epsilon(1e-2f);
     ElementOutput const non_zero_floor(1e-4f);
-    bool passed = cutlass::reference::device::BlockCompareRelativelyEqual(block_ref_D.get(), block_D.get(), block_D.size(), epsilon, non_zero_floor);
-    return passed;
+    return cutlass::reference::device::BlockCompareRelativelyEqual(block_ref_D.get(), block_D.get(), block_D.size(), epsilon, non_zero_floor);
   }
 
   template <class Element>
@@ -616,7 +567,6 @@ struct ExampleRunner {
     ProblemShapeType problem_size = ProblemShapeType{options.m, options.n, options.k, options.l};
 
     initialize(options);
-
     typename Gemm::GemmKernel::Arguments arguments{
         cutlass::gemm::GemmUniversalMode::kGemm,
         problem_size,
@@ -648,7 +598,7 @@ struct ExampleRunner {
 
     if (options.verify != 0) {
       // Verify that the result is correct
-      bool passed = verify(options);
+      bool passed = verify(problem_size, options.alpha, options.beta);
       std::cout << "Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
 
       if (!passed) return cutlass::Status::kErrorInternal;

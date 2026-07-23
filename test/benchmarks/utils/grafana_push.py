@@ -33,12 +33,13 @@ def _build_line_protocol(records, suite_name, timestamp_ns, git_commit_id=""):
         tflops = record.get("Tflops",0)
         throughput = record.get("Throughput",0)
         shape = record.get("Shape", "")
-        kernel = kernel + f"_{shape}"
 
         if isinstance(shape, (list, tuple)):
             shape = "x".join(str(dim) for dim in shape)
         else:
             shape = str(shape)
+
+        kernel = kernel + f"_{shape}"
 
         if tflops:
             fields.append(f"tflops={float(tflops)}")
@@ -63,6 +64,8 @@ def _build_line_protocol(records, suite_name, timestamp_ns, git_commit_id=""):
 
         lines.append(line)
 
+    if not lines:
+        return ""
     return "\n".join(lines) + "\n"
 
 
@@ -80,7 +83,6 @@ def push_results(records, suite_name, timestamp_ns=None, git_commit_id=""):
         timestamp_ns = int(time.time() * 1e9)
 
     payload = _build_line_protocol(records, suite_name, timestamp_ns, git_commit_id)
-    print(payload)
     if not payload:
         print("No records to push to InfluxDB.")
         return

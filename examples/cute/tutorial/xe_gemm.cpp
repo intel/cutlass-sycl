@@ -55,50 +55,6 @@
 #endif
 
 using namespace cute;
-// Command line options parsing
-struct Options {
-
-  bool help;
-  bool error;
-
-  int m, n, k, iterations, verify;
-
-  Options():
-    help(false),
-    error(false),
-    m(4096), n(4096), k(4096), iterations(100), verify(1)
-  { }
-
-  // Parses the command line
-  void parse(int argc, char const **args) {
-    cutlass::CommandLine cmd(argc, args);
-
-    if (cmd.check_cmd_line_flag("help")) {
-      help = true;
-      return;
-    }
-
-    cmd.get_cmd_line_argument("m", m, 4096);
-    cmd.get_cmd_line_argument("n", n, 4096);
-    cmd.get_cmd_line_argument("k", k, 4096);
-    cmd.get_cmd_line_argument("iterations", iterations, 100);
-    cmd.get_cmd_line_argument("verify", verify, 1);
-  }
-
-  /// Prints the usage statement.
-  std::ostream & print_usage(std::ostream &out) const {
-
-    out << "GEMM Example\n\n"
-      << "Options:\n\n"
-      << "  --help                      If specified, displays this usage statement\n\n"
-      << "  --m=<int>                   Sets the M extent of the GEMM\n"
-      << "  --n=<int>                   Sets the N extent of the GEMM\n"
-      << "  --k=<int>                   Sets the K extent of the GEMM\n"
-      << "  --iterations=<int>          Iterations\n"
-      << "  --verify=<int>              Specify whether to verify.\n\n";
-    return out;
-  }
-};
 
 template <class ATensor, class BTensor, class CTensor,
           class TiledMMA>
@@ -263,8 +219,8 @@ choose_tiled_mma(ATensor const& A, BTensor const& B, CTensor const&)
   return MMA{};
 }
 
-template <class, class, char, char> class GemmCuteName;
-template <class ATensor, class BTensor, class CTensor, typename TA, typename TB, char layoutA, char layoutB>
+template <class, class, class, char, char> class GemmCuteName;
+template <class ATensor, class BTensor, class CTensor, typename TA, typename TB, typename TC, char layoutA, char layoutB>
 void
 gemm_cute(sycl::queue &Q,
           ATensor   const& A,         // (M,K)
@@ -285,7 +241,7 @@ gemm_cute(sycl::queue &Q,
     intelex::grf_size<256>
   };
 
-  auto event = Q.parallel_for<GemmCuteName<TA, TB, layoutA, layoutB>>(sycl::nd_range<2>(global, local), kernel_props,
+  auto event = Q.parallel_for<GemmCuteName<TA, TB, TC, layoutA, layoutB>>(sycl::nd_range<2>(global, local), kernel_props,
     [=](auto) {
       gemm_device(A, B, C, mma);
     }
@@ -351,7 +307,6 @@ test_case(sycl::queue &Q, int m, int n, int k, int iterations, int verify)
   auto B = make_shared_usm_tensor<TB, tlayoutB>(Q, n, k);
   auto C = make_shared_usm_tensor<TC,      'R'>(Q, m, n);
 
-
   random_fill(A);
   random_fill(B);
   zero_fill(C);
@@ -365,8 +320,8 @@ test_case(sycl::queue &Q, int m, int n, int k, int iterations, int verify)
   subbyte_pack(A);
   subbyte_pack(B);
 
-  // Test accuracy:
-  gemm_cute<decltype(A), decltype(B), decltype(C), TA, TB, layoutA, layoutB>(Q, A, B, C);
+  // Run the GEMM
+  gemm_cute<decltype(A), decltype(B), decltype(C), TA, TB, TC, layoutA, layoutB>(Q, A, B, C);
   Q.wait_and_throw();
 
   bool ok = true;
@@ -374,7 +329,7 @@ test_case(sycl::queue &Q, int m, int n, int k, int iterations, int verify)
     ok = gemm_verify(Q, A_ref, B_ref, C);
     std::cout << (ok ? "passed" : "failed");
   } else {
-    std::cout << "skipped verification";
+    std::cout << "verification skipped";
   }
 
   if (ok) {
@@ -384,7 +339,7 @@ test_case(sycl::queue &Q, int m, int n, int k, int iterations, int verify)
 
     timer.start();
     for (int i = 0; i < timing_iterations; ++i) {
-      gemm_cute<decltype(A), decltype(B), decltype(C), TA, TB, layoutA, layoutB>(Q, A, B, C);
+      gemm_cute<decltype(A), decltype(B), decltype(C), TA, TB, TC, layoutA, layoutB>(Q, A, B, C);
     }
     Q.wait_and_throw();
 
@@ -413,31 +368,15 @@ test_case(sycl::queue &Q, int m, int n, int k, int iterations, int verify)
 }
 
 
-int main(int argc, const char** argv)
+int main(int argc, char** argv)
 {
-  //
-  // Parse options
-  //
-
-  Options options;
-
-  options.parse(argc, argv);
-
-  auto m = options.m;
-  auto n = options.n;
-  auto k = options.k;
-  auto iterations = options.iterations;
-  auto verify = options.verify;
-
-  if (options.help) {
-    options.print_usage(std::cout) << std::endl;
-    return 0;
-  }
-
-  if (options.error) {
-    std::cerr << "Aborting execution." << std::endl;
-    return -1;
-  }
+  int m, n, k, iterations, verify;
+  cutlass::CommandLine cmd(argc, const_cast<const char**>(argv));
+  cmd.get_cmd_line_argument("m", m, 4096);
+  cmd.get_cmd_line_argument("n", n, 4096);
+  cmd.get_cmd_line_argument("k", k, 4096);
+  cmd.get_cmd_line_argument("iterations", iterations, 100);
+  cmd.get_cmd_line_argument("verify", verify, 1);
 
   sycl::queue Q = compat::get_default_queue();
 
@@ -453,36 +392,72 @@ int main(int argc, const char** argv)
   test_case<bfloat16_t, bfloat16_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<bfloat16_t, bfloat16_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
   test_case<bfloat16_t, bfloat16_t, float, 'C', 'R'>(Q, m, n, k, iterations, verify);
+
   test_case<int8_t, int8_t, int32_t, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<uint8_t, uint8_t, int32_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
   test_case<uint8_t, int8_t, int32_t, 'C', 'R'>(Q, m, n, k, iterations, verify);
 
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+  // For CRI: 
+  // 1. Skip int8 x int4 as the DPAS support has been removed.
+  // 2. Add pure FP8 and FP4 cases as DPAS support is available.
+  test_case<float_e4m3_t, float_e5m2_t, bfloat16_t, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e4m3_t, float_e5m2_t, bfloat16_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e5m2_t, float_e4m3_t, bfloat16_t, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e5m2_t, float_e4m3_t, bfloat16_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e5m2_t, float_e5m2_t, bfloat16_t, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e5m2_t, float_e5m2_t, bfloat16_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e4m3_t, float_e4m3_t, bfloat16_t, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e4m3_t, float_e4m3_t, bfloat16_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e2m1_t, float_e2m1_t, bfloat16_t, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e2m1_t, float_e2m1_t, bfloat16_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e4m3_t, float_e5m2_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e4m3_t, float_e5m2_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e5m2_t, float_e4m3_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e5m2_t, float_e4m3_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e5m2_t, float_e5m2_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e5m2_t, float_e5m2_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e4m3_t, float_e4m3_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e4m3_t, float_e4m3_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
+  test_case<float_e2m1_t, float_e2m1_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
+  test_case<float_e2m1_t, float_e2m1_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+#else
   test_case<int8_t, uint4_t, int32_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
   test_case<int4_t, uint8_t, int32_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
+#endif
 
   test_case<uint4_t, uint4_t, uint32_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
+  test_case<uint4_t, uint4_t, uint32_t, 'R', 'C'>(Q, m, n, k, iterations, verify);
   test_case<uint4_t, uint4_t, uint32_t, 'R', 'R'>(Q, m, n, k, iterations, verify);
+
   // Upconversion cases
   test_case<half_t, float_e5m2_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<half_t, float_e5m2_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
 
-  test_case<float_e5m2_t, float_e5m2_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
-  test_case<float_e5m2_t, float_e5m2_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
   test_case<half_t, float_e4m3_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<half_t, float_e4m3_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
 
-  test_case<float_e4m3_t, float_e4m3_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
-  test_case<float_e4m3_t, float_e4m3_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
   test_case<half_t, float_e2m1_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<half_t, float_e2m1_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
 
   test_case<half_t, uint8_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<half_t, uint8_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
   test_case<half_t, int8_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<half_t, int8_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
 
   test_case<half_t, uint4_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<half_t, uint4_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
   test_case<half_t, int4_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<half_t, int4_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
 
@@ -497,11 +472,13 @@ int main(int argc, const char** argv)
 
   test_case<bfloat16_t, uint8_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<bfloat16_t, uint8_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
   test_case<bfloat16_t, int8_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<bfloat16_t, int8_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
 
   test_case<bfloat16_t, uint4_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<bfloat16_t, uint4_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
+
   test_case<bfloat16_t, int4_t, float, 'R', 'R'>(Q, m, n, k, iterations, verify);
   test_case<bfloat16_t, int4_t, float, 'R', 'C'>(Q, m, n, k, iterations, verify);
 }

@@ -26,17 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set(TEST_GROUPS_2 --groups=2)
-set(TEST_GROUPS_4 --groups=4)
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_BASE "--m=${CRI_GEMM_DEFAULT_SIZE} --n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+else()
+  set(TEST_BASE "")
+endif()
+
+set(TEST_GROUPS ${TEST_BASE} --groups=2)
 
 cutlass_example_add_executable(
   09_bmg_grouped_gemm_f8_legacy
   09_bmg_grouped_gemm_f8.cpp
   TEST_COMMAND_OPTIONS
-  TEST_GROUPS_2
-  TEST_GROUPS_4
+  TEST_GROUPS
 )
-if(NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
-  # TODO(codeplay): Remove these once IGC VectorAliasThreshold issue is fixed
-  target_link_options( 09_bmg_grouped_gemm_f8_legacy PRIVATE -Xs "-options \"-igc_opts 'VectorAliasBBThreshold=10000'\"" )
+
+# TODO(codeplay): Remove these once IGC VectorAliasThreshold issue is fixed
+if (NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
+  target_link_options( 09_bmg_grouped_gemm_f8 PRIVATE -Xs "-options \"-igc_opts 'VectorAliasBBThreshold=10000'\"" )
 endif()

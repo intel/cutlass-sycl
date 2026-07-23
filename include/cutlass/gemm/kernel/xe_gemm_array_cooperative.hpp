@@ -294,6 +294,7 @@ public:
 
       TiledMma tiled_mma;
       Tensor accumulators = partition_fragment_C(tiled_mma, take<0,2>(workgroup_shape));
+      clear(accumulators);
 
       // Perform the collective scoped MMA
       collective_mma(

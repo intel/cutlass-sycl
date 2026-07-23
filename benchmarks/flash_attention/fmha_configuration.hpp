@@ -42,10 +42,11 @@ namespace flash_attention {
 
 template <typename ElementQ, typename ElementK, typename ElementV, typename ElementO,
           typename LayoutQ_, typename LayoutK_, typename LayoutV_, typename LayoutO_,
+          typename ElementScale,
           typename TileShapeQK, typename TileShapePV, typename TileShapeOutput, 
           typename SubgroupLayoutQK, typename SubgroupLayoutPV_,
           bool Causal_, bool VarLen_, bool CachedKV_, bool PagedKV_, bool Persistent_,
-          int PipelineStages,
+          bool BlockScale, int PipelineStages,
           typename GmemTiledCopyQ = void, 
           typename GmemTiledCopyK = void, 
           typename GmemTiledCopyV = void, 
@@ -54,7 +55,10 @@ template <typename ElementQ, typename ElementK, typename ElementV, typename Elem
           typename StrideQ = Stride<int, _1, int, int>, 
           typename StrideK = Stride<int, _1, int, int>,
           typename StrideV = Stride<_1, int, int, int>, 
-          typename StrideO = Stride<int, _1, int, int>>          
+          typename StrideO = Stride<int, _1, int, int>, 
+          typename StrideScaleQ = Stride<_1, int, int, int>, 
+          typename StrideScaleK = Stride<_1, int, int, int>, 
+          typename StrideScaleV = Stride<_1, int, int, int>>          
 struct FMHAConfig {
   using LayoutQ = LayoutQ_;
   using LayoutK = LayoutK_;
@@ -67,11 +71,36 @@ struct FMHAConfig {
   static constexpr bool PagedKV = PagedKV_;
   static constexpr bool Persistent = Persistent_;
   static_assert(!(Persistent & Causal), "persistent SDPA kernel not support Causal yet");
+  static_assert(!(CachedKV & BlockScale), "BlockScale doesn't support CachedKV");
+  static_assert(!(PagedKV & BlockScale), "BlockScale doesn't support PagedKV");
   
   static constexpr int SGTileQ = get<0>(shape_div(TileShapeQK{}, shape(SubgroupLayoutQK{})))();
 
-  using DefaultMMA = XE_DPAS_TT<cute::gcd(SGTileQ, 8), float, ElementQ>;
-  using MMAOperationPV = XE_DPAS_TT<cute::gcd(SGTileQ, 8), float, ElementV>;
+  template <typename T>
+  static constexpr bool is_f8_v = cute::is_any_of_v<T, cute::float_e5m2_t, cute::float_e4m3_t>;
+  template <typename T>
+  static constexpr bool is_f16_v = cute::is_any_of_v<T, cute::half_t, cute::bfloat16_t>;
+  static constexpr bool F8kvF16mma = is_f16_v<ElementQ> && is_f8_v<ElementK> && cute::is_same_v<ElementScale, float> && !BlockScale;
+  // TODO: enable per-tensor scale in fp8 case
+  static constexpr bool PerTensorScale = false;
+
+#if !(defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35))
+  using DefaultMMA = typename cute::conditional_t<
+      cute::is_same_v<ElementQ, cutlass::float_e5m2_t> || cute::is_same_v<ElementQ, cutlass::float_e4m3_t>,
+      XE_DPAS_TT<cute::gcd(SGTileQ, 8), float, half_t>,
+      XE_DPAS_TT<cute::gcd(SGTileQ, 8), float, ElementQ>
+  >;
+  using MMAOperationPV = DefaultMMA;
+#else
+  using DefaultDpasOp = XE_DPAS_TT<cute::gcd(SGTileQ, 8), float, ElementQ>;
+  using DefaultBdpasOp = XE_BDPAS_TT<cute::gcd(SGTileQ, 8), float, ElementQ>;
+  using DefaultMMA = cute::conditional_t<BlockScale, DefaultBdpasOp, DefaultDpasOp>;
+  using MMAOperationPV = typename cute::conditional_t<
+      cute::is_same_v<ElementV, cutlass::float_e5m2_t> || cute::is_same_v<ElementV, cutlass::float_e4m3_t>,
+      DefaultMMA,
+      XE_DPAS_TT<cute::gcd(SGTileQ, 8), float, ElementV>
+  >;
+#endif
 
   using MMAOperation = cute::conditional_t<is_void_v<MMAOperation_>,
                                            DefaultMMA,
@@ -97,6 +126,9 @@ struct FMHAConfig {
   using TensorK = decltype(make_dummy_tensor(ElementK{}, StrideK{}));
   using TensorV = decltype(make_dummy_tensor(ElementV{}, StrideV{}));
   using TensorO = decltype(make_dummy_tensor(ElementO{}, StrideO{}));
+  using TensorScaleQ = decltype(make_dummy_tensor(ElementScale{}, StrideScaleQ{}));
+  using TensorScaleK = decltype(make_dummy_tensor(ElementScale{}, StrideScaleK{}));
+  using TensorScaleV = decltype(make_dummy_tensor(ElementScale{}, StrideScaleV{}));
   using TensorK_cache = TensorK;
   using TensorV_cache = TensorV;
   using GmemTiledCopyK_cache = GmemTiledCopyK;
@@ -108,12 +140,13 @@ struct FMHAConfig {
   // Mainloop
   using MainloopDispatchPolicy = cutlass::fmha::XeDefault<PipelineStages>;
   using CollectiveMainloop = cutlass::fmha::collective::FMHAFwdMainloop<
-      MainloopDispatchPolicy, Causal, CachedKV, PagedKV,
-      TiledMMAQK, TiledMMAPV, VTiles,
-      TensorQ, TensorK, TensorV,
-      TensorK_cache, TensorV_cache,
-      GmemTiledCopyQ, GmemTiledCopyK, GmemTiledCopyV,
-      GmemTiledCopyK_cache, GmemTiledCopyV_cache
+    MainloopDispatchPolicy, Causal, BlockScale, F8kvF16mma, PerTensorScale,
+    CachedKV, PagedKV, TiledMMAQK, TiledMMAPV, VTiles,
+    TensorQ, TensorK, TensorV,
+    TensorScaleQ, TensorScaleK, TensorScaleV,
+    TensorK_cache, TensorV_cache,
+    GmemTiledCopyQ, GmemTiledCopyK, GmemTiledCopyV,
+    GmemTiledCopyK_cache, GmemTiledCopyV_cache
   >;
 
   using CollectiveEpilogue = cutlass::fmha::collective::FMHAFwdEpilogue<
@@ -125,7 +158,7 @@ struct FMHAConfig {
 
   using Scheduler = cute::conditional_t<Persistent,
       cutlass::fmha::kernel::XeFHMAIndividualPersistentTileScheduler,
-      cutlass::fmha::kernel::XeFHMAIndividualTileScheduler
+      cutlass::fmha::kernel::XeFHMAIndividualTileScheduler<>
   >;
   using FMHAKernel = cute::conditional_t<Persistent,
       cutlass::fmha::kernel::XeFMHAFwdDynamicSplitKernel<
@@ -206,7 +239,7 @@ template <bool Persistent>
 struct ShapeConfig<FMHAMode::Decode, 96, Persistent> {
   using num_sg = cute::conditional_t<Persistent, _16, _8>;
   using kv_tile_size = cute::conditional_t<Persistent, _256, _512>;
-  using ShapeQK = Shape<_1, kv_tile_size, _64>;
+  using ShapeQK = Shape<_1, kv_tile_size, _32>;
   using ShapePV = Shape<_1, _32, kv_tile_size>;
   using ShapeOutput = Shape<_1, _96>;
   using SubgroupLayout = Layout<Shape<_1, num_sg, _1>>;
@@ -244,21 +277,21 @@ struct PipelineStagesConfig<FMHAMode::Prefill> { static constexpr int value = 2;
 template<FMHAMode Mode,
          class ElementQ, class ElementK, class ElementV, class ElementO,
          class LayoutQ, class LayoutK, class LayoutV, class LayoutO,
-         bool Causal, bool VarLen, bool CachedKV, bool PagedKV, bool Persistent, int HeadDim>
+         class ElementScale, bool Causal, bool VarLen, bool CachedKV, bool PagedKV, bool Persistent, bool BlockScale, int HeadDim>
 struct FMHAConfigGen{
   using TileShapeConfig = ShapeConfig<Mode, HeadDim, Persistent>;
   using type = cutlass::flash_attention::FMHAConfig<
-    ElementQ, ElementK, ElementV, ElementO, LayoutQ, LayoutK, LayoutV, LayoutO,
+    ElementQ, ElementK, ElementV, ElementO, LayoutQ, LayoutK, LayoutV, LayoutO, ElementScale,
     typename TileShapeConfig::ShapeQK, typename TileShapeConfig::ShapePV, typename TileShapeConfig::ShapeOutput,
     typename TileShapeConfig::SubgroupLayout, void,
-    Causal, VarLen, CachedKV, PagedKV, Persistent, PipelineStagesConfig<Mode>::value>;
+    Causal, VarLen, CachedKV, PagedKV, Persistent, BlockScale, PipelineStagesConfig<Mode>::value>;
 };
 
 // FMHAConfigGen with explicit tile and subgroup specification
 template<FMHAMode Mode,
          class ElementQ, class ElementK, class ElementV, class ElementO,
          class LayoutQ, class LayoutK, class LayoutV, class LayoutO,
-         bool Causal, bool VarLen, bool CachedKV, bool PagedKV, bool Persistent,
+         class ElementScale, bool Causal, bool VarLen, bool CachedKV, bool PagedKV, bool Persistent, bool BlockScale,
          int WgTileQ, int WgTileK, int WgTileV,
          int SgTileQ, int SgTileK,
          int HeadDimQK, int HeadDimV>
@@ -279,19 +312,22 @@ struct FMHAConfigGenWithTileShape{
     _1
   >>;
 
-  // SubgroupLayoutPV: (num_sg_p = num_sg_q, 1, num_sg_k)
-  // number of subgroups in PV GEMM equals that in QK GEMM
-  using SubgroupLayoutPV = Layout<Shape<
-    Int<WgTileQ / SgTileQ>,
-    _1,
-    Int<WgTileK / SgTileK>
-  >>;
+  // SubgroupLayoutPV is intentionally NOT specified here.  FMHAConfig will
+  // derive it via `cutlass::fmha::collective::get_sg_layout_pv(SubgroupLayoutQK{})`
+  // when the template arg is `void`.  Passing an explicit
+  // `Layout<Shape<num_sg_p, _1, num_sg_k>>` here would have identical *shape* but
+  // a different stride on the size-1 middle axis (compact default `_N` vs the
+  // `_0` produced by `get_sg_layout_pv`).  That difference yields a different
+  // `TiledMMAPV` type, hence a different compiled kernel from the example
+  // runner -- which is observable as a measurable perf delta on CRI even
+  // though the math is equivalent.  Keep this `void` to ensure the bench and
+  // the example dispatch the byte-identical kernel.
 
   using type = cutlass::flash_attention::FMHAConfig<
-    ElementQ, ElementK, ElementV, ElementO, LayoutQ, LayoutK, LayoutV, LayoutO,
+    ElementQ, ElementK, ElementV, ElementO, LayoutQ, LayoutK, LayoutV, LayoutO, ElementScale,
     ShapeQK, ShapePV, ShapeOutput,
-    SubgroupLayoutQK, SubgroupLayoutPV,
-    Causal, VarLen, CachedKV, PagedKV, Persistent, PipelineStagesConfig<Mode>::value>;
+    SubgroupLayoutQK, void,
+    Causal, VarLen, CachedKV, PagedKV, Persistent, BlockScale, PipelineStagesConfig<Mode>::value>;
 };
 
 } // namespace flash_attention

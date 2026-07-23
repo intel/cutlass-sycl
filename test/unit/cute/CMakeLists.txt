@@ -31,10 +31,7 @@ if (CUTLASS_ENABLE_SYCL)
   add_subdirectory(core)
   add_subdirectory(layout)
   add_subdirectory(msvc_compilation)
-  
-  if(SYCL_INTEL_TARGET)
-    add_subdirectory(intel_xe)
-  endif()
+  add_subdirectory(intel_xe)
 
   if(SYCL_NVIDIA_TARGET)
     add_subdirectory(volta)

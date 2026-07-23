@@ -1,0 +1,269 @@
+#############################################################################
+### Benchmarks for a small scope ###
+#############################################################################
+
+# disable 2K and 4K cases for CRI simulator
+
+
+CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmFP16FP16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmFP32FP32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmTF32TF32FP32_RRR_TileShape_512_256_16 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#BmgGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmE5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmE4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmE2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriBLockScalingGemm_E4M3E4M3FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriBLockScalingGemm_E5M2E5M2FP32_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriBLockScalingGemm_E2M1E2M1FP32_RCR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+#############################################################################
+### W8A8 FP8 -> FP16-MMA GEMM — sync test cases (task E)                   ###
+### Aligned with examples/08_bmg_gemm_f8                                   ###
+### TileShape <_256,_256,_32>, MMA XE_8x16x16_F32F16F16F32_TT,             ###
+### DispatchPolicy MainloopIntelW8A8<2>, Epilogue IntelXeXMX16             ###
+#############################################################################
+CriGemm_W8A8_E4M3E4M3FP16MMA_RRR_TileShape_256_256_32 --bm_name=cri_w8a8_e4m3 --m=1024 --n=1024 --k=1024
+CriGemm_W8A8_E5M2E5M2FP16MMA_RRR_TileShape_256_256_32 --bm_name=cri_w8a8_e5m2 --m=1024 --n=1024 --k=1024
+BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#BmgGemmBF16BF16BF16_RRR_TileShape_512_256_64 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmE5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmE4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriGemmE2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriBLockScalingGemm_E4M3E4M3BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriBLockScalingGemm_E5M2E5M2BF16_RRR_TileShape_512_256_128 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536
+
+CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=1024 --n=1024 --k=1024
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=2048 --n=2048 --k=2048
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=4096 --n=4096 --k=4096
+CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=1024
+CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=2048
+CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=4096
+CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=512 --n=256 --k=8192
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=1 --n=8192 --k=1024
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=32 --n=4096 --k=4096
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=1024 --n=8192 --k=1024
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=3200 --n=4096 --k=4096
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=4096 --n=384 --k=3584
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=8192 --n=384 --k=3584
+#CriBLockScalingGemm_E2M1E2M1BF16_RCR_TileShape_512_256_256 --bm_name=cri_gemm --m=8192 --n=4096 --k=1536

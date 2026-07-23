@@ -1,0 +1,8 @@
+# Flash attention prefill bf16
+
+# bf16
+CriFMHAPrefill_BF16_BF16_BF16_BF16_RCR_WgQ512K64V64_SgQ16K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_prefill_bf16 --batch=1 --num_heads_q=16 --num_heads_kv=16 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_BF16_BF16_BF16_BF16_RCR_WgQ512K64V64_SgQ16K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_prefill_bf16 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=4096 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128
+CriFMHAPrefill_BF16_BF16_BF16_BF16_RCR_WgQ512K64V64_SgQ16K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_prefill_bf16 --batch=1 --num_heads_q=16 --num_heads_kv=8 --seq_len_qo=4096 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128
+#CriFMHAPrefill_BF16_BF16_BF16_BF16_RCR_WgQ512K64V64_SgQ16K64_HDimQK64V128_Causal_VarLen --bm_name=attention_prefill_bf16 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=4096 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128
+# CriFMHAPrefill_BF16_BF16_BF16_BF16_RCR_WgQ512K64V64_SgQ16K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_prefill_bf16 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=4096 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128

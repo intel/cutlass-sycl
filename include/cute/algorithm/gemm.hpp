@@ -74,7 +74,8 @@ gemm(Tensor<TA, ALayout> const& A,
   return gemm(C, A, B, C);
 }
 
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TA, class ALayout,
           class TB, class BLayout,
           class TC, class CLayout>
@@ -85,7 +86,7 @@ gemm(MMA_Atom<MMA>       const& mma,
      Tensor<TB, BLayout> const& B,
      Tensor<TC, CLayout>      & C)
 {
-  return gemm(mma, C, A, B, C);
+  return gemm<NoAcc>(mma, C, A, B, C);
 }
 
 //
@@ -118,7 +119,8 @@ gemm(Tensor<TD, DLayout>     && D,
   return gemm(D, A, B, C);
 }
 
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TA, class ALayout,
           class TB, class BLayout,
           class TC, class CLayout>
@@ -129,10 +131,11 @@ gemm(MMA_Atom<MMA>       const& mma,
      Tensor<TB, BLayout> const& B,
      Tensor<TC, CLayout>     && C)
 {
-  return gemm(mma, C, A, B, C);
+  return gemm<NoAcc>(mma, C, A, B, C);
 }
 
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -145,7 +148,7 @@ gemm(MMA_Atom<MMA>       const& mma,
      Tensor<TB, BLayout> const& B,
      Tensor<TC, CLayout> const& C)
 {
-  return gemm(mma, D, A, B, C);
+  return gemm<NoAcc>(mma, D, A, B, C);
 }
 
 //
@@ -176,7 +179,8 @@ gemm(Tensor<TD, DLayout>      & D,
 //
 
 // Dispatch [1]: (V) x (V) => (V)
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -194,11 +198,12 @@ gemm(MMA_Atom<MMA>       const& mma,
      Tensor<TC, CLayout> const& C)  // (V) Logical data
 {
   // No static assertions on (V), MMA checks compatibility
-  mma.call(D, A, B, C);
+  mma.template call<NoAcc>(D, A, B, C);
 }
 
 // Dispatch [2]: (M) x (N) => (M,N)
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -218,7 +223,7 @@ gemm(MMA_Atom<MMA>       const& mma,
   CUTE_STATIC_ASSERT_V(size<0>(A) == size<0>(C));  // AM == CM
   CUTE_STATIC_ASSERT_V(size<0>(B) == size<1>(C));  // BN == CN
   CUTE_STATIC_ASSERT_V(size<0>(C) == size<0>(D) && size<1>(C) == size<1>(D));
-  gemm(mma,
+  gemm<NoAcc>(mma,
        D,                                                       // (M,N)
        make_tensor(A.data(), append<2>(A.layout())),            // (M,1)
        make_tensor(B.data(), append<2>(B.layout())),            // (N,1)
@@ -226,7 +231,8 @@ gemm(MMA_Atom<MMA>       const& mma,
 }
 
 // Dispatch [3]: (M,K) x (N,K) => (M,N)
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -253,7 +259,7 @@ gemm(MMA_Atom<MMA>       const& mma,
   CUTE_STATIC_ASSERT_V(size<1>(typename MMA_Atom<MMA>::LayoutA_TV{}) == Int<1>{});
   CUTE_STATIC_ASSERT_V(size<1>(typename MMA_Atom<MMA>::LayoutB_TV{}) == Int<1>{});
 
-  gemm(mma,
+  gemm<NoAcc>(mma,
        make_tensor(D.data(), prepend<3>(D.layout())),      // (1,M,N)
        make_tensor(A.data(), prepend<3>(A.layout())),      // (1,M,K)
        make_tensor(B.data(), prepend<3>(B.layout())),      // (1,N,K)
@@ -261,7 +267,8 @@ gemm(MMA_Atom<MMA>       const& mma,
 }
 
 // Dispatch [4]: (V,M) x (V,N) => (V,M,N)
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -295,7 +302,7 @@ gemm(MMA_Atom<MMA>       const& mma,
       CUTE_UNROLL
       for (int n = 0; n < N; ++n) {
         int ns = (m & 1) ? N-1-n : n;  // Serpentine coordinate
-        gemm(mma, D(_,m,ns), A(_,m), B(_,ns), C(_,m,ns));
+        gemm<NoAcc>(mma, D(_,m,ns), A(_,m), B(_,ns), C(_,m,ns));
       }
     }
 #else
@@ -305,7 +312,7 @@ gemm(MMA_Atom<MMA>       const& mma,
       CUTE_UNROLL
       for (int m = 0; m < M; ++m) {
         int ms = (n & 1) ? M-1-m : m;  // Serpentine coordinate
-        gemm(mma, D(_,ms,n), A(_,ms), B(_,n), C(_,ms,n));
+        gemm<NoAcc>(mma, D(_,ms,n), A(_,ms), B(_,n), C(_,ms,n));
       }
     }
 #endif
@@ -321,10 +328,10 @@ gemm(MMA_Atom<MMA>       const& mma,
       CUTE_UNROLL
       for (int n = 0; n < N; ++n) {
         int ns = (m & 2) ? N-1-n : n;
-        gemm(mma, D(_,m+0,ns), A(_,m+0), B(_,ns), C(_,m+0,ns));
+        gemm<NoAcc>(mma, D(_,m+0,ns), A(_,m+0), B(_,ns), C(_,m+0,ns));
 
         if (m+1 < M) {
-          gemm(mma, D(_,m+1,ns), A(_,m+1), B(_,ns), C(_,m+1,ns));
+          gemm<NoAcc>(mma, D(_,m+1,ns), A(_,m+1), B(_,ns), C(_,m+1,ns));
         }
       }
     }
@@ -336,10 +343,10 @@ gemm(MMA_Atom<MMA>       const& mma,
       for (int m = 0; m < M; ++m) {
         // Kinked serpentine traversal for maximum register reuse
         int ms = (n & 2) ? M-1-m : m;
-        gemm(mma, D(_,ms,n+0), A(_,ms), B(_,n+0), C(_,ms,n+0));
+        gemm<NoAcc>(mma, D(_,ms,n+0), A(_,ms), B(_,n+0), C(_,ms,n+0));
 
         if (n+1 < N) {
-          gemm(mma, D(_,ms,n+1), A(_,ms), B(_,n+1), C(_,ms,n+1));
+          gemm<NoAcc>(mma, D(_,ms,n+1), A(_,ms), B(_,n+1), C(_,ms,n+1));
         }
       }
     }
@@ -354,7 +361,7 @@ gemm(MMA_Atom<MMA>       const& mma,
       CUTE_UNROLL
       for (int n = 0; n < N; ++n) {
         int ns = (m & 1) ? N-1-n : n;  // Serpentine coordinate
-        gemm(mma, D(_,m,ns), A(_,m), B(_,ns), C(_,m,ns));
+        gemm<NoAcc>(mma, D(_,m,ns), A(_,m), B(_,ns), C(_,m,ns));
       }
     }
   } else
@@ -367,7 +374,7 @@ gemm(MMA_Atom<MMA>       const& mma,
       CUTE_UNROLL
       for (int m = 0; m < M; ++m) {
         int ms = (n & 1) ? M-1-m : m;  // Serpentine coordinate
-        gemm(mma, D(_,ms,n), A(_,ms), B(_,n), C(_,ms,n));
+        gemm<NoAcc>(mma, D(_,ms,n), A(_,ms), B(_,n), C(_,ms,n));
       }
     }
   } else
@@ -379,14 +386,15 @@ gemm(MMA_Atom<MMA>       const& mma,
       CUTE_UNROLL
       for (int m = 0; m < M; ++m) {
         int ms = (n & 1) ? M-1-m : m;  // Serpentine coordinate
-        gemm(mma, D(_,ms,n), A(_,ms), B(_,n), C(_,ms,n));
+        gemm<NoAcc>(mma, D(_,ms,n), A(_,ms), B(_,n), C(_,ms,n));
       }
     }
   }
 }
 
 // Dispatch [5]: (V,M,K) x (V,N,K) => (V,M,N)
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -408,11 +416,18 @@ gemm(MMA_Atom<MMA>       const& mma,
   CUTE_STATIC_ASSERT_V(size<2>(A) == size<2>(B));  // AK == BK
   CUTE_STATIC_ASSERT_V(size<0>(C) == size<0>(D) && size<1>(C) == size<1>(D) && size<2>(C) == size<2>(D));
   auto K = size<2>(A);
-
+#if defined(SYCL_INTEL_TARGET)
+  gemm<NoAcc>(mma, D, A(_,_,0), B(_,_,0), C);
+  CUTE_UNROLL
+  for (int k = 1; k < K; ++k) {
+      gemm<false>(mma, D, A(_,_,k), B(_,_,k), C);
+  }
+#else
   CUTE_UNROLL
   for (int k = 0; k < K; ++k) {
-    gemm(mma, D, A(_,_,k), B(_,_,k), C);
+      gemm<NoAcc>(mma, D, A(_,_,k), B(_,_,k), C);
   }
+#endif
 }
 
 //
@@ -425,7 +440,8 @@ gemm(MMA_Atom<MMA>       const& mma,
 // Dispatch [4]: (V,M) x (V,N) => (V,M,N)
 // Dispatch [5]: (V,M,K) x (V,N,K) => (V,M,N)
 // Dispatch [3]: (M,K) x (N,K) => (M,N)
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -452,7 +468,7 @@ gemm(MMA_Atom<MMA>       const& mma,
   CUTE_STATIC_ASSERT_V(size<1>(typename MMA_Atom<MMA>::LayoutA_TV{}) == Int<1>{});
   CUTE_STATIC_ASSERT_V(size<1>(typename MMA_Atom<MMA>::LayoutB_TV{}) == Int<1>{});
 
-  gemm(mma,
+  gemm<NoAcc>(mma,
        make_tensor(D.data(), prepend<3>(D.layout())),      // (1,M,N)
        make_tensor(A.data(), prepend<3>(A.layout())),      // (1,M,K)
        make_tensor(B.data(), prepend<3>(B.layout())),      // (1,N,K)
@@ -460,7 +476,8 @@ gemm(MMA_Atom<MMA>       const& mma,
 }
 
 // Dispatch [5]: (V,M,K) x (V,N,K) => (V,M,N)
-template <class MMA,
+template <bool NoAcc = false,
+          class MMA,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -487,14 +504,30 @@ gemm(MMA_Atom<MMA>       const& mma,
 
   auto K = size<2>(A);
 
+  // NoAcc (null src0) only applies to the first inner-K MMA so that D = A[0]*B[0];
+  // subsequent iterations must accumulate (D += A[k]*B[k]) to preserve correctness.
+#if defined(SYCL_INTEL_TARGET)
+  copy(A(_,_,0), rA(_,_,0));
+  copy(B(_,_,0), rB(_,_,0));
+  // Thread-level register gemm for k
+  gemm<NoAcc>(mma, D, rA(_,_,0), rB(_,_,0), C);
   CUTE_UNROLL
-  for (int k = 0; k < K; ++k)
-  {
+  for (int k = 1; k < K; ++k) {
     copy(A(_,_,k), rA(_,_,k));
     copy(B(_,_,k), rB(_,_,k));
     // Thread-level register gemm for k
-    gemm(mma, D, rA(_,_,k), rB(_,_,k), C);
+    gemm<false>(mma, D, rA(_,_,k), rB(_,_,k), C);
   }
+#else
+  CUTE_UNROLL
+  for (int k = 0; k < K; ++k) {
+    copy(A(_,_,k), rA(_,_,k));
+    copy(B(_,_,k), rB(_,_,k));
+    // Thread-level register gemm for k    
+    gemm<NoAcc>(mma, D, rA(_,_,k), rB(_,_,k), C);
+  }
+#endif
+
 }
 
 } // end namespace cute

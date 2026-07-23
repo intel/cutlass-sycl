@@ -332,6 +332,7 @@ struct ExampleRunner {
     ProblemShapeType splitk_size = ProblemShapeType{options.num_head, options.nope_dim, options.rope_dim, 1};
 
     initialize(problem_size, splitk_size);
+
     using EpilogueArguments = typename Gemm::GemmKernel::EpilogueArguments;
     EpilogueArguments epilogue_arguments{
       {options.alpha, options.beta}, block_C.get(), stride_C, block_D.get(), stride_D};

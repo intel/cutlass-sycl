@@ -40,6 +40,7 @@
 #include "cutlass/util/print_error.hpp"
 #include "cutlass/util/sycl_event_manager.hpp"
 #include "cutlass/util/GPU_Clock.hpp"
+#include "cutlass/util/command_line.h"
 
 template<class...> class GemmDeviceName;
 
@@ -440,26 +441,17 @@ gemm(char transA, char transB, int m, int n, int k,
 
 
 int main(int argc, char** argv)
-{
-  int m = 5120;
-  if (argc >= 2)
-    sscanf(argv[1], "%d", &m);
+{ 
+  cutlass::CommandLine cmd(argc, const_cast<const char**>(argv));
+  int m, n, k, iterations;
+  char transA, transB;
 
-  int n = 5120;
-  if (argc >= 3)
-    sscanf(argv[2], "%d", &n);
-
-  int k = 4096;
-  if (argc >= 4)
-    sscanf(argv[3], "%d", &k);
-
-  char transA = 'N';
-  if (argc >= 5)
-    sscanf(argv[4], "%c", &transA);
-
-  char transB = 'T';
-  if (argc >= 6)
-    sscanf(argv[5], "%c", &transB);
+  cmd.get_cmd_line_argument("m", m, 5120);
+  cmd.get_cmd_line_argument("n", n, 4096);
+  cmd.get_cmd_line_argument("k", k, 4096);
+  cmd.get_cmd_line_argument("transA", transA, 'N');
+  cmd.get_cmd_line_argument("transB", transB, 'T');
+  cmd.get_cmd_line_argument("iterations", iterations, 100);
 
   using TA = float;
   using TB = float;
@@ -473,6 +465,7 @@ int main(int argc, char** argv)
   std::cout << "N = " << n << std::endl;
   std::cout << "K = " << k << std::endl;
   std::cout << "C = A^" << transA << " B^" << transB << std::endl;
+  std::cout << "Iterations = " << iterations << std::endl;
 
   std::vector<TA> h_A(m*k);
   std::vector<TB> h_B(n*k);
@@ -492,7 +485,6 @@ int main(int argc, char** argv)
 
   double gflops = (2.0*m*n*k) * 1e-9;
 
-  const int timing_iterations = 100;
   GPU_Clock timer;
 
   int ldA = 0, ldB = 0, ldC = m;
@@ -524,7 +516,7 @@ int main(int argc, char** argv)
 
   // Timing iterations
   timer.start();
-  for (int i = 0; i < timing_iterations; ++i) {
+  for (int i = 0; i < iterations; ++i) {
     gemm(transA, transB, m, n, k,
          alpha,
          d_A, ldA,
@@ -532,7 +524,7 @@ int main(int argc, char** argv)
          beta,
          d_C, ldC);
   }
-  double cute_time = timer.seconds() / timing_iterations;
+  double cute_time = timer.seconds() / iterations;
   printf("CUTE_GEMM:     [%6.1f]GFlop/s  (%6.4f)ms\n", gflops / cute_time, cute_time*1000);
 
   return 0;

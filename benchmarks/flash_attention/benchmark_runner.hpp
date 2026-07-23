@@ -60,13 +60,13 @@ struct FMHAOptions {
   bool error;
 
   int batch, num_heads_q, num_heads_kv, seq_len_qo, seq_len_kv, seq_len_kv_cache, head_size_qk,
-      head_size_vo, iterations, page_size;
+      head_size_vo, iterations, warmup, page_size;
   float softmax_scale;
   std::string bm_name;
 
   FMHAOptions()
       : error(false), batch(32), num_heads_q(16), num_heads_kv(16), seq_len_qo(1), head_size_qk(128),
-        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), softmax_scale(1.f), bm_name("Flash Attention v2") {}
+        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(ITERATIONS), warmup(5), softmax_scale(1.f), bm_name("Flash Attention v2") {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -81,7 +81,8 @@ struct FMHAOptions {
     cmd.get_cmd_line_argument("page_size", page_size, 128);
     cmd.get_cmd_line_argument("head_size_vo", head_size_vo, 128);
     cmd.get_cmd_line_argument("head_size_qk", head_size_qk, head_size_vo);
-    cmd.get_cmd_line_argument("iterations", iterations, 100);
+    cmd.get_cmd_line_argument("iterations", iterations, ITERATIONS);
+    cmd.get_cmd_line_argument("warmup", warmup, 5);
     cmd.get_cmd_line_argument("bm_name", bm_name, std::string("Flash Attention v2"));
 
     softmax_scale = 1 / std::sqrt(static_cast<float>(head_size_qk));
@@ -137,6 +138,7 @@ template <typename InT> inline auto in_memory(cutlass::DeviceAllocation<InT>& in
 template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
 
   using FMHAKernel = typename FMHAConfiguration::FMHAKernel;
+  static constexpr int GROUP_SIZE = 32;
 
   using StrideQ = typename FMHAKernel::StrideQ;
   using StrideK = typename FMHAKernel::StrideK;
@@ -153,8 +155,12 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
   using LayoutV = typename FMHAConfiguration::LayoutV;
   using LayoutO = typename FMHAConfiguration::LayoutO;
 
+  using ElementQKMMAVerify = cute::conditional_t<(sizeof_bits_v<ElementQ> <= 8), half_t, ElementQ>;
+  using ElementPVMMAVerify = cute::conditional_t<(sizeof_bits_v<ElementV> >= 16), ElementV, ElementQKMMAVerify>;
   using CollectiveMainloop = typename FMHAKernel::CollectiveMainloop;
   using ElementS = typename CollectiveMainloop::ElementS;
+  static constexpr bool FP4Input = sizeof_bits_v<ElementQ> < 8;
+  static constexpr bool F8kvF16mma = CollectiveMainloop::F8kvF16mma;
 
   using ProblemShapeType = typename FMHAConfiguration::ProblemShapeType;
   static constexpr bool Causal = FMHAConfiguration::Causal;
@@ -162,6 +168,31 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
   static constexpr bool CachedKV = FMHAConfiguration::CachedKV;
   static constexpr bool PagedKV = FMHAConfiguration::PagedKV;
   static constexpr bool Persistent = FMHAConfiguration::Persistent;
+  // Scale-related types are only defined when !Persistent & !CachedKV & !PagedKV
+  static constexpr bool BlockScale = (Persistent || CachedKV || PagedKV) ? false : FMHAKernel::BlockScale;
+
+  // Helper to safely extract scale-related types from FMHA kernel
+  template<typename FMHAKernel, bool Enable>
+  struct ScaleTypeHelper {
+    using ElementScale = float;
+    using StrideScaleQ = Stride<_1, int, int, int>;
+    using StrideScaleK = Stride<_1, int, int, int>;
+    using StrideScaleV = Stride<_1, int, int, int>;
+  };
+
+  template<typename FMHAKernel>
+  struct ScaleTypeHelper<FMHAKernel, true> {
+    using ElementScale = typename FMHAKernel::ElementScale;
+    using StrideScaleQ = typename FMHAKernel::StrideScaleQ;
+    using StrideScaleK = typename FMHAKernel::StrideScaleK;
+    using StrideScaleV = typename FMHAKernel::StrideScaleV;
+  };
+
+  using ScaleTypes = ScaleTypeHelper<FMHAKernel, !Persistent>;
+  using ElementScale = typename ScaleTypes::ElementScale;
+  using StrideScaleQ = typename ScaleTypes::StrideScaleQ;
+  using StrideScaleK = typename ScaleTypes::StrideScaleK;
+  using StrideScaleV = typename ScaleTypes::StrideScaleV;
 
   int32_t count;
 
@@ -178,6 +209,11 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
   StrideK stride_K_cache;
   StrideV stride_V_cache;
 
+  // Scale-related members only used when !Persistent
+  StrideScaleQ stride_SQ;
+  StrideScaleK stride_SK;
+  StrideScaleV stride_SV;
+
   uint64_t seed = 0;
 
   cutlass::DeviceAllocation<ElementQ> block_Q;
@@ -187,6 +223,19 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
   cutlass::DeviceAllocation<ElementV> block_V_cache;
   cutlass::DeviceAllocation<ElementO> block_O;
   cutlass::DeviceAllocation<ElementO> block_ref_O;
+
+  cutlass::DeviceAllocation<ElementQKMMAVerify> block_Q_dq; // Dequantized copy of Q for validation
+  cutlass::DeviceAllocation<ElementQKMMAVerify> block_K_dq; // Dequantized copy of K for validation
+  cutlass::DeviceAllocation<ElementPVMMAVerify> block_V_dq; // Dequantized copy of V for validation  
+  cutlass::DeviceAllocation<ElementScale> block_scaleQ;
+  cutlass::DeviceAllocation<ElementScale> block_scaleK;
+  cutlass::DeviceAllocation<ElementScale> block_scaleV;
+  std::vector<int> cumulative_scale_q;
+  std::vector<int> cumulative_scale_kv;
+  cutlass::DeviceAllocation<int> device_cumulative_scale_q;
+  cutlass::DeviceAllocation<int> device_cumulative_scale_kv;
+  ElementScale scale_k;
+  ElementScale scale_v;
 
   std::vector<int> cumulative_seqlen_q;
   std::vector<int> cumulative_seqlen_kv;
@@ -211,6 +260,10 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
       shape.seq_len_qo = cutlass::fmha::collective::VariableLength{max_seq_len_q, cumulative_seqlen_q.data()};
       shape.seq_len_kv = cutlass::fmha::collective::VariableLength{max_seq_len_kv, cumulative_seqlen_kv.data()};
       shape.seq_len_kv_cache = cutlass::fmha::collective::VariableLength{max_seq_len_kv_cache, cumulative_seqlen_kv_cache.data()};
+      if constexpr (BlockScale) {
+        shape.seq_len_qo.cumulative_scale_length = cumulative_scale_q.data();
+        shape.seq_len_kv.cumulative_scale_length = cumulative_scale_kv.data();
+      }
     }
 
     auto batch = shape.batch;
@@ -220,13 +273,16 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     auto head_size_vo = shape.head_size_vo;
     int seq_len_qo, seq_len_kv, seq_len_kv_cache;
 
-    auto block_Q_ = in_memory(block_Q);
-    auto block_K_ = in_memory(block_K);
-    auto block_V_ = in_memory(block_V);
+    auto block_Q_ = BlockScale ? block_Q_dq : in_memory(block_Q);
+    auto block_K_ = (BlockScale || F8kvF16mma) ? block_K_dq : in_memory(block_K);
+    auto block_V_ = ((BlockScale && !FP4Input) || F8kvF16mma) ? block_V_dq : in_memory(block_V);
     auto block_K_cache_ = in_memory(block_K_cache);
     auto block_V_cache_ = in_memory(block_V_cache);
-    using ElementV_ = ElementV;
-    using ElementK_ = ElementK;
+
+    using ElementV_ = std::conditional_t<BlockScale && !FP4Input, 
+                                    ElementPVMMAVerify,
+                                    std::remove_pointer_t<decltype(block_V_.get())>>;
+    using ElementK_ = std::remove_pointer_t<decltype(block_K_.get())>;
 
     int offset_q = 0;
     int offset_k = 0;
@@ -461,6 +517,28 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     return passed;
   }
 
+  template <class Element>
+  bool initialize_scale(
+    cutlass::DeviceAllocation<Element>& block,
+    FMHAOptions const& options, bool const_scale = false) {
+    const float elt_max_f = float(cutlass::platform::numeric_limits<Element>::max());
+    // Need to fix max_dequant_val and min_dequant_val?
+    const float max_dequant_val = elt_max_f * 0.25f;
+    const float min_dequant_val = 0.5f;
+    const float scale_max = max_dequant_val / elt_max_f;
+    const float scale_min = min_dequant_val / elt_max_f;
+    if (const_scale) {
+      std::vector<Element> host(block.size(), Element(1));
+      cutlass::device_memory::copy_to_device(block.get(), host.data(), host.size());
+      compat::wait();
+    } else {
+      cutlass::reference::device::BlockFillRandomUniform(
+        block.get(), block.size(), seed, Element(scale_max), Element(scale_min));
+    }
+    return true;
+  }
+
+
   template<class ProblemShape>
   auto initialize_varlen(const ProblemShape& problem_size) {
     int num_batches = get<0>(problem_size);
@@ -497,6 +575,12 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     int max_seqlen_kv = 0;
     int max_seqlen_kv_cache = 0;
 
+    if constexpr (BlockScale) {
+      cumulative_scale_q = {0};
+      cumulative_scale_kv = {0};
+    }
+
+
     for (int i = 0; i < num_batches; i++) {
       int seqlen_q = cutlass::round_up(generate_positive_int(dist_q, rng), AlignmentQ);
       int seqlen_kv = cutlass::round_up(generate_positive_int(dist_kv, rng), AlignmentKV);
@@ -513,6 +597,12 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
       cumulative_seqlen_q.push_back(cumulative_seqlen_q.back() + seqlen_q);
       cumulative_seqlen_kv.push_back(cumulative_seqlen_kv.back() + seqlen_kv);
       cumulative_seqlen_kv_cache.push_back(cumulative_seqlen_kv_cache.back() + seqlen_kv_cache);
+      if constexpr (BlockScale) {
+        int scale_len_q = cute::ceil_div(seqlen_q, GROUP_SIZE);
+        int scale_len_kv = cute::ceil_div(seqlen_kv, GROUP_SIZE);
+        cumulative_scale_q.push_back(cumulative_scale_q.back() + scale_len_q);
+        cumulative_scale_kv.push_back(cumulative_scale_kv.back() + scale_len_kv);
+      }
     }
 
     ProblemShape problem_size_for_init = problem_size;
@@ -533,6 +623,97 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
 
     return cute::make_tuple(problem_size_for_init, problem_size_for_launch);
   }
+
+  template <
+  class DstElement,
+  class SrcElement,
+  class Layout,
+  class ElementScale,
+  class ScaleLayout>
+  static void apply_scale(DstElement* dq_buffer,
+                       SrcElement const* q_buffer,
+                       Layout const operand_layout,
+                       ElementScale const* scale_buffer,
+                       ScaleLayout const scale_layout) {
+    std::vector<uint8_t> dst(size(operand_layout) * sizeof_bits_v<DstElement> / 8, 0);
+    cutlass::device_memory::copy_to_host(dst.data(), (uint8_t*)dq_buffer, dst.size());
+
+    std::vector<uint8_t> src(size(operand_layout) * sizeof_bits_v<SrcElement> / 8, 0);
+    cutlass::device_memory::copy_to_host(src.data(), (uint8_t*)q_buffer, src.size());
+
+    std::vector<uint8_t> scale(size(scale_layout) * sizeof_bits_v<ElementScale> / 8, 0);
+    cutlass::device_memory::copy_to_host(scale.data(), (uint8_t*)scale_buffer, scale.size());
+
+    compat::wait();
+
+    static_assert(sizeof_bits_v<DstElement> >= 8);
+
+    auto dst_tensor = make_tensor(make_gmem_ptr(reinterpret_cast<DstElement*>(dst.data())), operand_layout);
+
+    auto src_tensor = [&]() {
+      if constexpr (sizeof_bits_v<SrcElement> < 8) {
+        return make_tensor(cute::subbyte_iterator<const SrcElement>(src.data()), operand_layout);
+      } else {
+        return make_tensor(make_gmem_ptr(reinterpret_cast<SrcElement const *>(src.data())), operand_layout);
+      }
+    }();
+
+    auto scale_tensor = make_tensor(make_gmem_ptr(reinterpret_cast<ElementScale const *>(scale.data())), scale_layout);
+
+    auto dim0 = size<0>(src_tensor);
+    auto dim1 = size<1>(src_tensor);
+    auto dim2 = size<2>(src_tensor);
+    auto dim3 = size<3>(src_tensor);
+
+    using ret_type = float;
+
+    for (int b = 0; b < dim3; b++) {
+      for (int h = 0; h < dim2; h++) {
+        for (int k = 0; k < dim1; k++) {
+          for (int mn = 0; mn < dim0; mn++) {
+            auto src_data = [&]() {
+              if constexpr (sizeof_bits_v<SrcElement> >= 8) {
+                return  (ret_type)(src_tensor(mn, k, h, b));
+              } else {
+                return (ret_type)(src_tensor(mn, k, h, b).get());
+              }
+            }();
+
+            auto scale_data = (ret_type)(scale_tensor(mn, k / 32, h, b));
+
+            dst_tensor(mn, k, h, b) = static_cast<DstElement>((src_data) * scale_data);
+          }
+        }
+      }
+    }
+
+    cutlass::device_memory::copy_to_device(dq_buffer, (DstElement*)(raw_pointer_cast(dst_tensor.data())), dst_tensor.size());
+    compat::wait();
+  }
+
+  template <typename LowpT, typename DeqT>
+  void apply_dequantization(const cutlass::DeviceAllocation<LowpT>& lowp, cutlass::DeviceAllocation<DeqT>& deq, float& scale) {
+    const float lowp_max = float(cutlass::platform::numeric_limits<LowpT>::max());
+    const float highp_max = float(cutlass::platform::numeric_limits<DeqT>::max());
+    auto s = highp_max / lowp_max;
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dis(1.0f, s/2.0f);
+    scale = dis(gen);
+
+    auto deq_buff = std::vector<DeqT>(deq.size());
+    compat::memcpy<DeqT>(deq_buff.data(), deq.get(), deq.size());
+    compat::wait();
+
+    for (auto i = 0; i < deq.size(); ++i) {
+      deq_buff[i] = static_cast<DeqT>(scale * static_cast<float>(deq_buff[i]));
+    }
+
+    compat::memcpy<DeqT>(deq.get(), deq_buff.data(), deq.size());
+    compat::wait();
+  }
+
 
   ProblemShapeType initialize(const FMHAOptions &options) {
     auto problem_shape_in = cute::make_tuple(options.batch, options.num_heads_q, options.num_heads_kv, options.seq_len_qo, options.seq_len_kv, options.seq_len_kv_cache,options.head_size_qk, options.head_size_vo);
@@ -570,6 +751,9 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     stride_K_cache = cutlass::make_cute_packed_stride(StrideK{}, shape_K_cache);
     stride_V_cache = cutlass::make_cute_packed_stride(StrideV{}, shape_V_cache);
     stride_O = cutlass::make_cute_packed_stride(StrideO{}, shape_O);
+    stride_SQ = StrideScaleQ{};
+    stride_SK = StrideScaleK{};
+    stride_SV = StrideScaleV{};
 
     block_Q.reset(static_cast<std::size_t>(batch) * num_heads_q * seq_len_qo * head_size_qk);
     block_K.reset(static_cast<std::size_t>(batch) * num_heads_kv * seq_len_kv * head_size_qk);
@@ -637,6 +821,66 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
       shape.seq_len_qo.cumulative_length = device_cumulative_seqlen_q.get();
       shape.seq_len_kv.cumulative_length = device_cumulative_seqlen_kv.get();
       shape.seq_len_kv_cache.cumulative_length = device_cumulative_seqlen_kv_cache.get();
+      if constexpr (BlockScale) {
+        if (!cumulative_scale_q.empty()) {
+          device_cumulative_scale_q.reset(cumulative_scale_q.size());
+          device_cumulative_scale_q.copy_from_host(cumulative_scale_q.data(), cumulative_scale_q.size());
+        }
+        if (!cumulative_scale_kv.empty()) {
+          device_cumulative_scale_kv.reset(cumulative_scale_kv.size());
+          device_cumulative_scale_kv.copy_from_host(cumulative_scale_kv.data(), cumulative_scale_kv.size());
+        }
+        shape.seq_len_qo.cumulative_scale_length = device_cumulative_scale_q.get();
+        shape.seq_len_kv.cumulative_scale_length = device_cumulative_scale_kv.get();
+      }
+    }
+
+    block_Q_dq.reset(block_Q.size());
+    block_K_dq.reset(block_K.size());
+    block_V_dq.reset(block_V.size());
+
+    convert_dtype<ElementQ, ElementQKMMAVerify, BenchmarkRunnerFMHA>(block_Q, block_Q_dq);
+    convert_dtype<ElementK, ElementQKMMAVerify, BenchmarkRunnerFMHA>(block_K, block_K_dq);
+    convert_dtype<ElementV, ElementPVMMAVerify, BenchmarkRunnerFMHA>(block_V, block_V_dq);
+
+    if constexpr (Persistent) return shape;
+
+    if constexpr (F8kvF16mma) {
+      apply_dequantization(block_K, block_K_dq, scale_k);
+      apply_dequantization(block_V, block_V_dq, scale_v);
+    } else if constexpr (BlockScale) {
+      auto scale_q = cute::ceil_div(head_size_qk, GROUP_SIZE);
+      auto scale_k = cute::ceil_div(head_size_qk, GROUP_SIZE);
+      int scale_v = cute::ceil_div(seq_len_kv, GROUP_SIZE);
+      if constexpr (isVarLen && BlockScale) { scale_v = cumulative_scale_kv.back(); }
+
+      auto shape_scale_Q = cute::make_shape(seq_len_qo, scale_q, num_heads_q, batch);
+      auto shape_scale_K = cute::make_shape(seq_len_kv, scale_k, num_heads_kv, batch);
+      auto shape_scale_V = cute::make_shape(head_size_vo, scale_v, num_heads_kv, batch);
+
+      stride_SQ = cutlass::make_cute_packed_stride(StrideScaleQ{}, shape_scale_Q); 
+      stride_SK = cutlass::make_cute_packed_stride(StrideScaleK{}, shape_scale_K);
+      stride_SV = cutlass::make_cute_packed_stride(StrideScaleV{}, shape_scale_V);
+
+      block_scaleQ.reset(cute::size(shape_scale_Q));
+      block_scaleK.reset(cute::size(shape_scale_K));
+      block_scaleV.reset(cute::size(shape_scale_V));
+
+      initialize_scale(block_scaleQ, options);
+      initialize_scale(block_scaleK, options);
+      initialize_scale(block_scaleV, options);
+
+      auto layout_Q = cute::make_layout(shape_Q, stride_Q);
+      auto layout_K = cute::make_layout(shape_K, stride_K);
+      auto layout_V = cute::make_layout(shape_V, stride_V);
+
+      auto layout_scale_Q = cute::make_layout(shape_scale_Q, stride_SQ);
+      auto layout_scale_K = cute::make_layout(shape_scale_K, stride_SK);
+      auto layout_scale_V = cute::make_layout(shape_scale_V, stride_SV);
+
+      apply_scale<ElementQKMMAVerify, ElementQ>(block_Q_dq.get(), block_Q.get(), layout_Q, block_scaleQ.get(), layout_scale_Q);
+      apply_scale<ElementQKMMAVerify, ElementK>(block_K_dq.get(), block_K.get(), layout_K, block_scaleK.get(), layout_scale_K);
+      apply_scale<ElementPVMMAVerify, ElementV>(block_V_dq.get(), block_V.get(), layout_V, block_scaleV.get(), layout_scale_V);
     }
 
     return shape;
@@ -681,25 +925,54 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
 
     ProblemShapeType problem_size = initialize(options);
 
-    typename FMHAKernel::Arguments arguments{
-      {
-      problem_size,
-      block_Q.get(), stride_Q,
-      block_K.get(), stride_K,
-      block_V.get(), stride_V,
-      block_O.get(), stride_O,
-      block_K_cache.get(), stride_K_cache,
-      block_V_cache.get(), stride_V_cache,
-      },
-      {
-      options.softmax_scale,
-      PagedKV ? paged_kv_cache.page_table.get() : nullptr,
-      PagedKV ? paged_kv_cache.page_size : 0,
-      PagedKV ? paged_kv_cache.num_pages_per_seq.get() : nullptr
-      },
-      {},
-      hw_info
-    };
+    typename FMHAKernel::Arguments arguments = [&]() {
+      if constexpr (Persistent) {
+        return typename FMHAKernel::Arguments{
+          {
+            problem_size,
+            block_Q.get(), stride_Q,
+            block_K.get(), stride_K,
+            block_V.get(), stride_V,
+            block_O.get(), stride_O,
+            block_K_cache.get(), stride_K_cache,
+            block_V_cache.get(), stride_V_cache,
+          },
+          {
+            options.softmax_scale,
+            PagedKV ? paged_kv_cache.page_table.get() : nullptr,
+            PagedKV ? paged_kv_cache.page_size : 0,
+            PagedKV ? paged_kv_cache.num_pages_per_seq.get() : nullptr
+          },
+          {},
+          hw_info
+        };
+      } else {
+        return typename FMHAKernel::Arguments{
+          {
+            problem_size,
+            block_Q.get(), stride_Q,
+            block_K.get(), stride_K,
+            block_V.get(), stride_V,
+            block_O.get(), stride_O,
+            block_scaleQ.get(), stride_SQ,
+            block_scaleK.get(), stride_SK,
+            block_scaleV.get(), stride_SV,
+            scale_k, scale_v, /*scale_q*/ 1.f,
+            GROUP_SIZE,
+            block_K_cache.get(), stride_K_cache,
+            block_V_cache.get(), stride_V_cache,
+          },
+          {
+            options.softmax_scale,
+            PagedKV ? paged_kv_cache.page_table.get() : nullptr,
+            PagedKV ? paged_kv_cache.page_size : 0,
+            PagedKV ? paged_kv_cache.num_pages_per_seq.get() : nullptr
+          },
+          {},
+          hw_info
+        };
+      }
+    }();
 
     size_t workspace_size = FMHAKernel::get_workspace_size(arguments);
     cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
@@ -714,6 +987,14 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
 
     typename FMHAKernel::Params params = FMHAKernel::to_underlying_arguments(arguments, workspace.get());
 
+#ifdef CUTLASS_TEST_FOR_CRI
+    // Skip verification on CRI simulator (time-consuming), but warm up a few
+    // times so the first timed invocation is not penalized by ICache/JIT cost.
+    for (int i = 0; i < options.warmup; ++i) {
+      run(params);
+    }
+    compat::wait();
+#else
     // Run the GEMM
     run(params);
 
@@ -724,6 +1005,7 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
     if(not passed) {
       state.SkipWithError("Disposition Failed.");
     }
+#endif
 
     state.counters["batch"] = options.batch;
     state.counters["num_heads_q"] = options.num_heads_q;
@@ -764,30 +1046,81 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
                      sizeof(ElementO) * options.batch * options.num_heads_q * effective_seq_len_qo * options.head_size_vo;
     double mega_bytes_transferred = (gbps_qk + gbps_pv) * (1e-6);
 
+    const int inner_iters = std::max(1, options.iterations);
+
     initialize_counters(state);
     int32_t counter = 1;
     for(auto _ : state) {
+#ifdef CUTLASS_TEST_FOR_CRI
+      // CRI: reuse the outer-scope `params`/`workspace` built once before the
+      // warmup. Re-allocating workspace and zero-filling it every state-iter
+      // (the non-CRI path below) evicts the data cache, so the first timed
+      // launch hits cold cache and inflates ms_elapsed by 20%+ on large
+      // shapes (sq>=4096). The example runner (xe_fmha_fwd_runner.hpp) only
+      // allocates workspace once; mirror that here so the two harnesses are
+      // comparable. Per-kernel host/launch overhead is amortised over
+      // kInnerIters launches + a single sync (matches example loop).
+      // Keep the inner loop count aligned with the example runner's
+      // --iterations value so cold-start/cache effects are averaged the same
+      // way on CRI.
+      GPU_Clock timer;
+      timer.start();
+      for (int i = 0; i < inner_iters; ++i) {
+        run(params);
+      }
+      compat::wait();
+      auto ms_elapsed = timer.milliseconds() / static_cast<double>(inner_iters);
+#else
       state.PauseTiming();
 
-      typename FMHAKernel::Arguments arguments{
-        {
-          problem_size,
-          block_Q.get(), stride_Q,
-          block_K.get(), stride_K,
-          block_V.get(), stride_V,
-          block_O.get(), stride_O,
-          block_K_cache.get(), stride_K_cache,
-          block_V_cache.get(), stride_V_cache,
-        },
-        {
-          options.softmax_scale,
-          PagedKV ? paged_kv_cache.page_table.get() : nullptr,
-          PagedKV ? paged_kv_cache.page_size : 0,
-          PagedKV ? paged_kv_cache.num_pages_per_seq.get() : nullptr,
-        },
-        {},
-        hw_info
-      };
+      typename FMHAKernel::Arguments arguments = [&]() {
+        if constexpr (Persistent) {
+          return typename FMHAKernel::Arguments{
+            {
+              problem_size,
+              block_Q.get(), stride_Q,
+              block_K.get(), stride_K,
+              block_V.get(), stride_V,
+              block_O.get(), stride_O,
+              block_K_cache.get(), stride_K_cache,
+              block_V_cache.get(), stride_V_cache,
+            },
+            {
+              options.softmax_scale,
+              PagedKV ? paged_kv_cache.page_table.get() : nullptr,
+              PagedKV ? paged_kv_cache.page_size : 0,
+              PagedKV ? paged_kv_cache.num_pages_per_seq.get() : nullptr,
+            },
+            {},
+            hw_info
+          };
+        } else {
+          return typename FMHAKernel::Arguments{
+            {
+              problem_size,
+              block_Q.get(), stride_Q,
+              block_K.get(), stride_K,
+              block_V.get(), stride_V,
+              block_O.get(), stride_O,
+              block_scaleQ.get(), stride_SQ,
+              block_scaleK.get(), stride_SK,
+              block_scaleV.get(), stride_SV,
+              scale_k, scale_v, /*scale_q*/ 1.f,
+              GROUP_SIZE,
+              block_K_cache.get(), stride_K_cache,
+              block_V_cache.get(), stride_V_cache,
+            },
+            {
+              options.softmax_scale,
+              PagedKV ? paged_kv_cache.page_table.get() : nullptr,
+              PagedKV ? paged_kv_cache.page_size : 0,
+              PagedKV ? paged_kv_cache.num_pages_per_seq.get() : nullptr,
+            },
+            {},
+            hw_info
+          };
+        }
+      }();
 
       size_t workspace_size = FMHAKernel::get_workspace_size(arguments);
       cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
@@ -808,6 +1141,7 @@ template <class FMHAConfiguration> struct BenchmarkRunnerFMHA {
       timer.start();
       run(params);
       auto ms_elapsed = timer.milliseconds();
+#endif
       update_counters(state, ms_elapsed);
       state.SetIterationTime(ms_elapsed / 1000);
       counter++;

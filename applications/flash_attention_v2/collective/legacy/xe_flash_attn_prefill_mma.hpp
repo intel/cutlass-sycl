@@ -318,7 +318,12 @@ struct FlashPrefillMma<gemm::MainloopIntelXeXMX16<Stages>, ProblemShapeType_, El
     //
     // Mainloop
     //
+    // Likely a simulator bug: The last tile exhibits an accuracy issue that only occurs on the CRI simulator (SYCL_INTEL_TARGET == 35).
+    // Tests run without issues on BMG and PVC hardware.
+    // TODO: Reinstate the CUTLASS_PRAGMA_UNROLL once the CRI simulator accuracy issue is resolved.
+    #if !(defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35))
     CUTLASS_PRAGMA_UNROLL
+    #endif
     for(int i = 0; i< tile_count; i++) {
       copy(params.gmem_tiled_copy_v, tVgV(_,_,_,i), tVrV);
       if constexpr (is_fp8_v<ElementV>) {

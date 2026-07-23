@@ -54,6 +54,7 @@ target_link_libraries(
 
 if(CUTLASS_ENABLE_SYCL)
   add_sycl_include_directories_to_target(cutlass_test_unit_infra)
+  add_sycl_to_target(TARGET cutlass_test_unit_infra)
 endif()
 
 cutlass_add_library(

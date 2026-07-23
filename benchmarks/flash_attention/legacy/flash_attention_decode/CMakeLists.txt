@@ -27,9 +27,15 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 set(CUTLASS_APPLICATIONS_DIR ${CUTLASS_DIR}/applications)
+set(CONFIG_FILE_CRI_DECODE_NOKV --config_file=${CUTLASS_DIR}/benchmarks/device/cri/input_files/legacy/input_sglang_flash_attention_decode_nokvcache.in)
+set(CONFIG_FILE_BMG_DECODE_NOKV --config_file=${CUTLASS_DIR}/benchmarks/device/bmg/input_files/legacy/input_sglang_flash_attention_decode_nokvcache.in)
 
 # Pass these configuration files for the CI
-set(CONFIG_FILE_NO_KV_CACHE --config_file=${CUTLASS_DIR}/benchmarks/device/bmg/input_files/input_sglang_flash_attention_decode_nokvcache.in)
+if(CUTLASS_TEST_FOR_CRI AND SYCL_TARGET_INTEL_GPU_CRI)
+  set(DECODE_LEGACY_CONFIG_ARGS CONFIG_FILE_CRI_DECODE_NOKV)
+else()
+  set(DECODE_LEGACY_CONFIG_ARGS CONFIG_FILE_BMG_DECODE_NOKV)
+endif()
 
 cutlass_benchmark_add_suite(cutlass_benchmarks_flash_attention_decode_legacy
                             SUPERSUITE cutlass_benchmarks_flash_attention_legacy)
@@ -67,7 +73,7 @@ endforeach()
 cutlass_benchmark_add_executable(
     cutlass_benchmarks_flash_attention_decode_legacy_xe
     main.cpp
-    TEST_COMMAND_OPTIONS CONFIG_FILE_NO_KV_CACHE
+    TEST_COMMAND_OPTIONS ${DECODE_LEGACY_CONFIG_ARGS}
     LIBRARIES decode_h64_legacy decode_h96_legacy decode_h128_legacy decode_h192_legacy
     INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
     SUITE cutlass_benchmarks_flash_attention_decode_legacy

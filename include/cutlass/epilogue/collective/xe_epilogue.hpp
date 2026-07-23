@@ -80,7 +80,7 @@ public:
   //
   // Type Aliases
   //
-  using DispatchPolicy = IntelXeXMX16;
+  using DispatchPolicy = IntelXeGeneric;
 
   using WGTileMNK = WGTileMNK_;
   using ElementC = ElementC_;

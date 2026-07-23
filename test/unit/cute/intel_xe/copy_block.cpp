@@ -157,7 +157,7 @@ struct copy_op<dtype, load, store, M, N, false> {
 };
 
 template <class load, uint32_t M, uint32_t N>
-struct copy_op<char, load, XE_2D_U8x2x32_ST_N, M, N, false> {
+struct copy_op<char, load, XE_2D_Packed_U8x2x32_ST_N, M, N, false> {
   void operator()() {
     //
     // Allocate and initialize
@@ -185,8 +185,8 @@ struct copy_op<char, load, XE_2D_U8x2x32_ST_N, M, N, false> {
         make_layout(shape_div(typename Copy_Traits<load, decltype(S)>::BlockShape{}, Shape<_1, _16>{})));
 
     auto tiled_store = make_tiled_copy(
-        Copy_Atom<Copy_Traits<XE_2D_U8x2x32_ST_N, decltype(D)>, dtype>{}.with(D), Layout<Shape<_1, _16>>{},
-        make_layout(shape_div(typename Copy_Traits<XE_2D_U8x2x32_ST_N, decltype(S)>::BlockShape{}, Shape<_1, _16>{})));
+        Copy_Atom<Copy_Traits<XE_2D_Packed_U8x2x32_ST_N, decltype(D)>, dtype>{}.with(D), Layout<Shape<_1, _16>>{},
+        make_layout(shape_div(typename Copy_Traits<XE_2D_Packed_U8x2x32_ST_N, decltype(S)>::BlockShape{}, Shape<_1, _16>{})));
 
     auto blockDim = compat::dim3(size(tiled_load));
     //
@@ -343,11 +343,11 @@ TEST(PVC_CuTe_Xe, block_2d_32bits_n) {
 
 TEST(PVC_CuTe_Xe, block_2d_8bits_n) {
   copy_op<char, XE_2D_U8x1x16_LD_N, XE_2D_U8x1x16_ST_N, 1, 16>{}();
-  copy_op<char, XE_2D_Packed_U8x2x32_LD_N, XE_2D_U8x2x32_ST_N, 2, 32>{}();
-  copy_op<char, XE_2D_Packed_U8x4x32_LD_N, XE_2D_U8x2x32_ST_N, 4, 32>{}();
-  copy_op<char, XE_2D_Packed_U8x8x32_LD_N, XE_2D_U8x2x32_ST_N, 8, 32>{}();
-  copy_op<char, XE_2D_Packed_U8x16x32_LD_N, XE_2D_U8x2x32_ST_N, 16, 32>{}();
-  copy_op<char, XE_2D_Packed_U8x32x32_LD_N, XE_2D_U8x2x32_ST_N, 32, 32>{}();
+  copy_op<char, XE_2D_Packed_U8x2x32_LD_N, XE_2D_Packed_U8x2x32_ST_N, 2, 32>{}();
+  copy_op<char, XE_2D_Packed_U8x4x32_LD_N, XE_2D_Packed_U8x2x32_ST_N, 4, 32>{}();
+  copy_op<char, XE_2D_Packed_U8x8x32_LD_N, XE_2D_Packed_U8x2x32_ST_N, 8, 32>{}();
+  copy_op<char, XE_2D_Packed_U8x16x32_LD_N, XE_2D_Packed_U8x2x32_ST_N, 16, 32>{}();
+  copy_op<char, XE_2D_Packed_U8x32x32_LD_N, XE_2D_Packed_U8x2x32_ST_N, 32, 32>{}();
 }
 
 TEST(PVC_CuTE_Xe, block_2d_16bits_n_v2) {

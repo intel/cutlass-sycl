@@ -327,7 +327,7 @@ struct ThresholdReLU {
   CUTLASS_HOST_DEVICE
   T operator()(T value, T threshold, T upper_bound) const {
     minimum_with_nan_propagation<T> mn;
-    
+
     return mn((value <= threshold ? T(0) : value), upper_bound);
   }
 
@@ -350,7 +350,7 @@ struct ThresholdReLU<Array<T,N>> {
     Array<T,N> retvals;
     CUTLASS_PRAGMA_UNROLL
     for (int i = 0; i < N; ++i) {
-      retvals[i] = relu(values[i], threshold, upper_bound);    
+      retvals[i] = relu(values[i], threshold, upper_bound);
     }
 
     return retvals;

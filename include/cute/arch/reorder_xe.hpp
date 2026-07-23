@@ -33,7 +33,7 @@
 
 #include <cute/util/sycl_vec.hpp>           // native vector types
 #include <cute/arch/reorder.hpp>            // Universal_Reorder_UU
-
+#include "reorder_xe35.hpp"
 #if defined(__SYCL_DEVICE_ONLY__) && defined(SYCL_INTEL_TARGET)
 #define CUTE_ARCH_REORDER_XE_ENABLED
 #endif
@@ -54,6 +54,9 @@ struct Xe_Reorder<ReorderKind::UU, T, T> {
     dst0 = src0;
   }
 };
+
+template <typename T>
+struct Xe_Reorder<ReorderKind::UU_Universal, T, T> : Xe_Reorder<ReorderKind::UU, T, T> {};
 
 // Optimized reorder for float -> float_e5m2_t/float_e4m3_t (BF8/FP8) when classified as UU_Universal (e.g. size 16)
 // This happens when the data chunk is smaller than a full GRF (e.g. 16 elements = 64B float -> 16B bf8)
@@ -435,9 +438,9 @@ struct Xe_Reorder<ReorderKind::UU, float_e5m2_t, half_t>
     asm (     /* 1 cycle/output register */
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
-      ".decl OUT_UW v_type=G type=UW num_elts=64 alias=<%0,0>\n"
-      "shl (M1_NM, 32) OUT_UW(0,0)<1> IN_UB(0,0)<1;1,0> 8:uw\n"
-      "shl (M1_NM, 32) OUT_UW(1,0)<1> IN_UB(0,32)<1;1,0> 8:uw\n"
+      ".decl OUT_HF v_type=G type=HF num_elts=64 alias=<%0,0>\n"
+      "fcvt (M1_NM, 32) OUT_HF(0,0)<1> IN_UB(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) OUT_HF(1,0)<1> IN_UB(0,32)<1;1,0>\n"
       "}\n"
       : "=rw"(dst0)
       : "rw"(src0)
@@ -461,9 +464,9 @@ struct Xe_Reorder<ReorderKind::VV, float_e5m2_t, half_t>
     asm (     /* 1 cycle/output register */
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
-      ".decl OUT_UW v_type=G type=UW num_elts=64 alias=<%0,0>\n"
-      "shl (M1_NM, 32) OUT_UW(0,0)<1> IN_UB(0,0)<4;2,1> 8:uw\n"
-      "shl (M1_NM, 32) OUT_UW(1,0)<1> IN_UB(0,2)<4;2,1> 8:uw\n"
+      ".decl OUT_HF v_type=G type=HF num_elts=64 alias=<%0,0>\n"
+      "fcvt (M1_NM, 32) OUT_HF(0,0)<1> IN_UB(0,0)<4;2,1>\n"
+      "fcvt (M1_NM, 32) OUT_HF(1,0)<1> IN_UB(0,2)<4;2,1>\n"
       "}\n"
       : "=rw"(dst0)
       : "rw"(src0)
@@ -473,17 +476,6 @@ struct Xe_Reorder<ReorderKind::VV, float_e5m2_t, half_t>
 #endif
   }
 };
-
-// Common e5m2 -> bfloat16 conversion sequence, after shl by 8.
-#define CUTE_XE_REORDER_E5M2_BF16_SEQ \
-    ".decl OUT_W v_type=G type=W num_elts=64 alias=<%0,0>\n" \
-    ".decl OUT_UD v_type=G type=UD num_elts=32 alias=<%0,0>\n" \
-    ".decl OUT_BF v_type=G type=BF num_elts=64 alias=<%0,0>\n" \
-    "asr (M1_NM, 32) OUT_W(0,0)<1> OUT_W(0,0)<1;1,0> 3:uw\n" \
-    "asr (M1_NM, 32) OUT_W(1,0)<1> OUT_W(1,0)<1;1,0> 3:uw\n" \
-    "and (M1_NM, 32) OUT_UD(0,0)<1> OUT_UD(0,0)<1;1,0> 0x8FFF8FFF:ud\n" \
-    "mul (M1_NM, 32) OUT_BF(0,0)<1> OUT_BF(0,0)<1;1,0> 0x77800000:f\n" \
-    "mul (M1_NM, 32) OUT_BF(1,0)<1> OUT_BF(1,0)<1;1,0> 0x77800000:f\n"
 
 template <>
 struct Xe_Reorder<ReorderKind::UU, float_e5m2_t, bfloat16_t>
@@ -495,13 +487,18 @@ struct Xe_Reorder<ReorderKind::UU, float_e5m2_t, bfloat16_t>
   reorder(intel::uchar4 const& src0, intel::ushort4& dst0)
   {
 #if defined(CUTE_ARCH_REORDER_XE_ENABLED)
-    asm (     /* 5 cycles/output register */
+    asm (
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
-      ".decl OUT_UW v_type=G type=UW num_elts=64 alias=<%0,0>\n"
-      "shl (M1_NM, 32) OUT_UW(0,0)<1> IN_UB(0,0)<1;1,0> 8:uw\n"
-      "shl (M1_NM, 32) OUT_UW(1,0)<1> IN_UB(0,32)<1;1,0> 8:uw\n"
-      CUTE_XE_REORDER_E5M2_BF16_SEQ
+      ".decl OUT_BF v_type=G type=BF num_elts=64 alias=<%0,0>\n"
+      ".decl TMP_HF v_type=G type=HF num_elts=64 align=32\n"
+      ".decl TMP_F v_type=G type=F num_elts=64 align=32\n"
+      "fcvt (M1_NM, 32) TMP_HF(0,0)<1> IN_UB(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) TMP_HF(1,0)<1> IN_UB(0,32)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(0,0)<1> TMP_HF(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(2,0)<1> TMP_HF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(0,0)<1> TMP_F(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(1,0)<1> TMP_F(2,0)<1;1,0>\n"
       "}\n"
       : "=rw"(dst0)
       : "rw"(src0)
@@ -522,13 +519,18 @@ struct Xe_Reorder<ReorderKind::VV, float_e5m2_t, bfloat16_t>
   reorder(intel::uchar4 const& src0, intel::ushort4& dst0)
   {
 #if defined(CUTE_ARCH_REORDER_XE_ENABLED)
-    asm (     /* 5 cycles/output register */
+    asm (
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
-      ".decl OUT_UW v_type=G type=UW num_elts=64 alias=<%0,0>\n"
-      "shl (M1_NM, 32) OUT_UW(0,0)<1> IN_UB(0,0)<4;2,1> 8:uw\n"
-      "shl (M1_NM, 32) OUT_UW(1,0)<1> IN_UB(0,2)<4;2,1> 8:uw\n"
-      CUTE_XE_REORDER_E5M2_BF16_SEQ
+      ".decl OUT_BF v_type=G type=BF num_elts=64 alias=<%0,0>\n"
+      ".decl TMP_HF v_type=G type=HF num_elts=64 align=32\n"
+      ".decl TMP_F v_type=G type=F num_elts=64 align=32\n"
+      "fcvt (M1_NM, 32) TMP_HF(0,0)<1> IN_UB(0,0)<4;2,1>\n"
+      "fcvt (M1_NM, 32) TMP_HF(1,0)<1> IN_UB(0,2)<4;2,1>\n"
+      "mov (M1_NM, 32) TMP_F(0,0)<1> TMP_HF(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(2,0)<1> TMP_HF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(0,0)<1> TMP_F(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(1,0)<1> TMP_F(2,0)<1;1,0>\n"
       "}\n"
       : "=rw"(dst0)
       : "rw"(src0)
@@ -568,6 +570,18 @@ struct Xe_Reorder<ReorderKind::UU, float_e4m3_t, half_t>
   reorder(intel::uchar4 const& src0, intel::ushort4& dst0)
   {
 #if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+    asm (
+      "{\n"
+      ".decl IN_B v_type=G type=B num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_HF v_type=G type=HF num_elts=64 alias=<%0,0>\n"
+      "fcvt (M1_NM, 32) OUT_HF(0,0)<1> IN_B(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) OUT_HF(1,0)<1> IN_B(0,32)<1;1,0>\n"      
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
     asm (     /* 6 cycles/output register */
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
@@ -579,6 +593,7 @@ struct Xe_Reorder<ReorderKind::UU, float_e4m3_t, half_t>
       : "=rw"(dst0)
       : "rw"(src0)
     );
+#endif
 #else
   CUTE_INVALID_CONTROL_PATH("Not Xe");
 #endif
@@ -595,6 +610,18 @@ struct Xe_Reorder<ReorderKind::VV, float_e4m3_t, half_t>
   reorder(intel::uchar4 const& src0, intel::ushort4& dst0)
   {
 #if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+    asm (
+      "{\n"
+      ".decl IN_B v_type=G type=B num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_HF v_type=G type=HF num_elts=64 alias=<%0,0>\n"
+      "fcvt (M1_NM, 32) OUT_HF(0,0)<1> IN_B(0,0)<4;2,1>\n"
+      "fcvt (M1_NM, 32) OUT_HF(1,0)<1> IN_B(0,2)<4;2,1>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
     asm (     /* 6 cycles/output register */
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
@@ -606,6 +633,7 @@ struct Xe_Reorder<ReorderKind::VV, float_e4m3_t, half_t>
       : "=rw"(dst0)
       : "rw"(src0)
     );
+#endif
 #else
   CUTE_INVALID_CONTROL_PATH("Not Xe");
 #endif
@@ -640,6 +668,24 @@ struct Xe_Reorder<ReorderKind::UU, float_e4m3_t, bfloat16_t>
   reorder(intel::uchar4 const& src0, intel::ushort4& dst0)
   {
 #if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+    asm (
+      "{\n"
+      ".decl IN_B v_type=G type=B num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_BF v_type=G type=BF num_elts=64 alias=<%0,0>\n"
+      ".decl TMP_HF v_type=G type=HF num_elts=64 align=32\n"
+      ".decl TMP_F v_type=G type=F num_elts=64 align=32\n"
+      "fcvt (M1_NM, 32) TMP_HF(0,0)<1> IN_B(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) TMP_HF(1,0)<1> IN_B(0,32)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(0,0)<1> TMP_HF(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(2,0)<1> TMP_HF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(0,0)<1> TMP_F(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(1,0)<1> TMP_F(2,0)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
     asm (     /* 7 cycles/output register */
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
@@ -651,6 +697,7 @@ struct Xe_Reorder<ReorderKind::UU, float_e4m3_t, bfloat16_t>
       : "=rw"(dst0)
       : "rw"(src0)
     );
+#endif
 #else
   CUTE_INVALID_CONTROL_PATH("Not Xe");
 #endif
@@ -667,6 +714,24 @@ struct Xe_Reorder<ReorderKind::VV, float_e4m3_t, bfloat16_t>
   reorder(intel::uchar4 const& src0, intel::ushort4& dst0)
   {
 #if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+    asm (
+      "{\n"
+      ".decl IN_B v_type=G type=B num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_BF v_type=G type=BF num_elts=64 alias=<%0,0>\n"
+      ".decl TMP_HF v_type=G type=HF num_elts=64 align=32\n"
+      ".decl TMP_F v_type=G type=F num_elts=64 align=32\n"
+      "fcvt (M1_NM, 32) TMP_HF(0,0)<1> IN_B(0,0)<4;2,1>\n"
+      "fcvt (M1_NM, 32) TMP_HF(1,0)<1> IN_B(0,2)<4;2,1>\n"
+      "mov (M1_NM, 32) TMP_F(0,0)<1> TMP_HF(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(2,0)<1> TMP_HF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(0,0)<1> TMP_F(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) OUT_BF(1,0)<1> TMP_F(2,0)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
     asm (     /* 7 cycles/output register */
       "{\n"
       ".decl IN_UB v_type=G type=UB num_elts=64 alias=<%1,0>\n"
@@ -678,8 +743,215 @@ struct Xe_Reorder<ReorderKind::VV, float_e4m3_t, bfloat16_t>
       : "=rw"(dst0)
       : "rw"(src0)
     );
+#endif
 #else
   CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+template <>
+struct Xe_Reorder<ReorderKind::UU, half_t, float_e5m2_t>
+{
+  using SRegisters = intel::ushort4[1];
+  using DRegisters = intel::uchar4[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::ushort4 const& src0, intel::uchar4& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+      ".decl IN_HF v_type=G type=HF num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_UB v_type=G type=UB num_elts=64 alias=<%0,0>\n"
+      "fcvt (M1_NM, 32) OUT_UB(0,0)<1> IN_HF(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) OUT_UB(0,32)<1> IN_HF(1,0)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+  CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+template <>
+struct Xe_Reorder<ReorderKind::VV, half_t, float_e5m2_t>
+{
+  using SRegisters = intel::ushort4[1];
+  using DRegisters = intel::uchar4[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::ushort4 const& src0, intel::uchar4& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+      ".decl IN_HF v_type=G type=HF num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_UW v_type=G type=UW num_elts=32 alias=<%0,0>\n"
+      ".decl TMP_UB v_type=G type=UB num_elts=64 align=32\n"
+      ".decl TMP_UW v_type=G type=UW num_elts=32 alias=<TMP_UB,0>\n"
+      "fcvt (M1_NM, 32) TMP_UB(0,0)<1> IN_HF(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) TMP_UB(0,32)<1> IN_HF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 16) OUT_UW(0,0)<2> TMP_UW(0,0)<1;1,0>\n"
+      "mov (M1_NM, 16) OUT_UW(0,1)<2> TMP_UW(0,16)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+  CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+template <>
+struct Xe_Reorder<ReorderKind::UU, bfloat16_t, float_e5m2_t>
+{
+  using SRegisters = intel::ushort4[1];
+  using DRegisters = intel::uchar4[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::ushort4 const& src0, intel::uchar4& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+      ".decl IN_BF v_type=G type=BF num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_UB v_type=G type=UB num_elts=64 alias=<%0,0>\n"
+      ".decl TMP_F v_type=G type=F num_elts=64 align=32\n"
+      ".decl TMP_HF v_type=G type=HF num_elts=64 align=32\n"
+      "mov (M1_NM, 32) TMP_F(0,0)<1> IN_BF(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(2,0)<1> IN_BF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_HF(0,0)<1> TMP_F(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_HF(1,0)<1> TMP_F(2,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) OUT_UB(0,0)<1> TMP_HF(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) OUT_UB(0,32)<1> TMP_HF(1,0)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+  CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+template <>
+struct Xe_Reorder<ReorderKind::VV, bfloat16_t, float_e5m2_t>
+{
+  using SRegisters = intel::ushort4[1];
+  using DRegisters = intel::uchar4[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::ushort4 const& src0, intel::uchar4& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+      ".decl IN_BF v_type=G type=BF num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_UW v_type=G type=UW num_elts=32 alias=<%0,0>\n"
+      ".decl TMP_F v_type=G type=F num_elts=64 align=32\n"
+      ".decl TMP_HF v_type=G type=HF num_elts=64 align=32\n"
+      ".decl TMP_UB v_type=G type=UB num_elts=64 align=32\n"
+      ".decl TMP_UW v_type=G type=UW num_elts=32 alias=<TMP_UB,0>\n"
+      "mov (M1_NM, 32) TMP_F(0,0)<1> IN_BF(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_F(2,0)<1> IN_BF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_HF(0,0)<1> TMP_F(0,0)<1;1,0>\n"
+      "mov (M1_NM, 32) TMP_HF(1,0)<1> TMP_F(2,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) TMP_UB(0,0)<1> TMP_HF(0,0)<1;1,0>\n"
+      "fcvt (M1_NM, 32) TMP_UB(0,32)<1> TMP_HF(1,0)<1;1,0>\n"
+      "mov (M1_NM, 16) OUT_UW(0,0)<2> TMP_UW(0,0)<1;1,0>\n"
+      "mov (M1_NM, 16) OUT_UW(0,1)<2> TMP_UW(0,16)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+  CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+template <>
+struct Xe_Reorder<ReorderKind::UU, float, half_t>
+{
+  using SRegisters = intel::float2[1];
+  using DRegisters = intel::ushort2[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::float2 const& src0, intel::ushort2& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+      ".decl IN_F v_type=G type=F num_elts=32 alias=<%1,0>\n"
+      ".decl OUT_HF v_type=G type=HF num_elts=32 alias=<%0,0>\n"
+      "mov (M1_NM, 32) OUT_HF(0,0)<1> IN_F(0,0)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+    CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+template <>
+struct Xe_Reorder<ReorderKind::UV, float, half_t>
+{
+  using SRegisters = intel::float2[1];
+  using DRegisters = intel::ushort2[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::float2 const& src0, intel::ushort2& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+        ".decl IN_F v_type=G type=F num_elts=32 alias=<%1,0>\n"
+        ".decl OUT_HF v_type=G type=HF num_elts=32 alias=<%0,0>\n"
+        ".decl TMP_HF v_type=G type=HF num_elts=32 align=32\n"
+        "mov (M1_NM, 32) TMP_HF(0,0)<1> IN_F(0,0)<1;1,0>\n"
+        // Interleave for VNNI layout
+        "mov (M1_NM, 16) OUT_HF(0,0)<2> TMP_HF(0,0)<1;1,0>\n"
+        "mov (M1_NM, 16) OUT_HF(0,1)<2> TMP_HF(0,16)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+    CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+template <>
+struct Xe_Reorder<ReorderKind::UV, float, bfloat16_t>
+{
+  using SRegisters = intel::float2[1];
+  using DRegisters = intel::ushort2[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::float2 const& src0, intel::ushort2& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+        ".decl IN_F v_type=G type=F num_elts=32 alias=<%1,0>\n"
+        ".decl OUT_BF v_type=G type=BF num_elts=32 alias=<%0,0>\n"
+        ".decl TMP_BF v_type=G type=BF num_elts=32 align=32\n"
+        "mov (M1_NM, 32) TMP_BF(0,0)<1> IN_F(0,0)<1;1,0>\n"
+        "mov (M1_NM, 16) OUT_BF(0,0)<2> TMP_BF(0,0)<1;1,0>\n"
+        "mov (M1_NM, 16) OUT_BF(0,1)<2> TMP_BF(0,16)<1;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+    CUTE_INVALID_CONTROL_PATH("Not Xe");
 #endif
   }
 };

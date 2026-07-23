@@ -1,6 +1,6 @@
 /***************************************************************************************************
  * Copyright (C) 2024 - 2024 Codeplay Software Ltd. All rights reserved.
- * Copyright (C) 2025 -2026 Intel Corporation, All rights reserved.
+ * Copyright (C) 2025 - 2026 Intel Corporation, All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -90,6 +90,8 @@ struct Options {
   bool error;
 
   int m, n, k, l, iterations, verify;
+  // The `verify` controls whether verification will be executed, which is true
+  // by default. Users can skip the verification step by specifying it with 0.
   float alpha, beta;
 
   Options():

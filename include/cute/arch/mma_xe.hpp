@@ -49,6 +49,11 @@ struct XE_DPAS_TT_Base
 {
   static constexpr int K = 256 / cute::max(sizeof_bits_v<TypeA>, sizeof_bits_v<TypeB>);
 
+  using DType = TypeD;
+  using AType = TypeA;
+  using BType = TypeB;
+  using CType = TypeC;
+
   using DVector = intel::vector_t<TypeD, M>;
   using AVector = intel::vector_t<TypeA, (M * K + 15) / 16>;
   using BVector = intel::vector_t<TypeB, K>;
@@ -59,6 +64,9 @@ struct XE_DPAS_TT_Base
   using BRegisters = BVector[1];
   using CRegisters = CVector[1];
 };
+
+template <int M, typename TypeD, typename TypeA, typename TypeB = TypeA, typename TypeC = TypeD>
+struct XE_BDPAS_TT;
 
 namespace dpas_type {
 
@@ -72,6 +80,9 @@ using u8 = uint8_t;
 using s8 = int8_t;
 using u4 = uint4_t;
 using s4 = int4_t;
+using bf8 = float_e5m2_t;
+using hf8 = float_e4m3_t;
+using e2m1 = float_e2m1_t;
 
 }; /* namespace dpas_type */
 
@@ -85,10 +96,20 @@ template <int M> struct XE_DPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::T
   using BVector = typename Base::BVector; \
   using CVector = typename Base::CVector; \
   using DVector = typename Base::DVector; \
-  template <typename CVector_ = CVector> \
+  template <bool NoAcc = false, typename CVector_ = CVector> \
   CUTE_DEVICE static void \
   fma(DVector& d, AVector const& a, BVector const& b, CVector_ const& c) { \
-    if constexpr (std::is_same_v<CVector_, DVector>) { \
+    if constexpr (NoAcc) { \
+      asm ( \
+        "{\n" \
+        ".decl DST     v_type=G type=" #TD " num_elts=%5 alias=<%0,0>\n" \
+        ".decl SRC1_UD v_type=G type=UD num_elts=128 alias=<%2,0>\n" \
+        ".decl SRC2_UD v_type=G type=UD num_elts=%4 alias=<%1,0>\n" \
+        "dpas." #TB "." #TA ".8.%3 (M1, 16) DST.0 %%null.0 SRC1_UD.0 SRC2_UD(0,0)\n" \
+        "}\n" \
+        : "=rw"(d) : "rw"(a), "rw"(b), "P"(M), "P"(M*8), "P"(M*16) \
+      ); \
+    } else if constexpr (std::is_same_v<CVector_, DVector>) { \
       d = c; \
       asm ( \
         "{\n" \
@@ -114,6 +135,62 @@ template <int M> struct XE_DPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::T
   } \
 };
 
+#define DECL_BDPAS_PARAMS(TD) \
+        ".decl DST     v_type=G type=" #TD " num_elts=128 alias=<%0,0>\n" \
+        ".decl SRC1_UD v_type=G type=UD num_elts=128 alias=<%2,0>\n" \
+        ".decl SRC2_UD v_type=G type=UD num_elts=64 alias=<%1,0>\n" \
+        ".decl SRC3_UB v_type=G type=UB num_elts=%8 alias=<%4,%6>\n" \
+        ".decl SRC4_UB v_type=G type=UB num_elts=%7 alias=<%3,%5>\n"
+
+// TODO(Zhitao): Remove m_offset, n_offset, ka_offset and kb_offset, move the calculation to
+// earlier stages.
+#define CUTE_DECLARE_XE_BDPAS_TT(TD, TA, TB, TC) \
+template <int M> struct XE_BDPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::TB, dpas_type::TC> \
+    : public XE_DPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::TB, dpas_type::TC> { \
+  static_assert(M == 8, "BDPAS instruction requires that repeat count must be 8"); \
+  using Base = XE_DPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::TB, dpas_type::TC>; \
+  using AVector = typename Base::AVector; \
+  using BVector = typename Base::BVector; \
+  using CVector = typename Base::CVector; \
+  using DVector = typename Base::DVector; \
+  template <bool NoAcc = false, \
+            typename CVector_, \
+            typename SFAVector_, \
+            typename SFBVector_> \
+  CUTE_DEVICE static void \
+  fma(DVector& d, AVector const& a, BVector const& b, CVector_ const& c, SFAVector_ const& sfa, SFBVector_ const& sfb, uint16_t sfa_offset, uint16_t sfb_offset) { \
+    constexpr auto SFASize = sizeof(sfa); \
+    constexpr auto SFBSize = sizeof(sfb); \
+    if constexpr (NoAcc) { \
+      asm ( \
+        "{\n" \
+        DECL_BDPAS_PARAMS(TD) \
+        "bdpas." #TB "." #TA ".8.8 (M1, 16) DST.0 %%null.0 SRC1_UD.0 SRC2_UD.0 SRC3_UB(0,0) SRC4_UB(0,0)\n" \
+        "}\n" \
+        : "=rw"(d) : "rw"(a), "rw"(b), "rw"(sfa), "rw"(sfb), "P"(sfa_offset), "P"(sfb_offset), "P"(SFASize * 16), "P"(SFBSize * 16) \
+      ); \
+    } else if constexpr (std::is_same_v<CVector_, DVector>) { \
+      d = c; \
+      asm ( \
+        "{\n" \
+        DECL_BDPAS_PARAMS(TD) \
+        "bdpas." #TB "." #TA ".8.8 (M1, 16) DST.0 DST.0 SRC1_UD.0 SRC2_UD.0 SRC3_UB(0,0) SRC4_UB(0,0)\n" \
+        "}\n" \
+        : "+rw"(d) : "rw"(a), "rw"(b), "rw"(sfa), "rw"(sfb), "P"(sfa_offset), "P"(sfb_offset), "P"(SFASize * 16), "P"(SFBSize * 16) \
+      ); \
+    } else { \
+      asm ( \
+        "{\n" \
+        DECL_BDPAS_PARAMS(TD) \
+        ".decl SRC0    v_type=G type=" #TC " num_elts=128 alias=<%9,0>\n" \
+        "bdpas." #TB "." #TA ".8.8 (M1, 16) DST.0 SRC0.0 SRC1_UD.0 SRC2_UD.0 SRC3_UB(0,0) SRC4_UB(0,0)\n" \
+        "}\n" \
+        : "+rw"(d) : "rw"(a), "rw"(b), "rw"(sfa), "rw"(sfb), "P"(sfa_offset), "P"(sfb_offset), "P"(SFASize * 16), "P"(SFBSize * 16), "rw"(c) \
+      ); \
+    } \
+  } \
+};
+
 #else /* !defined(CUTE_ARCH_MMA_XE_ENABLED) */
 
 #define CUTE_DECLARE_XE_DPAS_TT(TD, TA, TB, TC) \
@@ -124,13 +201,31 @@ template <int M> struct XE_DPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::T
   using BVector = typename Base::BVector; \
   using CVector = typename Base::CVector; \
   using DVector = typename Base::DVector; \
+  template <bool NoAcc = false, typename CVector_ = CVector> \
   CUTE_HOST_DEVICE static void \
-  fma(DVector& d, AVector const& a, BVector const& b, CVector const& c) { \
+  fma(DVector& d, AVector const& a, BVector const& b, CVector_ const& c) { \
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe DPAS MMA atom on non-Xe hardware"); \
   } \
 };
-#endif
 
+#define CUTE_DECLARE_XE_BDPAS_TT(TD, TA, TB, TC) \
+template <int M> struct XE_BDPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::TB, dpas_type::TC> \
+  : public XE_DPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::TB, dpas_type::TC> { \
+  using Base = XE_DPAS_TT<M, dpas_type::TD, dpas_type::TA, dpas_type::TB, dpas_type::TC>; \
+  using AVector = typename Base::AVector; \
+  using BVector = typename Base::BVector; \
+  using CVector = typename Base::CVector; \
+  using DVector = typename Base::DVector; \
+  template <bool NoAcc = false, \
+            typename CVector_ = CVector, \
+            typename SFAVector_, \
+            typename SFBVector_> \
+  CUTE_HOST_DEVICE static void \
+  fma(DVector& d, AVector const& a, BVector const& b, CVector_ const& c, SFAVector_ const& sfa, SFBVector_ const& sfb, uint16_t sfa_offset, uint16_t sfb_offset) { \
+    CUTE_INVALID_CONTROL_PATH("Cannot use Xe BDPAS MMA atom on non-Xe hardware"); \
+  } \
+};
+#endif
 
 CUTE_DECLARE_XE_DPAS_TT(f,   tf32, tf32, f)
 
@@ -150,6 +245,46 @@ CUTE_DECLARE_XE_DPAS_TT(d,   u8,   s8,   d)
 CUTE_DECLARE_XE_DPAS_TT(d,   s8,   u8,   d)
 CUTE_DECLARE_XE_DPAS_TT(d,   s8,   s8,   d)
 
+CUTE_DECLARE_XE_DPAS_TT(ud,  u4,   u4,   ud)
+CUTE_DECLARE_XE_DPAS_TT(d,   u4,   u4,   d)
+CUTE_DECLARE_XE_DPAS_TT(d,   u4,   s4,   d)
+CUTE_DECLARE_XE_DPAS_TT(d,   s4,   u4,   d)
+CUTE_DECLARE_XE_DPAS_TT(d,   s4,   s4,   d)
+
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+
+CUTE_DECLARE_XE_DPAS_TT(f,   bf8,   bf8,   f)
+CUTE_DECLARE_XE_DPAS_TT(bf,  bf8,   bf8,   bf)
+CUTE_DECLARE_XE_DPAS_TT(f,   hf8,   hf8,   f)
+CUTE_DECLARE_XE_DPAS_TT(bf,  hf8,   hf8,   bf)
+CUTE_DECLARE_XE_DPAS_TT(bf,  hf8,   bf8,   bf)
+CUTE_DECLARE_XE_DPAS_TT(bf,  bf8,   hf8,   bf)
+CUTE_DECLARE_XE_DPAS_TT(f,  hf8,   bf8,   f)
+CUTE_DECLARE_XE_DPAS_TT(f,  bf8,   hf8,   f)
+
+CUTE_DECLARE_XE_DPAS_TT(f,  e2m1,   e2m1,   f)
+CUTE_DECLARE_XE_DPAS_TT(bf,  e2m1,   e2m1,   bf)
+
+CUTE_DECLARE_XE_BDPAS_TT(f,   bf,   bf,   f)
+CUTE_DECLARE_XE_BDPAS_TT(bf,  bf,   bf,   bf)
+CUTE_DECLARE_XE_BDPAS_TT(f,   hf,   hf,   f)
+CUTE_DECLARE_XE_BDPAS_TT(hf,  hf,   hf,   hf)
+
+CUTE_DECLARE_XE_BDPAS_TT(f,   bf8,   bf8,   f)
+CUTE_DECLARE_XE_BDPAS_TT(bf,  bf8,   bf8,   bf)
+CUTE_DECLARE_XE_BDPAS_TT(f,   hf8,   hf8,   f)
+CUTE_DECLARE_XE_BDPAS_TT(bf,  hf8,   hf8,   bf)
+CUTE_DECLARE_XE_BDPAS_TT(bf,  hf8,   bf8,   bf)
+CUTE_DECLARE_XE_BDPAS_TT(bf,  bf8,   hf8,   bf)
+CUTE_DECLARE_XE_BDPAS_TT(f,  hf8,   bf8,   f)
+CUTE_DECLARE_XE_BDPAS_TT(f,  bf8,   hf8,   f)
+
+CUTE_DECLARE_XE_BDPAS_TT(f,  e2m1,   e2m1,   f)
+CUTE_DECLARE_XE_BDPAS_TT(bf,  e2m1,   e2m1,   bf)
+
+#else
+
+// Skip int8 x int4 for CRI as the dpas is removed.
 CUTE_DECLARE_XE_DPAS_TT(ud,  u8,   u4,   ud)
 CUTE_DECLARE_XE_DPAS_TT(d,   u8,   u4,   d)
 CUTE_DECLARE_XE_DPAS_TT(d,   u8,   s4,   d)
@@ -162,12 +297,9 @@ CUTE_DECLARE_XE_DPAS_TT(d,   u4,   s8,   d)
 CUTE_DECLARE_XE_DPAS_TT(d,   s4,   u8,   d)
 CUTE_DECLARE_XE_DPAS_TT(d,   s4,   s8,   d)
 
-CUTE_DECLARE_XE_DPAS_TT(ud,  u4,   u4,   ud)
-CUTE_DECLARE_XE_DPAS_TT(d,   u4,   u4,   d)
-CUTE_DECLARE_XE_DPAS_TT(d,   u4,   s4,   d)
-CUTE_DECLARE_XE_DPAS_TT(d,   s4,   u4,   d)
-CUTE_DECLARE_XE_DPAS_TT(d,   s4,   s4,   d)
+#endif
 
 #undef CUTE_DECLARE_XE_DPAS_TT
+#undef CUTE_DECLARE_XE_BDPAS_TT
 
 } //namespace cute

@@ -26,10 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# Skip in CRI mode - no matching input file for prefill_cachedKV
+if(CUTLASS_TEST_FOR_CRI AND SYCL_TARGET_INTEL_GPU_CRI)
+  return()
+endif()
+
 set(CUTLASS_APPLICATIONS_DIR ${CUTLASS_DIR}/applications)
 
 # Pass these configuration files for the CI
-set(CONFIG_FILE_BMG --config_file=${CUTLASS_DIR}/benchmarks/device/bmg/input_files/input_sglang_flash_attention_prefill_extend_kvcache.in)
+set(CONFIG_FILE_BMG --config_file=${CUTLASS_DIR}/benchmarks/device/bmg/input_files/legacy/input_sglang_flash_attention_prefill_extend_kvcache.in)
 
 cutlass_benchmark_add_suite(cutlass_benchmarks_flash_attention_prefill_cachedkv_legacy
                             SUPERSUITE cutlass_benchmarks_flash_attention_legacy)

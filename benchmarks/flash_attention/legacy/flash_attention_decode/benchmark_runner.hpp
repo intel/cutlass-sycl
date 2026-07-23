@@ -69,7 +69,7 @@ struct FMHADecodeOptions {
 
   FMHADecodeOptions()
       : error(false), batch(32), num_heads_q(16), num_heads_kv(16), seq_len_qo(1), head_size_qk(128),
-        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), softmax_scale(1.f), bm_name("Flash Attention v2 Decode") {}
+        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(ITERATIONS), softmax_scale(1.f), bm_name("Flash Attention v2 Decode") {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -84,7 +84,7 @@ struct FMHADecodeOptions {
     cmd.get_cmd_line_argument("page_size", page_size, 128);
     cmd.get_cmd_line_argument("head_size_vo", head_size_vo, 128);
     cmd.get_cmd_line_argument("head_size_qk", head_size_qk, head_size_vo);
-    cmd.get_cmd_line_argument("iterations", iterations, 100);
+    cmd.get_cmd_line_argument("iterations", iterations, ITERATIONS);
     cmd.get_cmd_line_argument("bm_name", bm_name, std::string("Flash Attention v2"));
 
     softmax_scale = 1 / std::sqrt(static_cast<float>(head_size_qk));
@@ -680,6 +680,9 @@ template <class FMHADecodeConfiguration> struct BenchmarkRunnerFMHADecode {
 
     typename FMHADecodeKernel::Params params = FMHADecodeKernel::to_underlying_arguments(arguments, workspace.get());
 
+#ifdef CUTLASS_TEST_FOR_CRI
+    // disable warmup run and verification for CRI simulator as it's time-consuming
+#else
     // Run the GEMM
     run(params);
 
@@ -690,6 +693,7 @@ template <class FMHADecodeConfiguration> struct BenchmarkRunnerFMHADecode {
     if(not passed) {
       state.SkipWithError("Disposition Failed.");
     }
+#endif
 
     state.counters["batch"] = options.batch;
     state.counters["num_heads_q"] = options.num_heads_q;

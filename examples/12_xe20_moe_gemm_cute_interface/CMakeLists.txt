@@ -26,10 +26,20 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_CRI_ARGS "--n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --num_layers=2 --verify=${CRI_DEFAULT_VERIFY}")
+  set(MOE_GEMM_ARGS TEST_CRI_ARGS)
+else()
+  set(TEST_LARGE "--n=2880 --k=2880 --num_layers=24")
+  set(MOE_GEMM_ARGS TEST_LARGE)
+endif()
+
 if(NOT "${DPCPP_HOST_COMPILER}" MATCHES "g\\+\\+")
   cutlass_example_add_executable(
     12_xe20_moe_gemm_cute_interface
     12_xe20_moe_gemm_cute_interface.cpp
+    TEST_COMMAND_OPTIONS
+    ${MOE_GEMM_ARGS}
   )
   if(NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
     target_link_options( 12_xe20_moe_gemm_cute_interface PRIVATE -Xs "-options \"-igc_opts 'VectorAliasBBThreshold=10000'\"" )

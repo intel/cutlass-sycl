@@ -1,0 +1,11 @@
+# Flash attention decode fp8
+
+# fp8 - hdim64, plain FixedLen matching the example
+CriFMHADecode_E5M2_E5M2_E5M2_BF16_RCR_h64_NonCausal_FixedLen --bm_name=attention_decode_fp8 --batch=1 --seq_len_qo=1 --seq_len_kv=256 --num_heads_q=4 --num_heads_kv=4 --head_size_qk=64 --head_size_vo=64
+
+# fp8 - hdim128, tile shape aligned with develop decode (KV_TILE=512, NUM_SG=8)
+CriFMHADecode_E4M3_E4M3_E4M3_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_decode_fp8 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHADecode_E4M3_E4M3_E4M3_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_decode_fp8 --batch=1 --num_heads_q=16 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128
+CriFMHADecode_E4M3_E4M3_E4M3_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_Causal_FixedLen --bm_name=attention_decode_fp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=1 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128
+CriFMHADecode_E5M2_E5M2_E5M2_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_decode_fp8 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+CriFMHADecode_E5M2_E5M2_E5M2_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_Causal_FixedLen --bm_name=attention_decode_fp8 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=1 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128

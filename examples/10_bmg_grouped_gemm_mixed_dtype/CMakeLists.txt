@@ -26,11 +26,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set(TEST_GROUPS --groups=2)
-set(TEST_MODE_1 --groups=2 --mode=1)
-set(TEST_MODE_0 --groups=2 --mode=0)
-set(TEST_A_NARROW --groups=2 --a_narrower)
-set(TEST_GROUP_DEQUANT --g=128)
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_BASE "--m=${CRI_GEMM_DEFAULT_SIZE} --n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+  set(DEFAULT_K ${CRI_GEMM_DEFAULT_SIZE})
+else()
+  set(TEST_BASE "")
+  set(DEFAULT_K 4096)  # Must match the default k in bmg_grouped_gemm_mixed_dtype_runner.hpp
+endif()
+
+set(TEST_GROUPS ${TEST_BASE} --groups=2)
+set(TEST_MODE_1 ${TEST_BASE} --groups=2 --mode=1)
+set(TEST_MODE_0 ${TEST_BASE} --groups=2 --mode=0)
+set(TEST_A_NARROW ${TEST_BASE} --groups=2 --a_narrower)
+set(TEST_GROUP_DEQUANT ${TEST_BASE} --g=128)
 
 set(MMA_T bfloat16_t half_t)
 set(QUANT_T int8_t)
@@ -38,15 +46,19 @@ set(EXE_LIST "")
 
 foreach(MMA_TYPE IN LISTS MMA_T)
   set(mma_name "10_bmg_grouped_gemm_bf16")
-  if(${MMA_TYPE} STREQUAL "half_t")
+  if (${MMA_TYPE} STREQUAL "half_t")
     set(mma_name "10_bmg_grouped_gemm_f16")
   endif()
   foreach(QUANT_TYPE IN LISTS QUANT_T)
     set(exe_name "${mma_name}_s8")
-    if(${MMA_TYPE} STREQUAL "half_t" AND ${QUANT_TYPE} STREQUAL "int8_t")
+    if (${MMA_TYPE} STREQUAL "half_t" AND ${QUANT_TYPE} STREQUAL "int8_t")
       set(exe_name "${mma_name}_s8_tensorwise")
-      set(TEST_GROUP_DEQUANT --g=0)
-      set(TEST_A_NARROW --groups=2)
+      if (NOT CUTLASS_TEST_FOR_CRI)
+        # Tensorwise dequantization: --g=K means one scale per entire K dimension.
+        # --g=0 is no longer accepted (causes division-by-zero in the kernel).
+        set(TEST_GROUP_DEQUANT ${TEST_BASE} --g=${DEFAULT_K}) 
+      endif()
+      set(TEST_A_NARROW ${TEST_BASE} --groups=2)
     endif()
 
     cutlass_example_add_executable(
@@ -64,6 +76,10 @@ foreach(MMA_TYPE IN LISTS MMA_T)
   endforeach()
 endforeach()
 
+# Reset TEST_GROUP_DEQUANT to default after the foreach loop, since the
+# f16_s8_tensorwise case may have overridden it to --g=4096 (tensorwise).
+set(TEST_GROUP_DEQUANT ${TEST_BASE} --g=128)
+
 cutlass_example_add_executable(
   10_bmg_grouped_gemm_f16_u4
   10_bmg_grouped_gemm_f16_u4.cpp
@@ -74,8 +90,7 @@ cutlass_example_add_executable(
   TEST_A_NARROW
   TEST_GROUP_DEQUANT
 )
-
-if(NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
+if (NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
   # TODO(codeplay): Remove these once IGC block load loop hoisting bug is fixed
   foreach(target_exe IN LISTS EXE_LIST)
     target_link_options(${target_exe} PRIVATE -Xs "-options \"-igc_opts 'allowDecompose2DBlockFuncs=0'\"" )

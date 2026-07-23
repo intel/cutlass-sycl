@@ -1,0 +1,13 @@
+#############################################################################
+### Benchmarks for a small scope ###
+#############################################################################
+
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=bmg_group_mm --m=1024 --n=1024 --k=1024
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=bmg_group_mm --m=2048 --n=2048 --k=2048
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=bmg_group_mm --m=4096 --n=4096 --k=4096
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=bmg_group_mm --m=512 --n=256 --k=1024
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=bmg_group_mm --m=512 --n=256 --k=2048
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=bmg_group_mm --m=512 --n=256 --k=4096
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_512_256_32 --bm_name=bmg_group_mm --m=512 --n=256 --k=8192
+# === Grouped GEMM BF16 TileShape 256x256x32 (synced from example 04_bmg_grouped_gemm) ===
+BmgGroupedGemmBF16BF16FP32_RRR_TileShape_256_256_32 --bm_name=bmg_group_mm --m=1024 --n=1024 --k=1024

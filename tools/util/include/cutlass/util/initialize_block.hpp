@@ -60,7 +60,7 @@ template<class T, class = void>
 auto max_for_test = T(1 << cute::ceil_div(digits<T> , 4));
 
 template<class T>
-auto max_for_test<T, std::enable_if_t<cute::sizeof_bits_v<T> < 8>> = T(cutlass::platform::numeric_limits<T>::max() / 2);
+auto max_for_test<T, std::enable_if_t<cute::sizeof_bits_v<T> < 8>> = T(cutlass::platform::numeric_limits<T>::max() / T(2));
 
 /// Helper to initialize a block of device data
 template <class Element, class... Args_t>
@@ -80,7 +80,11 @@ bool initialize_block(Element* block, std::size_t size, uint64_t seed, Args_t&&.
   }
 
   if constexpr (cute::sizeof_bits_v<Element> >= 8) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+    cutlass::reference::device::BlockFillRandomUniformCopyFromHost(block, size, seed, scope_max, scope_min, 0);
+#else
     cutlass::reference::device::BlockFillRandomUniform(block, size, seed, scope_max, scope_min, 0);
+#endif
   } else {
     std::uniform_int_distribution<> dist(scope_min, scope_max);
 

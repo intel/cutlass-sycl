@@ -99,7 +99,11 @@ enum class CacheControl {
 
 // 8bits No transform No transpose
 SYCL_DEVICE_BUILTIN(
-    cute::intel::uchar __builtin_IB_subgroup_block_read_flat_u8_m1k16v1(
+    cute::intel::uchar2 __builtin_IB_subgroup_block_read_flat_u8_m1k16v1(
+        intptr_t baseoffset, int width_minus_one, int height_minus_one,
+        int pitch_minus_one, cute::intel::coord_t coord));
+SYCL_DEVICE_BUILTIN(
+    cute::intel::uchar2 __builtin_IB_subgroup_block_read_flat_u8_m2k16v1(
         intptr_t baseoffset, int width_minus_one, int height_minus_one,
         int pitch_minus_one, cute::intel::coord_t coord));
 SYCL_DEVICE_BUILTIN(
@@ -206,6 +210,9 @@ SYCL_DEVICE_BUILTIN(void __builtin_IB_subgroup_block_write_flat_u8_m8k16v2(
     int pitch_minus_one, cute::intel::coord_t coord, cute::intel::uchar8));
 
 SYCL_DEVICE_BUILTIN(void __builtin_IB_subgroup_block_read_prefetch_u8_m1k16v1(
+    long baseoffset, int width_minus_one, int height_minus_one,
+    int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control));
+SYCL_DEVICE_BUILTIN(void __builtin_IB_subgroup_block_read_prefetch_u8_m2k16v1(
     long baseoffset, int width_minus_one, int height_minus_one,
     int pitch_minus_one, cute::intel::coord_t coord, enum CacheControl cache_control));
 SYCL_DEVICE_BUILTIN(void __builtin_IB_subgroup_block_read_prefetch_u8_m1k32v1(
@@ -505,8 +512,29 @@ struct XeSubgroup2DBlockLoad<1, 16, 1, 1> {
     CUTE_HOST_DEVICE void
     operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
             cute::intel::coord_t coordinate, T* dstPointer) {
-        *reinterpret_cast<cute::intel::uchar *>(dstPointer) =  __builtin_IB_subgroup_block_read_flat_u8_m1k16v1(
+        // To resolve the GRF alignment issue when the data is smaller than the
+        // register size, we use a temporary local variable of which the size is
+        // a full GRF and memcpy it to the dst.
+        intel::uchar2 dst;
+        dst =  __builtin_IB_subgroup_block_read_flat_u8_m1k16v1(
            (intptr_t)(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
+        std::memcpy(dstPointer, &dst, 1);
+    }
+};
+
+template<>
+struct XeSubgroup2DBlockLoad<1, 16, 2, 1> {
+    template<typename T>
+    CUTE_HOST_DEVICE void
+    operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
+            cute::intel::coord_t coordinate, T* dstPointer) {
+        // To resolve the GRF alignment issue when the data is smaller than the
+        // register size, we use a temporary local variable of which the size is
+        // a full GRF and memcpy it to the dst.
+        intel::uchar2 dst;
+        dst =  __builtin_IB_subgroup_block_read_flat_u8_m2k16v1(
+           (intptr_t)(srcBasePointer), memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate);
+        std::memcpy(dstPointer, &dst, 1);
     }
 };
 
@@ -792,6 +820,16 @@ struct XeSubgroup2DBlockPrefetch<1, 16, 1, 1> {
     operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
             cute::intel::coord_t coordinate) {
         __builtin_IB_subgroup_block_read_prefetch_u8_m1k16v1(
+            (intptr_t)srcBasePointer, memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate, CacheControl::kL1C_L3C);
+    }
+};
+
+template<>
+struct XeSubgroup2DBlockPrefetch<1, 16, 2, 1> {
+    CUTE_HOST_DEVICE void
+    operator()(const void* srcBasePointer, int memoryWidth, int memoryHeight, int memoryPitch,
+            cute::intel::coord_t coordinate) {
+        __builtin_IB_subgroup_block_read_prefetch_u8_m2k16v1(
             (intptr_t)srcBasePointer, memoryWidth - 1, memoryHeight - 1, memoryPitch - 1, coordinate, CacheControl::kL1C_L3C);
     }
 };

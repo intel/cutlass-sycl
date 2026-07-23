@@ -132,10 +132,20 @@ void initialize_conversion_source(cutlass::host_vector<SrcType>& host_src) {
       host_src[i] = static_cast<SrcType>(i) * 0.5f;
     } else if constexpr (std::is_same_v<SrcType, half_t>) {
       host_src[i] = half_t(static_cast<float>(i) * 0.5f);
+    } else if constexpr (std::is_same_v<SrcType, bfloat16_t>) {
+      host_src[i] = bfloat16_t(static_cast<float>(i) * 0.5f);
     } else if constexpr (std::is_same_v<SrcType, int32_t>) {
       host_src[i] = static_cast<SrcType>(i);
     } else if constexpr (std::is_same_v<SrcType, int8_t>) {
       host_src[i] = static_cast<SrcType>(i % 128);
+    } else if constexpr (std::is_same_v<SrcType, cutlass::float_e5m2_t> || 
+                         std::is_same_v<SrcType, cutlass::float_e4m3_t> ||
+                         std::is_same_v<SrcType, cutlass::float_e2m1_t>) {
+      host_src[i] = static_cast<SrcType>(static_cast<float>(i % 16) * 0.5f);
+    } else if constexpr (std::is_same_v<SrcType, uint4_t>) {
+      host_src[i] = static_cast<SrcType>(i % 16);
+    } else if constexpr (std::is_same_v<SrcType, int4_t>) {
+      host_src[i] = static_cast<SrcType>((i % 16) - 8);
     }
   }
 }
@@ -534,6 +544,51 @@ TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_half_to_float) {
   ConversionSubgroupTest<half_t, float, 8, 16, 203>::run();
 }
 
+// Test: float to bfloat16_t conversion
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_float_to_bfloat16) {
+  ConversionSubgroupTest<float, bfloat16_t, 8, 16, 204>::run();
+}
+
+// Test: half to fp8
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_half_to_e5m2) {
+  ConversionSubgroupTest<half_t, cutlass::float_e5m2_t, 8, 16, 205>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_half_to_e4m3) {
+  ConversionSubgroupTest<half_t, cutlass::float_e4m3_t, 8, 16, 206>::run();
+}
+
+// Test: bfloat16 to fp8
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_bfloat16_to_e5m2) {
+  ConversionSubgroupTest<bfloat16_t, cutlass::float_e5m2_t, 8, 16, 207>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_bfloat16_to_e4m3) {
+  ConversionSubgroupTest<bfloat16_t, cutlass::float_e4m3_t, 8, 16, 208>::run();
+}
+
+// Test: fp8 to half/bf16
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_e5m2_to_half) {
+  ConversionSubgroupTest<cutlass::float_e5m2_t, half_t, 8, 16, 209>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_e4m3_to_half) {
+  ConversionSubgroupTest<cutlass::float_e4m3_t, half_t, 8, 16, 210>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_e5m2_to_bfloat16) {
+  ConversionSubgroupTest<cutlass::float_e5m2_t, bfloat16_t, 8, 16, 211>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_e4m3_to_bfloat16) {
+  ConversionSubgroupTest<cutlass::float_e4m3_t, bfloat16_t, 8, 16, 212>::run();
+}
+
+// Test: float to fp8
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_float_to_e5m2) {
+  ConversionSubgroupTest<float, cutlass::float_e5m2_t, 8, 16, 213>::run();
+}
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_float_to_e4m3) {
+  ConversionSubgroupTest<float, cutlass::float_e4m3_t, 8, 16, 214>::run();
+}
+#endif
+
 // ============================================================================
 // Cross-Type Conversion Tests (Tensor-based)
 // ============================================================================
@@ -559,6 +614,51 @@ TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_float_to_int32) {
 TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_half_to_float) {
   ConversionTensorTest<half_t, float, 8, 16, 303>::run();
 }
+
+// Test: float to bfloat16_t conversion
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_float_to_bfloat16) {
+  ConversionTensorTest<float, bfloat16_t, 8, 16, 304>::run();
+}
+
+// Test: half to fp8
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_half_to_e5m2) {
+  ConversionTensorTest<half_t, cutlass::float_e5m2_t, 8, 16, 305>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_half_to_e4m3) {
+  ConversionTensorTest<half_t, cutlass::float_e4m3_t, 8, 16, 306>::run();
+}
+
+// Test: bfloat16 to fp8
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_bfloat16_to_e5m2) {
+  ConversionTensorTest<bfloat16_t, cutlass::float_e5m2_t, 8, 16, 307>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_bfloat16_to_e4m3) {
+  ConversionTensorTest<bfloat16_t, cutlass::float_e4m3_t, 8, 16, 308>::run();
+}
+
+// Test: fp8 to half/bf16
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_e5m2_to_half) {
+  ConversionTensorTest<cutlass::float_e5m2_t, half_t, 8, 16, 309>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_e4m3_to_half) {
+  ConversionTensorTest<cutlass::float_e4m3_t, half_t, 8, 16, 310>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_e5m2_to_bfloat16) {
+  ConversionTensorTest<cutlass::float_e5m2_t, bfloat16_t, 8, 16, 311>::run();
+}
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_e4m3_to_bfloat16) {
+  ConversionTensorTest<cutlass::float_e4m3_t, bfloat16_t, 8, 16, 312>::run();
+}
+
+// Test: float to fp8
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_float_to_e5m2) {
+  ConversionTensorTest<float, cutlass::float_e5m2_t, 8, 16, 313>::run();
+}
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_float_to_e4m3) {
+  ConversionTensorTest<float, cutlass::float_e4m3_t, 8, 16, 314>::run();
+}
+#endif
 
 // ============================================================================
 // Sub-byte Type Conversion Tests (Expected Failures)

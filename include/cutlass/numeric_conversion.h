@@ -564,15 +564,7 @@ struct NumericConverter<cutlass::bfloat16_t, float, FloatRoundStyle::round_to_ne
 
   CUTLASS_HOST_DEVICE
   static result_type convert(source_type const & s) {
-    #if defined(__INTEL_LLVM_COMPILER) && (__INTEL_LLVM_COMPILER < 20250200) && defined(__SYCL_DEVICE_ONLY__)
-    // Temporary patch to avoid linking in the devicelib fallback unconditionally.
-    // This is the work around to fix performance regression in 2025.1 
-    result_type res;
-    res.storage=(__spirv_ConvertFToBF16INTEL(s));
-    return res;
-    #else
     return static_cast<cutlass::bfloat16_t>(s);
-    #endif
   }
 
   CUTLASS_HOST_DEVICE
@@ -1058,6 +1050,37 @@ struct NumericArrayConverter<cutlass::half_t, float, N, Round> {
   }
 };
 
+#if defined(SYCL_INTEL_XE4_TARGET)
+template <
+  int N,
+  FloatRoundStyle Round
+>
+struct NumericArrayConverter<sycl::half, float, N, Round> {
+
+  using result_type = Array<sycl::half, N>;
+  using source_type = Array<float, N>;
+  static FloatRoundStyle const round_style = Round;
+
+  CUTLASS_HOST_DEVICE
+  static result_type convert(source_type const & source) {
+    result_type result;
+
+    uint32_t *result_ptr = reinterpret_cast<uint32_t *>(&result);
+    copy_cvt_pack<sycl::half, N>(result_ptr, source.data());
+
+    if (N % 2) {
+      result[N - 1] = source[N - 1];
+    }
+
+    return result;
+  }
+
+  CUTLASS_HOST_DEVICE
+  result_type operator()(source_type const &s) const {
+    return convert(s);
+  }
+};
+#endif
 
 /// Partial specialization for Array<half> <= Array<float>
 template <
@@ -4184,8 +4207,20 @@ struct NumericArrayConverter<int8_t, float, N, Round> {
 
   CUTLASS_HOST_DEVICE
   static result_type convert(source_type const & source) {
+#if defined(SYCL_INTEL_XE4_TARGET) && defined(__SYCL_DEVICE_ONLY__)
+    result_type result;
+
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < N; ++i) {
+      int8_t temp;
+      asm volatile("f2i.s8.f %0, %1;" : "=r"(temp) : "r"(source[i]));
+      result[i] = temp;
+    }
+    return result;
+#else
     NumericArrayFP32ToIntConverter<int8_t, N, Round> converter;
     return converter(source);
+#endif
   }
 
   CUTLASS_HOST_DEVICE
@@ -7103,6 +7138,51 @@ public:
 };
 
 #endif // defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)
+
+#if defined(SYCL_INTEL_XE4_TARGET)
+
+template <typename ResultType, typename SourceType, int N>
+inline void xe4_convert_with_gtp_optimized(Array<SourceType, N> const& source, Array<ResultType, N>& result) {
+  using PackedType = uint32_t;
+
+  PackedType packed_source[N*sizeof(SourceType)/sizeof(PackedType)];
+  pack_data<N>(&packed_source[0], source.data());
+
+  PackedType packed_result[N*sizeof(ResultType)/sizeof(PackedType)];
+  gtp_tcvd<ResultType, SourceType, N, PackedType>(&packed_result[0], &packed_source[0]);
+
+  unpack_data<N>(result.data(), &packed_result[0]);
+}
+
+#define XE4_DEFINE_NUMERIC_ARRAY_CONVERTER(ResultType, SourceType) \
+template <FloatRoundStyle Round, int N> \
+struct NumericArrayConverter<ResultType, SourceType, N, Round> { \
+  using result_type = Array<ResultType, N>; \
+  using source_type = Array<SourceType, N>; \
+  static FloatRoundStyle const round_style = Round; \
+\
+public: \
+  CUTLASS_DEVICE \
+  static result_type convert(source_type const &source) { \
+    result_type result; \
+    xe4_convert_with_gtp_optimized(source, result); \
+    return result; \
+  } \
+\
+  CUTLASS_DEVICE \
+  result_type operator()(source_type const &s) const { \
+    return convert(s); \
+  } \
+};
+
+XE4_DEFINE_NUMERIC_ARRAY_CONVERTER(bf8, bf16)
+XE4_DEFINE_NUMERIC_ARRAY_CONVERTER(hf8, bf16)
+// XE4_DEFINE_NUMERIC_ARRAY_CONVERTER(fp4_e3m0, bf16)
+XE4_DEFINE_NUMERIC_ARRAY_CONVERTER(bf8, fp16)
+XE4_DEFINE_NUMERIC_ARRAY_CONVERTER(hf8, fp16)
+// XE4_DEFINE_NUMERIC_ARRAY_CONVERTER(fp4_e3m0, fp16)
+
+#endif // defined(SYCL_INTEL_XE4_TARGET)
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 

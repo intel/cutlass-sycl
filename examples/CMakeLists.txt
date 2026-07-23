@@ -95,9 +95,15 @@ endfunction()
 # =============================================================================
 # This CMakeLists.txt builds SYCL-based examples for CUTLASS.
 
-if(CUTLASS_ENABLE_SYCL)
+if (CUTLASS_TEST_FOR_CRI)
+  set(CRI_GEMM_DEFAULT_SIZE 256 CACHE INTERNAL "Default GEMM matrix dimensions (256, 256, 256) for CRI tests")
+  set(CRI_DEFAULT_ITERATIONS 0 CACHE INTERNAL "Number of iterations for CRI tests (0=single run)")
+  set(CRI_DEFAULT_VERIFY 0 CACHE STRING "Enable verification in CRI tests (0=skip, 1=verify)")
+endif()
+
+if (CUTLASS_ENABLE_SYCL)
   message(STATUS "Building CUTLASS SYCL Examples")
-  if(SYCL_INTEL_TARGET)
+  if (SYCL_INTEL_TARGET)
     message(STATUS "Building examples for Intel GPU targets")
     foreach(EXAMPLE
       00_bmg_gemm
@@ -121,6 +127,8 @@ if(CUTLASS_ENABLE_SYCL)
       11_xe20_cutlass_library
       12_xe20_moe_gemm_cute_interface
       13_bmg_gemm_bias
+      50_xe35_block_scaled_gemm
+      51_xe35_block_scaled_grouped_gemm
       )
       add_subdirectory(${EXAMPLE})
     endforeach()

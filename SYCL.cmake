@@ -70,6 +70,14 @@ function(cutlass_add_executable NAME)
 
   add_executable(${NAME} ${TARGET_SOURCE_ARGS})
 
+  # Two-tier parallelism: route memory-heavy FA/FMHA compiles into a constrained Ninja
+  # job pool (depth set by CUTLASS_HEAVY_BUILD_JOBS) so they cannot all land at once and
+  # thrash memory. Matched by source directory so it covers FA across test/benchmark/example
+  # subtrees regardless of target naming. Add |group_gemm|block_scaled here to include those.
+  if(CUTLASS_HEAVY_BUILD_JOBS GREATER 0 AND CMAKE_CURRENT_SOURCE_DIR MATCHES "flash_attention|fmha")
+    set_target_properties(${NAME} PROPERTIES JOB_POOL_COMPILE heavy_compile)
+  endif()
+
   cutlass_apply_standard_compile_options(${NAME})
   target_compile_features(
     ${NAME}

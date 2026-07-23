@@ -138,6 +138,10 @@ struct Agnostic {
   static int const kMinComputeCapability = 1;
 };
 
+struct Xe4 {
+  static int const kMinComputeCapability = -1;
+};
+
 #endif
 
 struct Sm103 {

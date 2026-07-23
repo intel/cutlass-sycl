@@ -93,120 +93,67 @@ broadcast(FragX const& x, SGTensorSrc const& src, int val)
     return group_broadcast(sg, x(coord_i / intel::sg_size), coord_i % intel::sg_size);
   }
 }
-
+using float16v = intel::vector_t<float, 16>;
+using float8v  = intel::vector_t<float, 8>;
 #if defined(__SYCL_DEVICE_ONLY__) && defined(SYCL_INTEL_TARGET)
 #define DEFINE_HREDUCE16_FLOAT(op) \
   CUTE_DEVICE \
   float \
-  hreduce16_float_ ## op(float x[16]) \
+  hreduce16_float_ ## op(float16v x) \
   { \
     float y; \
     asm ( \
       "{\n" \
-      ".decl INTERLEAVE_2 v_type=P num_elts=16\n" \
-      ".decl INTERLEAVE_4 v_type=P num_elts=16\n" \
-      ".decl INTERLEAVE_8 v_type=P num_elts=16\n" \
-      ".decl IN0 v_type=G type=UD num_elts=16 alias=<%1,0>\n" \
-      ".decl IN1 v_type=G type=UD num_elts=16 alias=<%2,0>\n" \
-      ".decl IN2 v_type=G type=UD num_elts=16 alias=<%3,0>\n" \
-      ".decl IN3 v_type=G type=UD num_elts=16 alias=<%4,0>\n" \
-      ".decl IN4 v_type=G type=UD num_elts=16 alias=<%5,0>\n" \
-      ".decl IN5 v_type=G type=UD num_elts=16 alias=<%6,0>\n" \
-      ".decl IN6 v_type=G type=UD num_elts=16 alias=<%7,0>\n" \
-      ".decl IN7 v_type=G type=UD num_elts=16 alias=<%8,0>\n" \
-      ".decl IN8 v_type=G type=UD num_elts=16 alias=<%9,0>\n" \
-      ".decl IN9 v_type=G type=UD num_elts=16 alias=<%10,0>\n" \
-      ".decl IN10 v_type=G type=UD num_elts=16 alias=<%11,0>\n" \
-      ".decl IN11 v_type=G type=UD num_elts=16 alias=<%12,0>\n" \
-      ".decl IN12 v_type=G type=UD num_elts=16 alias=<%13,0>\n" \
-      ".decl IN13 v_type=G type=UD num_elts=16 alias=<%14,0>\n" \
-      ".decl IN14 v_type=G type=UD num_elts=16 alias=<%15,0>\n" \
-      ".decl IN15 v_type=G type=UD num_elts=16 alias=<%16,0>\n" \
-      ".decl RA0 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA2 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA4 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA6 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA8 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA10 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA12 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA14 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RF0 v_type=G type=F num_elts=16 alias=<RA0,0>\n" \
-      ".decl RF1 v_type=G type=F num_elts=16 alias=<RA0,64>\n" \
-      ".decl RF2 v_type=G type=F num_elts=16 alias=<RA2,0>\n" \
-      ".decl RF3 v_type=G type=F num_elts=16 alias=<RA2,64>\n" \
-      ".decl RF4 v_type=G type=F num_elts=16 alias=<RA4,0>\n" \
-      ".decl RF5 v_type=G type=F num_elts=16 alias=<RA4,64>\n" \
-      ".decl RF6 v_type=G type=F num_elts=16 alias=<RA6,0>\n" \
-      ".decl RF7 v_type=G type=F num_elts=16 alias=<RA6,64>\n" \
-      ".decl RF8 v_type=G type=F num_elts=16 alias=<RA8,0>\n" \
-      ".decl RF9 v_type=G type=F num_elts=16 alias=<RA8,64>\n" \
-      ".decl RF10 v_type=G type=F num_elts=16 alias=<RA10,0>\n" \
-      ".decl RF11 v_type=G type=F num_elts=16 alias=<RA10,64>\n" \
-      ".decl RF12 v_type=G type=F num_elts=16 alias=<RA12,0>\n" \
-      ".decl RF13 v_type=G type=F num_elts=16 alias=<RA12,64>\n" \
-      ".decl RF14 v_type=G type=F num_elts=16 alias=<RA14,0>\n" \
-      ".decl RF15 v_type=G type=F num_elts=16 alias=<RA14,64>\n" \
-      "setp (M1_NM,16) INTERLEAVE_2 0x5555:uw\n" \
-      "setp (M1_NM,16) INTERLEAVE_4 0x3333:uw\n" \
-      "setp (M1_NM,16) INTERLEAVE_8 0x0F0F:uw\n" \
-      /* Round 1: interleave 2n with 2n+1 */ \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA0(0,0)<1>  IN1(0,0)<2;2,0>  IN0(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA0(1,0)<1>  IN0(0,1)<2;2,0>  IN1(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA2(0,0)<1>  IN3(0,0)<2;2,0>  IN2(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA2(1,0)<1>  IN2(0,1)<2;2,0>  IN3(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA4(0,0)<1>  IN5(0,0)<2;2,0>  IN4(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA4(1,0)<1>  IN4(0,1)<2;2,0>  IN5(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA6(0,0)<1>  IN7(0,0)<2;2,0>  IN6(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA6(1,0)<1>  IN6(0,1)<2;2,0>  IN7(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA8(0,0)<1>  IN9(0,0)<2;2,0>  IN8(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA8(1,0)<1>  IN8(0,1)<2;2,0>  IN9(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA10(0,0)<1> IN11(0,0)<2;2,0> IN10(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA10(1,0)<1> IN10(0,1)<2;2,0> IN11(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA12(0,0)<1> IN13(0,0)<2;2,0> IN12(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA12(1,0)<1> IN12(0,1)<2;2,0> IN13(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA14(0,0)<1> IN15(0,0)<2;2,0> IN14(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA14(1,0)<1> IN14(0,1)<2;2,0> IN15(0,0)<1;1,0>\n" \
-      /* Reduce */ \
-      #op " (M1_NM,16) RF0(0,0)<1> RF0(0,0)<1;1,0> RF1(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF3(0,0)<1> RF2(0,0)<1;1,0> RF3(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF4(0,0)<1> RF4(0,0)<1;1,0> RF5(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF7(0,0)<1> RF6(0,0)<1;1,0> RF7(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF8(0,0)<1> RF8(0,0)<1;1,0> RF9(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF11(0,0)<1> RF10(0,0)<1;1,0> RF11(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF12(0,0)<1> RF12(0,0)<1;1,0> RF13(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF15(0,0)<1> RF14(0,0)<1;1,0> RF15(0,0)<1;1,0>\n" \
-      /* Round 2: interleave 4n+{0,1} with 4n+{2,3} */ \
-      "(!INTERLEAVE_4) sel (M1_NM,16) RA0(1,0)<1>  RA2(0,14)<1;1,0>  RA0(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_4) sel (M1_NM,16) RA0(0,0)<1>  RA0(0,2)<1;1,0>   RA2(1,0)<1;1,0>\n" \
-      "(!INTERLEAVE_4) sel (M1_NM,16) RA4(1,0)<1>  RA6(0,14)<1;1,0>  RA4(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_4) sel (M1_NM,16) RA4(0,0)<1>  RA4(0,2)<1;1,0>   RA6(1,0)<1;1,0>\n" \
-      "(!INTERLEAVE_4) sel (M1_NM,16) RA8(1,0)<1>  RA10(0,14)<1;1,0> RA8(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_4) sel (M1_NM,16) RA8(0,0)<1>  RA8(0,2)<1;1,0>   RA10(1,0)<1;1,0>\n" \
-      "(!INTERLEAVE_4) sel (M1_NM,16) RA12(1,0)<1> RA14(0,14)<1;1,0> RA12(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_4) sel (M1_NM,16) RA12(0,0)<1> RA12(0,2)<1;1,0>  RA14(1,0)<1;1,0>\n" \
-      /* Reduce */ \
-      #op " (M1_NM,16) RF0(0,0)<1>  RF0(0,0)<1;1,0>  RF1(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF5(0,0)<1>  RF4(0,0)<1;1,0>  RF5(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF8(0,0)<1>  RF8(0,0)<1;1,0>  RF9(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF13(0,0)<1> RF12(0,0)<1;1,0> RF13(0,0)<1;1,0>\n" \
-      /* Round 3: interleave 8n+{0,1,2,3} with 8n+{4,5,6,7} */ \
-      "(!INTERLEAVE_8) sel (M1_NM,16) RA0(1,0)<1> RA4(0,12)<1;1,0>  RA0(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_8) sel (M1_NM,16) RA0(0,0)<1> RA0(0,4)<1;1,0>   RA4(1,0)<1;1,0>\n" \
-      "(!INTERLEAVE_8) sel (M1_NM,16) RA8(1,0)<1> RA12(0,12)<1;1,0> RA8(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_8) sel (M1_NM,16) RA8(0,0)<1> RA8(0,4)<1;1,0>   RA12(1,0)<1;1,0>\n" \
-      /* Reduce */ \
-      #op " (M1_NM,16) RF0(0,0)<1> RF0(0,0)<1;1,0> RF1(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF8(0,0)<1> RF8(0,0)<1;1,0> RF9(0,0)<1;1,0>\n" \
-      /* Round 4: final interleave */ \
-      "mov (M1_NM, 8) RA0(1,0)<1> RA0(0,8)<1;1,0>\n" \
-      "mov (M1_NM, 8) RA8(1,8)<1> RA8(0,0)<1;1,0>\n" \
-      /* Reduce */ \
-      #op " (M1_NM,8) %0(0,0)<1> RF0(0,0)<1;1,0> RF1(0,0)<1;1,0>\n" \
-      #op " (M1_NM,8) %0(0,8)<1> RF8(0,8)<1;1,0> RF9(0,8)<1;1,0>\n" \
+      ".decl X16_S v_type=G type=F num_elts=512 align=wordx32\n" \
+      ".decl X16_T v_type=G type=F num_elts=256 align=wordx32\n" \
+      "mov (M1_NM,16) X16_S(0,0)<1>   %1(0,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(1,0)<1>   %1(0,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(2,0)<1>   %1(2,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(3,0)<1>   %1(2,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(4,0)<1>   %1(4,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(5,0)<1>   %1(4,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(6,0)<1>   %1(6,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(7,0)<1>   %1(6,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(8,0)<1>   %1(8,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(9,0)<1>   %1(8,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X16_S(10,0)<1>  %1(10,0)<16;8,1>\n" \
+      "mov (M1_NM,16) X16_S(11,0)<1>  %1(10,8)<16;8,1>\n" \
+      "mov (M1_NM,16) X16_S(12,0)<1>  %1(12,0)<16;8,1>\n" \
+      "mov (M1_NM,16) X16_S(13,0)<1>  %1(12,8)<16;8,1>\n" \
+      "mov (M1_NM,16) X16_S(14,0)<1>  %1(14,0)<16;8,1>\n" \
+      "mov (M1_NM,16) X16_S(15,0)<1>  %1(14,8)<16;8,1>\n" \
+      #op " (M1_NM,16) X16_T(0,0)<1>  X16_S(0,0)<1;1,0>   X16_S(1,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X16_T(1,0)<1>  X16_S(2,0)<1;1,0>   X16_S(3,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X16_T(2,0)<1>  X16_S(4,0)<1;1,0>   X16_S(5,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X16_T(3,0)<1>  X16_S(6,0)<1;1,0>   X16_S(7,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X16_T(4,0)<1>  X16_S(8,0)<1;1,0>   X16_S(9,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X16_T(5,0)<1>  X16_S(10,0)<1;1,0>  X16_S(11,0)<1;1,0>\n" \
+      #op " (M1_NM,16) X16_T(6,0)<1>  X16_S(12,0)<1;1,0>  X16_S(13,0)<1;1,0>\n" \
+      #op " (M1_NM,16) X16_T(7,0)<1>  X16_S(14,0)<1;1,0>  X16_S(15,0)<1;1,0>\n" \
+      "mov (M1_NM,16) X16_S(16,0)<1>  X16_T(0,0)<8;4,1>\n"    \
+      "mov (M1_NM,16) X16_S(17,0)<1>  X16_T(0,4)<8;4,1>\n"    \
+      "mov (M1_NM,16) X16_S(18,0)<1>  X16_T(2,0)<8;4,1>\n"    \
+      "mov (M1_NM,16) X16_S(19,0)<1>  X16_T(2,4)<8;4,1>\n"    \
+      "mov (M1_NM,16) X16_S(20,0)<1>  X16_T(4,0)<8;4,1>\n"    \
+      "mov (M1_NM,16) X16_S(21,0)<1>  X16_T(4,4)<8;4,1>\n"    \
+      "mov (M1_NM,16) X16_S(22,0)<1>  X16_T(6,0)<8;4,1>\n"    \
+      "mov (M1_NM,16) X16_S(23,0)<1>  X16_T(6,4)<8;4,1>\n"    \
+      #op " (M1_NM,16) X16_T(8,0)<1>  X16_S(16,0)<1;1,0>  X16_S(17,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X16_T(9,0)<1>  X16_S(18,0)<1;1,0>  X16_S(19,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X16_T(10,0)<1>  X16_S(20,0)<1;1,0>  X16_S(21,0)<1;1,0>\n" \
+      #op " (M1_NM,16) X16_T(11,0)<1>  X16_S(22,0)<1;1,0>  X16_S(23,0)<1;1,0>\n" \
+      "mov (M1_NM,16) X16_S(24,0)<1>  X16_T(8,0)<4;2,1>\n"    \
+      "mov (M1_NM,16) X16_S(25,0)<1>  X16_T(8,2)<4;2,1>\n"    \
+      "mov (M1_NM,16) X16_S(26,0)<1>  X16_T(10,0)<4;2,1>\n"   \
+      "mov (M1_NM,16) X16_S(27,0)<1>  X16_T(10,2)<4;2,1>\n"   \
+      #op " (M1_NM,16) X16_T(12,0)<1>  X16_S(24,0)<1;1,0>  X16_S(25,0)<1;1,0>\n" \
+      #op " (M1_NM,16) X16_T(13,0)<1>  X16_S(26,0)<1;1,0>  X16_S(27,0)<1;1,0>\n" \
+      "mov (M1_NM,16) X16_S(28,0)<1>  X16_T(12,0)<2;1,0>\n"   \
+      "mov (M1_NM,16) X16_S(29,0)<1>  X16_T(12,1)<2;1,0>\n"   \
+      #op " (M1_NM,16) %0(0,0)<1> X16_S(28,0)<1;1,0>  X16_S(29,0)<1;1,0>\n"  \
       "}\n" \
       : "=rw"(y) \
-      : "rw"(x[0]), "rw"(x[1]), "rw"(x[2]),  "rw"(x[3]),  "rw"(x[4]),  "rw"(x[5]),  "rw"(x[6]),  "rw"(x[7]), \
-        "rw"(x[8]), "rw"(x[9]), "rw"(x[10]), "rw"(x[11]), "rw"(x[12]), "rw"(x[13]), "rw"(x[14]), "rw"(x[15]) \
+      : "rw"(x) \
     ); \
     return y; \
   }
@@ -214,170 +161,348 @@ broadcast(FragX const& x, SGTensorSrc const& src, int val)
 #define DEFINE_HREDUCE8_FLOAT(op) \
   CUTE_DEVICE \
   float \
-  hreduce8_float_ ## op(float x[8]) \
+  hreduce8_float_ ## op(float8v x) \
   { \
     float y; \
     asm ( \
       "{\n" \
-      ".decl INTERLEAVE_2 v_type=P num_elts=16\n" \
-      ".decl INTERLEAVE_4 v_type=P num_elts=16\n" \
-      ".decl INTERLEAVE_8 v_type=P num_elts=16\n" \
-      ".decl IN0 v_type=G type=UD num_elts=16 alias=<%1,0>\n" \
-      ".decl IN1 v_type=G type=UD num_elts=16 alias=<%2,0>\n" \
-      ".decl IN2 v_type=G type=UD num_elts=16 alias=<%3,0>\n" \
-      ".decl IN3 v_type=G type=UD num_elts=16 alias=<%4,0>\n" \
-      ".decl IN4 v_type=G type=UD num_elts=16 alias=<%5,0>\n" \
-      ".decl IN5 v_type=G type=UD num_elts=16 alias=<%6,0>\n" \
-      ".decl IN6 v_type=G type=UD num_elts=16 alias=<%7,0>\n" \
-      ".decl IN7 v_type=G type=UD num_elts=16 alias=<%8,0>\n" \
-      ".decl RA0 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA2 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA4 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RA6 v_type=G type=UD num_elts=32 align=64\n" \
-      ".decl RF0 v_type=G type=F num_elts=16 alias=<RA0,0>\n" \
-      ".decl RF1 v_type=G type=F num_elts=16 alias=<RA0,64>\n" \
-      ".decl RF2 v_type=G type=F num_elts=16 alias=<RA2,0>\n" \
-      ".decl RF3 v_type=G type=F num_elts=16 alias=<RA2,64>\n" \
-      ".decl RF4 v_type=G type=F num_elts=16 alias=<RA4,0>\n" \
-      ".decl RF5 v_type=G type=F num_elts=16 alias=<RA4,64>\n" \
-      ".decl RF6 v_type=G type=F num_elts=16 alias=<RA6,0>\n" \
-      ".decl RF7 v_type=G type=F num_elts=16 alias=<RA6,64>\n" \
-      "setp (M1_NM,16) INTERLEAVE_2 0x5555:uw\n" \
-      "setp (M1_NM,16) INTERLEAVE_4 0x3333:uw\n" \
-      "setp (M1_NM,16) INTERLEAVE_8 0x0F0F:uw\n" \
-      /* Round 1: interleave 2n with 2n+1 */ \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA0(0,0)<1>  IN1(0,0)<2;2,0>  IN0(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA0(1,0)<1>  IN0(0,1)<2;2,0>  IN1(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA2(0,0)<1>  IN3(0,0)<2;2,0>  IN2(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA2(1,0)<1>  IN2(0,1)<2;2,0>  IN3(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA4(0,0)<1>  IN5(0,0)<2;2,0>  IN4(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA4(1,0)<1>  IN4(0,1)<2;2,0>  IN5(0,0)<1;1,0>\n" \
-      "(!INTERLEAVE_2) sel (M1_NM,16) RA6(0,0)<1>  IN7(0,0)<2;2,0>  IN6(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_2) sel (M1_NM,16) RA6(1,0)<1>  IN6(0,1)<2;2,0>  IN7(0,0)<1;1,0>\n" \
-      /* Reduce */ \
-      #op " (M1_NM,16) RF0(0,0)<1> RF0(0,0)<1;1,0> RF1(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF3(0,0)<1> RF2(0,0)<1;1,0> RF3(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF4(0,0)<1> RF4(0,0)<1;1,0> RF5(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF7(0,0)<1> RF6(0,0)<1;1,0> RF7(0,0)<1;1,0>\n" \
-      /* Round 2: interleave 4n+{0,1} with 4n+{2,3} */ \
-      "(!INTERLEAVE_4) sel (M1_NM,16) RA0(1,0)<1>  RA2(0,14)<1;1,0>  RA0(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_4) sel (M1_NM,16) RA0(0,0)<1>  RA0(0,2)<1;1,0>   RA2(1,0)<1;1,0>\n" \
-      "(!INTERLEAVE_4) sel (M1_NM,16) RA4(1,0)<1>  RA6(0,14)<1;1,0>  RA4(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_4) sel (M1_NM,16) RA4(0,0)<1>  RA4(0,2)<1;1,0>   RA6(1,0)<1;1,0>\n" \
-      /* Reduce */ \
-      #op " (M1_NM,16) RF0(0,0)<1>  RF0(0,0)<1;1,0>  RF1(0,0)<1;1,0>\n" \
-      #op " (M1_NM,16) RF5(0,0)<1>  RF4(0,0)<1;1,0>  RF5(0,0)<1;1,0>\n" \
-      /* Round 3: interleave 8n+{0,1,2,3} with 8n+{4,5,6,7} */ \
-      "(!INTERLEAVE_8) sel (M1_NM,16) RA0(1,0)<1> RA4(0,12)<1;1,0>  RA0(0,0)<1;1,0>\n" \
-      " (INTERLEAVE_8) sel (M1_NM,16) RA0(0,0)<1> RA0(0,4)<1;1,0>   RA4(1,0)<1;1,0>\n" \
-      /* Reduce */ \
-      #op " (M1_NM,16) RF0(0,0)<1> RF0(0,0)<1;1,0> RF1(0,0)<1;1,0>\n" \
-      /* Round 4: reduce top and bottom halves */ \
-      #op " (M1_NM,8) %0(0,0)<1> RF0(0,0)<1;1,0> RF0(0,8)<1;1,0>\n" \
+      ".decl X8_S v_type=G type=F num_elts=256 align=wordx32\n" \
+      ".decl X8_T v_type=G type=F num_elts=128  align=wordx32\n" \
+      "mov (M1_NM,16) X8_S(0,0)<1>  %1(0,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X8_S(1,0)<1>  %1(0,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X8_S(2,0)<1>  %1(2,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X8_S(3,0)<1>  %1(2,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X8_S(4,0)<1>  %1(4,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X8_S(5,0)<1>  %1(4,8)<16;8,1>\n"  \
+      "mov (M1_NM,16) X8_S(6,0)<1>  %1(6,0)<16;8,1>\n"  \
+      "mov (M1_NM,16) X8_S(7,0)<1>  %1(6,8)<16;8,1>\n"  \
+      #op " (M1_NM,16) X8_T(0,0)<1>  X8_S(0,0)<1;1,0>  X8_S(1,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X8_T(1,0)<1>  X8_S(2,0)<1;1,0>  X8_S(3,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X8_T(2,0)<1>  X8_S(4,0)<1;1,0>  X8_S(5,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X8_T(3,0)<1>  X8_S(6,0)<1;1,0>  X8_S(7,0)<1;1,0>\n"  \
+      "mov (M1_NM,16) X8_S(8,0)<1>  X8_T(0,0)<8;4,1>\n"    \
+      "mov (M1_NM,16) X8_S(9,0)<1>  X8_T(0,4)<8;4,1>\n"    \
+      "mov (M1_NM,16) X8_S(10,0)<1>  X8_T(2,0)<8;4,1>\n"   \
+      "mov (M1_NM,16) X8_S(11,0)<1>  X8_T(2,4)<8;4,1>\n"   \
+      #op " (M1_NM,16) X8_T(4,0)<1>  X8_S(8,0)<1;1,0>   X8_S(9,0)<1;1,0>\n"  \
+      #op " (M1_NM,16) X8_T(5,0)<1>  X8_S(10,0)<1;1,0>  X8_S(11,0)<1;1,0>\n" \
+      "mov (M1_NM,16) X8_S(12,0)<1>  X8_T(4,0)<4;2,1>\n"   \
+      "mov (M1_NM,16) X8_S(13,0)<1>  X8_T(4,2)<4;2,1>\n"   \
+      #op " (M1_NM,16) X8_T(6,0)<1>  X8_S(12,0)<1;1,0>  X8_S(13,0)<1;1,0>\n"  \
+      "mov (M1_NM,8)  X8_S(14,0)<1>  X8_T(6,0)<2;1,0>\n"   \
+      "mov (M1_NM,8)  X8_S(15,0)<1>  X8_T(6,1)<2;1,0>\n"   \
+      #op " (M1_NM,8)  %0(0,0)<1> X8_S(14,0)<1;1,0>  X8_S(15,0)<1;1,0>\n"  \
       "}\n" \
       : "=rw"(y) \
-      : "rw"(x[0]), "rw"(x[1]), "rw"(x[2]),  "rw"(x[3]),  "rw"(x[4]),  "rw"(x[5]),  "rw"(x[6]),  "rw"(x[7]), \
-        "rw"(x[8]), "rw"(x[9]), "rw"(x[10]), "rw"(x[11]), "rw"(x[12]), "rw"(x[13]), "rw"(x[14]), "rw"(x[15]) \
+      : "rw"(x) \
+    ); \
+    return y; \
+  }
+
+#define DEFINE_REDUCE64_FLOAT(op) \
+  CUTE_DEVICE \
+  float \
+  reduce64_float_ ## op(float8v s0, float8v s1, float8v s2, float8v s3, \
+                        float8v s4, float8v s5, float8v s6, float8v s7) \
+  { \
+    float y; \
+    asm ( \
+      "{\n" \
+      ".decl S0 v_type=G type=F num_elts=128 alias=<%1, 0>\n" \
+      ".decl S1 v_type=G type=F num_elts=128 alias=<%2, 0>\n" \
+      ".decl S2 v_type=G type=F num_elts=128 alias=<%3, 0>\n" \
+      ".decl S3 v_type=G type=F num_elts=128 alias=<%4, 0>\n" \
+      ".decl S4 v_type=G type=F num_elts=128 alias=<%5, 0>\n" \
+      ".decl S5 v_type=G type=F num_elts=128 alias=<%6, 0>\n" \
+      ".decl S6 v_type=G type=F num_elts=128 alias=<%7, 0>\n" \
+      ".decl S7 v_type=G type=F num_elts=128 alias=<%8, 0>\n" \
+      ".decl ACC_F v_type=G type=F num_elts=256 align=wordx32\n" \
+      ".decl T_A   v_type=G type=F num_elts=128 align=wordx32\n" \
+      ".decl T_B   v_type=G type=F num_elts=64  align=wordx32\n" \
+      ".decl T_C   v_type=G type=F num_elts=32  align=wordx32\n" \
+      ".decl SM_A_LO v_type=G type=F num_elts=128 align=wordx32\n" \
+      ".decl SM_A_HI v_type=G type=F num_elts=128 align=wordx32\n" \
+      ".decl SM_B_LO v_type=G type=F num_elts=64  align=wordx32\n" \
+      ".decl SM_B_HI v_type=G type=F num_elts=64  align=wordx32\n" \
+      ".decl SM_C_LO v_type=G type=F num_elts=32  align=wordx32\n" \
+      ".decl SM_C_HI v_type=G type=F num_elts=32  align=wordx32\n" \
+      ".decl SM_D_LO v_type=G type=F num_elts=16  align=wordx32\n" \
+      ".decl SM_D_HI v_type=G type=F num_elts=16  align=wordx32\n" \
+      ".decl OUT_F v_type=G type=F num_elts=16  alias=<%0, 0>\n" \
+      #op " (M1_NM,32) ACC_F(0, 0)<1>   S0(0,0)<1;1,0>       S0(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(0, 0)<1>   ACC_F(0, 0)<1;1,0>   S0(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(2, 0)<1>   S1(0,0)<1;1,0>       S1(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(2, 0)<1>   ACC_F(2, 0)<1;1,0>   S1(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(4, 0)<1>   S2(0,0)<1;1,0>       S2(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(4, 0)<1>   ACC_F(4, 0)<1;1,0>   S2(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(6, 0)<1>   S3(0,0)<1;1,0>       S3(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(6, 0)<1>   ACC_F(6, 0)<1;1,0>   S3(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(8, 0)<1>   S4(0,0)<1;1,0>       S4(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(8, 0)<1>   ACC_F(8, 0)<1;1,0>   S4(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(10,0)<1>   S5(0,0)<1;1,0>       S5(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(10,0)<1>   ACC_F(10,0)<1;1,0>   S5(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(12,0)<1>   S6(0,0)<1;1,0>       S6(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(12,0)<1>   ACC_F(12,0)<1;1,0>   S6(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(14,0)<1>   S7(0,0)<1;1,0>       S7(2,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(14,0)<1>   ACC_F(14,0)<1;1,0>   S7(4,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(0, 0)<1>   ACC_F(0, 0)<1;1,0>   S0(6,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(2, 0)<1>   ACC_F(2, 0)<1;1,0>   S1(6,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(4, 0)<1>   ACC_F(4, 0)<1;1,0>   S2(6,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(6, 0)<1>   ACC_F(6, 0)<1;1,0>   S3(6,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(8, 0)<1>   ACC_F(8, 0)<1;1,0>   S4(6,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(10,0)<1>   ACC_F(10,0)<1;1,0>   S5(6,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(12,0)<1>   ACC_F(12,0)<1;1,0>   S6(6,0)<1;1,0>\n" \
+      #op " (M1_NM,32) ACC_F(14,0)<1>   ACC_F(14,0)<1;1,0>   S7(6,0)<1;1,0>\n" \
+      "mov (M1_NM,16) SM_A_LO(0,0)<1>   ACC_F(0, 0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_LO(1,0)<1>   ACC_F(2, 0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_LO(2,0)<1>   ACC_F(4, 0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_LO(3,0)<1>   ACC_F(6, 0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_LO(4,0)<1>   ACC_F(8, 0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_LO(5,0)<1>   ACC_F(10,0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_LO(6,0)<1>   ACC_F(12,0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_LO(7,0)<1>   ACC_F(14,0)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(0,0)<1>   ACC_F(0, 8)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(1,0)<1>   ACC_F(2, 8)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(2,0)<1>   ACC_F(4, 8)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(3,0)<1>   ACC_F(6, 8)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(4,0)<1>   ACC_F(8, 8)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(5,0)<1>   ACC_F(10,8)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(6,0)<1>   ACC_F(12,8)<16;8,1>\n" \
+      "mov (M1_NM,16) SM_A_HI(7,0)<1>   ACC_F(14,8)<16;8,1>\n" \
+      "fence_sw\n" \
+      #op " (M1_NM,16) T_A(0,0)<1>   SM_A_LO(0,0)<1;1,0>  SM_A_HI(0,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_A(1,0)<1>   SM_A_LO(1,0)<1;1,0>  SM_A_HI(1,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_A(2,0)<1>   SM_A_LO(2,0)<1;1,0>  SM_A_HI(2,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_A(3,0)<1>   SM_A_LO(3,0)<1;1,0>  SM_A_HI(3,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_A(4,0)<1>   SM_A_LO(4,0)<1;1,0>  SM_A_HI(4,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_A(5,0)<1>   SM_A_LO(5,0)<1;1,0>  SM_A_HI(5,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_A(6,0)<1>   SM_A_LO(6,0)<1;1,0>  SM_A_HI(6,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_A(7,0)<1>   SM_A_LO(7,0)<1;1,0>  SM_A_HI(7,0)<1;1,0>\n" \
+      "mov (M1_NM,16) SM_B_LO(0,0)<1>  T_A(0,0)<8;4,1>\n" \
+      "mov (M1_NM,16) SM_B_LO(1,0)<1>  T_A(2,0)<8;4,1>\n" \
+      "mov (M1_NM,16) SM_B_LO(2,0)<1>  T_A(4,0)<8;4,1>\n" \
+      "mov (M1_NM,16) SM_B_LO(3,0)<1>  T_A(6,0)<8;4,1>\n" \
+      "mov (M1_NM,16) SM_B_HI(0,0)<1>  T_A(0,4)<8;4,1>\n" \
+      "mov (M1_NM,16) SM_B_HI(1,0)<1>  T_A(2,4)<8;4,1>\n" \
+      "mov (M1_NM,16) SM_B_HI(2,0)<1>  T_A(4,4)<8;4,1>\n" \
+      "mov (M1_NM,16) SM_B_HI(3,0)<1>  T_A(6,4)<8;4,1>\n" \
+      "fence_sw\n" \
+      #op " (M1_NM,16) T_B(0,0)<1>   SM_B_LO(0,0)<1;1,0>  SM_B_HI(0,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_B(1,0)<1>   SM_B_LO(1,0)<1;1,0>  SM_B_HI(1,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_B(2,0)<1>   SM_B_LO(2,0)<1;1,0>  SM_B_HI(2,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_B(3,0)<1>   SM_B_LO(3,0)<1;1,0>  SM_B_HI(3,0)<1;1,0>\n" \
+      "mov (M1_NM,16) SM_C_LO(0,0)<1>  T_B(0,0)<4;2,1>\n" \
+      "mov (M1_NM,16) SM_C_LO(1,0)<1>  T_B(2,0)<4;2,1>\n" \
+      "mov (M1_NM,16) SM_C_HI(0,0)<1>  T_B(0,2)<4;2,1>\n" \
+      "mov (M1_NM,16) SM_C_HI(1,0)<1>  T_B(2,2)<4;2,1>\n" \
+      "fence_sw\n" \
+      #op " (M1_NM,16) T_C(0,0)<1>   SM_C_LO(0,0)<1;1,0>  SM_C_HI(0,0)<1;1,0>\n" \
+      #op " (M1_NM,16) T_C(1,0)<1>   SM_C_LO(1,0)<1;1,0>  SM_C_HI(1,0)<1;1,0>\n" \
+      "mov (M1_NM,16) SM_D_LO(0,0)<1>  T_C(0,0)<2;1,0>\n" \
+      "mov (M1_NM,16) SM_D_HI(0,0)<1>  T_C(0,1)<2;1,0>\n" \
+      #op " (M1_NM,16) OUT_F(0,0)<1>   SM_D_LO(0,0)<1;1,0>  SM_D_HI(0,0)<1;1,0>\n" \
+      "}\n" \
+      : "=rw"(y) \
+      : "rw"(s0), "rw"(s1), "rw"(s2), "rw"(s3), \
+        "rw"(s4), "rw"(s5), "rw"(s6), "rw"(s7) \
     ); \
     return y; \
   }
 #else
 #define DEFINE_HREDUCE16_FLOAT(op) \
-  CUTE_DEVICE float hreduce16_float_ ## op(float x[16]) { return 0.f; }
+  CUTE_DEVICE float hreduce16_float_ ## op(float16v x) { return 0.f; }
 #define DEFINE_HREDUCE8_FLOAT(op) \
-  CUTE_DEVICE float hreduce8_float_ ## op(float x[8]) { return 0.f; }
+  CUTE_DEVICE float hreduce8_float_ ## op(float8v x) { return 0.f; }
+#define DEFINE_REDUCE64_FLOAT(op) \
+  CUTE_DEVICE float reduce64_float_ ## op(float8v, float8v, float8v, float8v, \
+                                          float8v, float8v, float8v, float8v) \
+  { return 0.f; }
 #endif
 
 DEFINE_HREDUCE8_FLOAT(add)
 DEFINE_HREDUCE8_FLOAT(max)
 DEFINE_HREDUCE16_FLOAT(add)
 DEFINE_HREDUCE16_FLOAT(max)
+DEFINE_REDUCE64_FLOAT(add)
+DEFINE_REDUCE64_FLOAT(max)
 
-// Subgroup-cooperative reduction of a SubgroupTensor.
-template <int Mode, class BinaryOp,
+enum class ReduceMode { Full, Vertical, Horizontal };
+template <int Mode = 0, ReduceMode RMode = ReduceMode::Full, bool EnableFast64Rows = true, class BinaryOp,
           class Engine, class FragLayout, class SubgroupTVLayout>
 CUTE_HOST_DEVICE
 auto
-reduce(SubgroupTensor<Engine,FragLayout,SubgroupTVLayout> const& src, BinaryOp op)
+reduce(SubgroupTensor<Engine, FragLayout, SubgroupTVLayout> const& src, BinaryOp op)
 {
-  auto sg = sycl::ext::oneapi::this_work_item::get_sub_group();
-  using T = typename Engine::value_type;
-  using TVToV = Layout<Shape<intel::_SGSize,int>, Stride<_0,_1>>;
+  using SrcTensor = SubgroupTensor<Engine, FragLayout, SubgroupTVLayout>;
+  using T = typename SrcTensor::value_type;
 
-  /* Retrieve logical coordinate -> (T,V) mapping */
-  constexpr auto shape = atuple_coshape(SubgroupTVLayout{});
-  constexpr auto coord_to_tv = right_inverse(project_strides(SubgroupTVLayout{})).with_shape(shape);
+  if constexpr (RMode == ReduceMode::Horizontal) {
+    auto sg = sycl::ext::oneapi::this_work_item::get_sub_group();
+    constexpr int N = decltype(size(SrcTensor{}.layout()))::value;
+    constexpr int M = (N + intel::sg_size - 1) / intel::sg_size;
 
-  /* Move reduction coordinate to mode-0 and group the rest in mode-1. Then, remove work-item modes. */
-  constexpr auto rcoord_to_tv = make_layout(select<Mode>(coord_to_tv), remove<Mode>(coord_to_tv));
-  constexpr auto rcoord_to_v = filter(composition(TVToV{}, rcoord_to_tv), Step<_1,_1>{});
+    auto out = make_subgroup_tensor(make_tensor<T>(Int<M>{}),
+                                    make_identity_layout(Shape<Int<N>>{}));
 
-  /* Regroup input tensor */
-  Tensor src_r = make_tensor(src.data(), rcoord_to_v);
+    constexpr bool is_float = is_same_v<T, float>;
+    constexpr bool is_add = is_same_v<BinaryOp, sycl::plus<void>>;
+    constexpr bool is_max = is_same_v<BinaryOp, sycl::maximum<void>>;
+    constexpr bool align16 = (N % 16 == 0);
+    constexpr bool is_8 = (N == 8);
 
-  /* Create output tensor */
-  auto rshape = replace<Mode>(shape, _1{});
-  Tensor out = make_subgroup_tensor(make_tensor<T>(ceil_div(size(rshape), intel::_SGSize{})),
-                                    make_identity_layout(rshape));
-
-  /* Check for reduction type */
-  constexpr bool horizontal = (size<0>(rcoord_to_tv) == intel::_SGSize{} * size<0>(rcoord_to_v));
-  constexpr bool vertical   = (size<1>(rcoord_to_tv) == intel::_SGSize{} * size<1>(rcoord_to_v));
-
-  /* Check for optimized reductions */
-  constexpr bool align16 = is_constant_v<0, decltype(size<1>(rcoord_to_v) % _16{})>;
-  constexpr bool align8  = is_constant_v<8, decltype(size<1>(rcoord_to_v))>;
-
-  constexpr bool hadd = (horizontal && is_same_v<T, float> && is_same_v<BinaryOp, sycl::plus<void>>);
-  constexpr bool hmax = (horizontal && is_same_v<T, float> && is_same_v<BinaryOp, sycl::maximum<void>>);
-
-  constexpr bool hadd16 = hadd && align16;
-  constexpr bool hmax16 = hmax && align16;
-
-  constexpr bool hadd8 = hadd && align8;
-  constexpr bool hmax8 = hmax && align8;
-
-  [[maybe_unused]] T temp[size<1>(rcoord_to_v)];  /* array of partial reductions */
-
-  CUTE_UNROLL
-  for (int j = 0; j < size<1>(rcoord_to_v); j++) {
-    T acc = src_r(0, j);
-    CUTE_UNROLL
-    for (int i = 1; i < size<0>(rcoord_to_v); i++) {
-      // Use built-in max instruction for better performance
-      if constexpr (is_same_v<BinaryOp, sycl::maximum<void>>)
-        acc = sycl::max(acc, src_r(i, j));
-      else
-        acc = op(acc, src_r(i, j));
+    if constexpr (is_float && (is_add || is_max) && (align16 || is_8)) {
+      if constexpr (align16) {
+        CUTE_UNROLL
+        for (int j = 0; j < N; j += 16) {
+          float16v v;
+          CUTE_UNROLL
+          for (int k = 0; k < 16; k++) v[k] = src(j + k);
+          if constexpr (is_add)
+            out(j/16) = hreduce16_float_add(v);
+          else
+            out(j/16) = hreduce16_float_max(v);
+        }
+      } else { // is_8
+        float8v v;
+        CUTE_UNROLL
+        for (int k = 0; k < 8; k++) v[k] = src(k);
+        if constexpr (is_add)
+          out(0) = hreduce8_float_add(v);
+        else
+          out(0) = hreduce8_float_max(v);
+      }
+    } else {
+      CUTE_UNROLL
+      for (int r = 0; r < N; r++) {
+        T val = reduce_over_group(sg, src(r), op);
+        set_single_value(out, r, val);
+      }
     }
 
-    if constexpr (hadd16 || hmax16 || hadd8 || hmax8)
-      temp[j] = acc;
-    else if constexpr (horizontal)
-      set_single_value(out, j, reduce_over_group(sg, acc, op));
-    else if constexpr (vertical)
-      out(j) = acc;
-    else
-      static_assert("Unimplemented reduction type");
+    return out;
+
+  } else {
+    auto sg = sycl::ext::oneapi::this_work_item::get_sub_group();
+    using TVToV = Layout<Shape<intel::_SGSize,int>, Stride<_0,_1>>;
+
+    constexpr auto tv_layout = SrcTensor{}.tv_layout();
+    constexpr auto shape = atuple_coshape(tv_layout);
+    constexpr auto coord_to_tv = right_inverse(project_strides(tv_layout)).with_shape(shape);
+
+    constexpr auto rcoord_to_tv = make_layout(select<Mode>(coord_to_tv), remove<Mode>(coord_to_tv));
+    constexpr auto rcoord_to_v = filter(composition(TVToV{}, rcoord_to_tv), Step<_1,_1>{});
+
+    Tensor src_r = make_tensor(src.data(), rcoord_to_v);
+
+    if constexpr (RMode == ReduceMode::Vertical) {
+      auto rshape = replace<Mode>(shape, _1{});
+      auto out = make_subgroup_tensor(make_tensor<T>(Int<size<1>(rcoord_to_v)>{}),
+                                      remove<Mode>(make_identity_layout(rshape)));
+
+      CUTE_UNROLL
+      for (int j = 0; j < size<1>(rcoord_to_v); j++) {
+        out(j) = src_r(0, j);
+      }
+      CUTE_UNROLL
+      for (int i = 1; i < size<0>(rcoord_to_v); i++) {
+        CUTE_UNROLL
+        for (int j = 0; j < size<1>(rcoord_to_v); j++) {
+          if constexpr (is_same_v<BinaryOp, sycl::maximum<void>>)
+            out(j) = sycl::max(out(j), src_r(i, j));
+          else
+            out(j) = op(out(j), src_r(i, j));
+        }
+      }
+      return out;
+
+    } else {
+      auto rshape = replace<Mode>(shape, _1{});
+      auto out = make_subgroup_tensor(make_tensor<T>(ceil_div(size(rshape), intel::_SGSize{})),
+                                      remove<Mode>(make_identity_layout(rshape)));
+
+      constexpr bool horizontal = (size<0>(rcoord_to_tv) == intel::_SGSize{} * size<0>(rcoord_to_v));
+      constexpr bool vertical   = (size<1>(rcoord_to_tv) == intel::_SGSize{} * size<1>(rcoord_to_v));
+
+      constexpr bool align16 = is_constant_v<0, decltype(size<1>(rcoord_to_v) % _16{})>;
+      constexpr bool align8  = is_constant_v<8, decltype(size<1>(rcoord_to_v))>;
+
+      constexpr bool hadd = (horizontal && is_same_v<T, float> && is_same_v<BinaryOp, sycl::plus<void>>);
+      constexpr bool hmax = (horizontal && is_same_v<T, float> && is_same_v<BinaryOp, sycl::maximum<void>>);
+
+      constexpr bool hadd16 = hadd && align16;
+      constexpr bool hmax16 = hmax && align16;
+      constexpr bool hadd8 = hadd && align8;
+      constexpr bool hmax8 = hmax && align8;
+      //TODO: comment the align64 optmization as it has acc issue on hdim64
+      constexpr bool align64 = false;
+        // is_constant_v<4,  decltype(size<0>(rcoord_to_v))> &&
+        // is_constant_v<16, decltype(size<1>(rcoord_to_v))>;
+      constexpr bool hadd64 = EnableFast64Rows && hadd && align64;
+      constexpr bool hmax64 = EnableFast64Rows && hmax && align64;
+      if constexpr (hadd64 || hmax64) {
+        auto const* p = reinterpret_cast<float const*>(&*src.data());
+        auto const& s0 = *reinterpret_cast<float8v const*>(p +  0);
+        auto const& s1 = *reinterpret_cast<float8v const*>(p +  8);
+        auto const& s2 = *reinterpret_cast<float8v const*>(p + 16);
+        auto const& s3 = *reinterpret_cast<float8v const*>(p + 24);
+        auto const& s4 = *reinterpret_cast<float8v const*>(p + 32);
+        auto const& s5 = *reinterpret_cast<float8v const*>(p + 40);
+        auto const& s6 = *reinterpret_cast<float8v const*>(p + 48);
+        auto const& s7 = *reinterpret_cast<float8v const*>(p + 56);
+        if constexpr (hmax64) out(0) = reduce64_float_max(s0, s1, s2, s3, s4, s5, s6, s7);
+        else                  out(0) = reduce64_float_add(s0, s1, s2, s3, s4, s5, s6, s7);
+        return out;
+      } else {
+
+      [[maybe_unused]] T temp[size<1>(rcoord_to_v)];
+
+      CUTE_UNROLL
+      for (int j = 0; j < size<1>(rcoord_to_v); j++) {
+        temp[j] = src_r(0, j);
+      }
+      CUTE_UNROLL
+      for (int i = 1; i < size<0>(rcoord_to_v); i++) {
+        CUTE_UNROLL
+        for (int j = 0; j < size<1>(rcoord_to_v); j++) {
+          if constexpr (is_same_v<BinaryOp, sycl::maximum<void>>)
+            temp[j] = sycl::max(temp[j], src_r(i, j));
+          else
+            temp[j] = op(temp[j], src_r(i, j));
+        }
+      }
+
+      if constexpr (!(hadd16 || hmax16 || hadd8 || hmax8)) {
+        CUTE_UNROLL
+        for (int j = 0; j < size<1>(rcoord_to_v); j++) {
+          if constexpr (horizontal)
+            set_single_value(out, j, reduce_over_group(sg, temp[j], op));
+          else if constexpr (vertical)
+            out(j) = temp[j];
+          else
+            static_assert(dependent_false<BinaryOp>, "Unimplemented reduction type");
+        }
+      }
+      if constexpr (hadd16 || hmax16) {
+        CUTE_UNROLL
+        for (int j = 0; j < size<1>(rcoord_to_v); j += 16) {
+          float16v v;
+          CUTE_UNROLL
+          for (int k = 0; k < 16; k++) v[k] = temp[j + k];
+          if constexpr (hadd16) out(j/16) = hreduce16_float_add(v);
+          else                  out(j/16) = hreduce16_float_max(v);
+        }
+      } else if constexpr (hadd8 || hmax8) {
+        float8v v;
+        CUTE_UNROLL
+        for (int k = 0; k < 8; k++) v[k] = temp[k];
+        if constexpr (hadd8) out(0) = hreduce8_float_add(v);
+        else                 out(0) = hreduce8_float_max(v);
+      }
+
+      return out;
+      }
+    }
   }
-
-  if constexpr (hadd16) {
-    CUTE_UNROLL
-    for (int j = 0; j < size<1>(rcoord_to_v); j += 16) {
-      out(j/16) = hreduce16_float_add(&temp[j]);
-    }
-  } else if constexpr (hmax16) {
-    CUTE_UNROLL
-    for (int j = 0; j < size<1>(rcoord_to_v); j += 16) {
-      out(j/16) = hreduce16_float_max(&temp[j]);
-    }
-  } else if constexpr (hadd8) {
-    out(0) = hreduce8_float_add(&temp[0]);
-  } else if constexpr (hmax8) {
-    out(0) = hreduce8_float_max(&temp[0]);
-  }
-
-  return out;
 }
 
 } // namespace cute

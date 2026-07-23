@@ -155,7 +155,7 @@ struct Options {
       << "  --mode=<int>                The mode to run the gemm. 0 is Convert Only, 1 is Convert and Scale, 2 is Convert and Scale with Zero Point\n"
       << "  --a_narrower                If specified, make A the narrower type (B is narrower by default).\n"
       << "  --alpha=<s32>               Epilogue scalar alpha\n"
-      << "  --beta=<s32>                Epilogue scalar beta\n\n"
+      << "  --beta=<s32>                Epilogue scalar beta\n"
       << "  --iterations=<int>          Iterations\n"
       << "  --verify=<int>              Specify whether to verify.\n\n";
 
@@ -255,101 +255,38 @@ struct ExampleRunner {
   // Methods
   //
 
-  bool verify(const Options &options) {
-      
-    //
-    // Compute reference output (default gemm kernel w/ ElementA == ElementB)
-    //
+  bool verify(const ProblemShapeType& problem_size, ElementCompute alpha, ElementCompute beta) {
+    auto [M, N, K, L] = problem_size;
 
-    // [New Copy Atom] When left unspecified (void), MainloopXeL1Staged automatically selects
-    // appropriate 2D block copy operations for matrices A and B. Alternatively, you can
-    // explicitly specify new copy atom operations such as XE_LOAD_2D, XE_LOAD_2D_VNNI,
-    // or XE_LOAD_2D_TRANSPOSE.
-    // Refer https://github.com/intel/sycl-tla/blob/main/media/docs/cpp/xe_rearchitecture.md
+    cutlass::TensorRef ref_A(block_A_dq.get(), LayoutA::packed({M, K}));
+    cutlass::TensorRef ref_B(block_B_dq.get(), LayoutB::packed({K, N}));
+    cutlass::TensorRef ref_C(block_C.get(), LayoutC::packed({M, N}));
+    cutlass::TensorRef ref_D(block_ref_D.get(), LayoutD::packed({M, N}));
 
-    using GmemTiledCopyA = void;
-    using GmemTiledCopyB = void;
+    cutlass::reference::device::GemmComplex(
+          {M, N, K},
+          alpha,
+          ref_A,
+          cutlass::ComplexTransform::kNone,
+          ref_B,
+          cutlass::ComplexTransform::kNone,
+          beta,
+          ref_C,
+          ref_D,
+          ElementAccumulator(0),
+          L,     // batch_count
+          M * K, // batch_stride_A
+          K * N, // batch_stride_B
+          M * N, // batch_stride_C
+          M * N  // batch_stride_D
+        );
 
-    // Workgroup-level tile
-    using TileShape = Shape<_256, _256, _32>;
-    // A TiledMMA struct defines a tiling of an MMA atom over M, N and K, combining both additional
-    // hardware (sub-groups for Intel BMG) and iterations by each sub-group.
-    //
-    // The TiledMMAHelper struct defines a specific TiledMMA for a given MMA atom. This example uses
-    // the XE_DPAS_TT<8, float, cute::bfloat16_t> atom, which represents an 8x16x16 DPAS operation with
-    // float32 accumulation and bfloat16 inputs, TileShape (<256, 256, 32>) and sub-group layout (8x4x1).
-    // The TiledMMA constructed using TiledMMAHelper has the property that each sub-group operates on a
-    // single contiguous chunk of the work-group TileShape. For this configuration, this implies that
-    // each sub-group operates on a contiguous 32x64x32 chunk (4x4x2 iterations). See
-    // 0t_mma_atom.md#TiledMMAs for more info. Sub-groups are arranged row-major (stride 4,1,0) for
-    // performance reasons.
-    using TiledMma =
-        typename TiledMMAHelper<MMA_Atom<XE_DPAS_TT<8, float, cute::bfloat16_t>>, Layout<TileShape>,
-                                      Layout<Shape<_8, _4, _1>, Stride<_4, _1, _0>>>::TiledMMA;
+    // CUTLASS on SYCL uses the compatibility library compat for e.g. default in-order queue
+    compat::wait();
 
-    constexpr int PipelineStages = 3;
-    using GEMMDispatchPolicy = cutlass::gemm::MainloopXeL1Staged<PipelineStages>;
-    using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeGeneric;
-
-    using EpilogueOp = cutlass::epilogue::fusion::LinearCombination<ElementOutput, ElementCompute,
-            ElementAccumulator, ElementAccumulator, cutlass::FloatRoundStyle::round_to_nearest>;
-
-    using FusionCallBacks = cutlass::epilogue::fusion::FusionCallbacks<EpilogueDispatchPolicy, EpilogueOp, TileShape,
-            decltype(tile_shape(TiledMma()))>;
-
-    using CollectiveEpilogueRef = cutlass::epilogue::collective::CollectiveEpilogue<
-            EpilogueDispatchPolicy,
-            TileShape,
-            void,   // Epilogue tile (void = automatic)
-            ElementAccumulator,
-            cutlass::gemm::TagToStrideC_t<LayoutC>,
-            ElementOutput,
-            cutlass::gemm::TagToStrideC_t<LayoutD>,
-            FusionCallBacks,
-            void,   // The copy atom used to load matrix C  (void = automatic)
-            void>;    // The copy atom used to store matrix D (void = automatic)
-
-    // Mainloop
-    using CollectiveMainloopRef = cutlass::gemm::collective::CollectiveMma<
-            GEMMDispatchPolicy,
-            TileShape,
-            ElementMMA,
-            cutlass::gemm::TagToStrideA_t<LayoutA>,
-            ElementMMA,
-            cutlass::gemm::TagToStrideB_t<LayoutB>,
-            TiledMma,
-            GmemTiledCopyA, void, void, cute::identity,  // A
-            GmemTiledCopyB, void, void, cute::identity   // B
-    >;
-
-    using GemmKernelRef = cutlass::gemm::kernel::GemmUniversal<
-    Shape<int, int, int, int>,
-    CollectiveMainloopRef,
-    CollectiveEpilogueRef
-    >;
-
-    using GemmRef = cutlass::gemm::device::GemmUniversalAdapter<GemmKernelRef>;
-
-    typename GemmRef::Arguments arguments{
-      cutlass::gemm::GemmUniversalMode::kGemm,
-      {options.m, options.n, options.k, options.l},
-      {block_A_dq.get(), stride_A, block_B_dq.get(), stride_B},
-      {{options.alpha, options.beta}, block_C.get(), stride_C, block_ref_D.get(), stride_D}
-    };
-
-    // Run the gemm where the scaling is performed outside of the kernel.
-    GemmRef gemm_ref;
-    size_t workspace_size = GemmRef::get_workspace_size(arguments);
-    cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
-    CUTLASS_CHECK(gemm_ref.can_implement(arguments));
-    CUTLASS_CHECK(gemm_ref.initialize(arguments, workspace.get()));
-    CUTLASS_CHECK(gemm_ref.run());
-
-    // compare_reference
     ElementOutput const epsilon(1e-2f);
     ElementOutput const non_zero_floor(1e-4f);
-    bool passed = cutlass::reference::device::BlockCompareRelativelyEqual(block_ref_D.get(), block_D.get(), block_D.size(), epsilon, non_zero_floor);
-    return passed;
+    return cutlass::reference::device::BlockCompareRelativelyEqual(block_ref_D.get(), block_D.get(), block_D.size(), epsilon, non_zero_floor);
   }
 
   template <class Element>
@@ -480,7 +417,7 @@ struct ExampleRunner {
 
     if (options.verify != 0) {
       // Verify that the result is correct
-      bool passed = verify(options);
+      bool passed = verify(problem_size, options.alpha, options.beta);
       std::cout << "Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
 
       if (!passed) return cutlass::Status::kErrorInternal;

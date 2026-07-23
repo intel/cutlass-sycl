@@ -1,0 +1,30 @@
+#############################################################################
+### W8A8 FP8 -> FP16-MMA GEMM — sync test cases (task E)                   ###
+###                                                                        ###
+### Used to verify benchmark performance matches example                   ###
+###   examples/08_bmg_gemm_f8/08_bmg_gemm_f8                               ###
+###                                                                        ###
+### Aligned configuration:                                                 ###
+###   TileShape       = <_256, _256, _32>                                  ###
+###   MMA Atom        = XE_8x16x16_F32F16F16F32_TT (FP16 inputs, FP32 acc) ###
+###   GmemCopy A/B    = XE_2D_U8x32x32_LD_N / _LD_V                        ###
+###   DispatchPolicy  = MainloopIntelW8A8<2>                               ###
+###   Epilogue        = IntelXeXMX16 (legacy)                              ###
+###                                                                        ###
+### Pair-compare against native-FP8 DPAS cases on the same shape:          ###
+###   CriGemmE4M3E4M3FP32_RRR_TileShape_256_256_32                         ###
+###   CriGemmE5M2E5M2FP32_RRR_TileShape_256_256_32                         ###
+###                                                                        ###
+### Compare with example invocation (FP8 inputs upcast to FP16 for MMA):   ###
+###   ./examples/08_bmg_gemm_f8/08_bmg_gemm_f8 \                           ###
+###       --m=<M> --n=<N> --k=<K> --l=1 --iterations=20                    ###
+###   (example runs e5m2 and e4m3 launchers back-to-back)                  ###
+#############################################################################
+
+# Test case 1: example 08 default-style shape (m=5120 n=4096 k=4096)
+# CriGemm_W8A8_E4M3E4M3FP16MMA_RRR_TileShape_256_256_32 --bm_name=cri_w8a8_e4m3 --m=5120 --n=4096 --k=4096
+# CriGemm_W8A8_E5M2E5M2FP16MMA_RRR_TileShape_256_256_32 --bm_name=cri_w8a8_e5m2 --m=5120 --n=4096 --k=4096
+
+# Test case 2: small shape for fast CRI-simulator validation
+CriGemm_W8A8_E4M3E4M3FP16MMA_RRR_TileShape_256_256_32 --bm_name=cri_w8a8_e4m3 --m=1024 --n=1024 --k=1024
+CriGemm_W8A8_E5M2E5M2FP16MMA_RRR_TileShape_256_256_32 --bm_name=cri_w8a8_e5m2 --m=1024 --n=1024 --k=1024

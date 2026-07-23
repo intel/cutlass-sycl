@@ -108,7 +108,7 @@ public:
   using BaseArguments = typename Base::Arguments;
   using BaseParams = typename Base::Params;
 
-  using DispatchPolicy = IntelXeXMX16Group;
+  using DispatchPolicy = IntelXeGenericGroup;
 
   using WGTileMNK = typename Base::WGTileMNK;
   using ElementC = ElementC_;

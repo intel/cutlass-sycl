@@ -39,8 +39,9 @@ struct Universal_Reorder_UU {
   using SRegisters = SrcType[1];
   using DRegisters = DstType[1];
 
+  template <typename DstRef> // Templated on the actual dst type to allow subbyte_reference proxies
   CUTE_HOST_DEVICE static void
-  reorder(SrcType const& src0, DstType& dst0) {
+  reorder(SrcType const& src0, DstRef&& dst0) {
     dst0 = DstType(src0);
   }
 

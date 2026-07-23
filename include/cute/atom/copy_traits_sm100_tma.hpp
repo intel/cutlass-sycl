@@ -425,6 +425,17 @@ make_tma_atom_A_sm100(CopyOp                  const& copy_op,
   print("(tma_a) cta_v_tile:   "); print(cta_v_tile);   print("\n");
 #endif
 
+#if defined(SYCL_INTEL_XE4_TARGET)
+  // The size of the multicasting
+  auto num_multicast = [&](){
+    if constexpr (is_base_of_v<xe4::DMA_MULTICAST, CopyOp>) {
+      return size<2>(cluster_shape);                   // VMNK: Use only the N-CTAs in the Multicast
+    } else {
+      return Int<1>{};                                 // VMNK: Use no CTAs in Non-Multicast
+    }
+  }();
+
+#else
   // The size of the multicasting
   auto num_multicast = [&](){
     if constexpr (is_same_v<CopyOp, SM90_TMA_LOAD_MULTICAST> ||
@@ -439,6 +450,8 @@ make_tma_atom_A_sm100(CopyOp                  const& copy_op,
       static_assert(dependent_false<CopyOp>, "Unsupported TMA");
     }
   }();
+
+#endif
 
   // Prefer TmaInternalType if specified. Fallback to GEngine::value_type
   using TmaType = conditional_t<is_same<void, TmaInternalType>::value, typename GEngine::value_type, TmaInternalType>;
@@ -476,6 +489,17 @@ make_tma_atom_B_sm100(CopyOp                  const& copy_op,
   print("(tma_b) cta_v_tile:   "); print(cta_v_tile);   print("\n");
 #endif
 
+#if defined(SYCL_INTEL_XE4_TARGET)
+  // The size of the multicasting
+  auto num_multicast = [&](){
+    if constexpr (is_base_of_v<xe4::DMA_MULTICAST, CopyOp>) {
+      return size<1>(cluster_shape);                   // VMNK: Use only the M-CTAs in the Multicast
+    } else {
+      return Int<1>{};                                 // VMNK: Use no CTAs in Non-Multicast
+    }
+  }();
+
+#else
   // The size of the multicasting
   auto num_multicast = [&](){
     if constexpr (is_same_v<CopyOp, SM90_TMA_LOAD_MULTICAST> ||
@@ -490,6 +514,8 @@ make_tma_atom_B_sm100(CopyOp                  const& copy_op,
       static_assert(dependent_false<CopyOp>, "Unsupported TMA");
     }
   }();
+
+#endif
 
   // Prefer TmaInternalType if specified. Fallback to GEngine::value_type
   using TmaType = conditional_t<is_same<void, TmaInternalType>::value, typename GEngine::value_type, TmaInternalType>;

@@ -132,7 +132,7 @@ For improving performance on Intel PVC/BMG you could try the following:
 
 Please refer to [Building with Sycl Support](../media/docs/cpp/build/building_with_sycl_support.md#building-with-sycl-for-intel-gpu-support) for the complete environment setup.
 
-* `SYCL_TLA_ADDITIONAL_TILE_SHAPES` : Path to JSON file containing workgroup and subgroup tile sizes meant for Intel Xe architecture. Expected format s a list of dictionaries like [{"wg": [256, 256, 32], "sg": [8,4,1]}, ...]. Here `wg` refers to the workgroup tile shape and `sg` refers to the subgroup tile layout. This is enabled only for BF16/FP16 kernels.
+* `SYCL_TLA_ADDITIONAL_TILE_SHAPES` : Path to JSON file containing workgroup and subgroup tile sizes meant for Intel Xe architecture. Expected format is a list of dictionaries like [{"wg": [256, 256, 32], "sg": [8,4,1]}, ...]. Here `wg` refers to the workgroup tile shape and `sg` refers to the subgroup tile layout. This is enabled only for BF16/FP16 kernels.
 
 Sample JSON file that may be used for adding tile shapes.
 

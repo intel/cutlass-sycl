@@ -67,12 +67,16 @@ def run_command(command, cwd, log_path=None):
         with open(log_path, "w") as log_file:
             try:
                 results = subprocess.run(command, cwd=cwd, text=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                for line in results.stdout:
+                for line in results.stdout.splitlines(keepends=True):
                     sys.stdout.write(line)
                     log_file.write(line)
             except subprocess.CalledProcessError as e:
                 print(f"Error: Command failed with return code {e.returncode}")
-                print("Stderr:", e.stderr)
+                if e.stdout:
+                    print("Stdout:", e.stdout)
+                    print(e.stdout)
+                else:
+                    print("No output captured.")
         print(f"Log written to: {log_path}")
     else:
         subprocess.run(command, cwd=cwd, check=True)
@@ -179,7 +183,7 @@ def main():
         "--push-to-dashboard",
         dest="grafana",
         action="store_true",
-        help="Increase output verbosity"
+        help="Push benchmark results to the Grafana/InfluxDB dashboard"
     )
     args = parser.parse_args()
 

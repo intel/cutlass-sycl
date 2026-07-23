@@ -38,6 +38,8 @@
 #include "cutlass/util/print_error.hpp"
 #include "cutlass/util/sycl_event_manager.hpp"
 #include "cutlass/util/GPU_Clock.hpp"
+#include "cutlass/util/command_line.h"
+
 #include "cutlass/tensor_ref.h"
 #include "cutlass/util/reference/device/gemm_complex.h"
 #include "cutlass/kernel_hardware_info.h"
@@ -584,25 +586,18 @@ gemm(char transA, char transB, int m, int n, int k,
 
 int main(int argc, char** argv)
 {
-  int m = 8192;
-  if (argc >= 2)
-    sscanf(argv[1], "%d", &m);
-
-  int n = 8192;
-  if (argc >= 3)
-    sscanf(argv[2], "%d", &n);
-
-  int k = 8192;
-  if (argc >= 4)
-    sscanf(argv[3], "%d", &k);
-
-  char transA = 'T';
-  if (argc >= 5)
-    sscanf(argv[4], "%c", &transA);
-
-  char transB = 'T';
-  if (argc >= 6)
-    sscanf(argv[5], "%c", &transB);
+  cutlass::CommandLine cmd(argc, const_cast<const char**>(argv));
+  int m, n, k, iterations, enable_verify;
+  // Use enbale_verify here to avoid naming conflict with the verify function.
+  char transA, transB;
+  
+  cmd.get_cmd_line_argument("m", m, 8192);
+  cmd.get_cmd_line_argument("n", n, 8192);
+  cmd.get_cmd_line_argument("k", k, 8192);
+  cmd.get_cmd_line_argument("transA", transA, 'N');
+  cmd.get_cmd_line_argument("transB", transB, 'T');
+  cmd.get_cmd_line_argument("verify", enable_verify, 1);
+  cmd.get_cmd_line_argument("iterations", iterations, 100);
 
   using TA = cute::bfloat16_t;
   using TB = cute::bfloat16_t;
@@ -616,6 +611,12 @@ int main(int argc, char** argv)
   std::cout << "N = " << n << std::endl;
   std::cout << "K = " << k << std::endl;
   std::cout << "C = A^" << transA << " B^" << transB << std::endl;
+  std::cout << "Iterations = " << iterations << std::endl;
+  if (enable_verify != 0){
+    std::cout << "Verification is enabled." << std::endl;
+  } else {
+    std::cout << "Verification is not enabled" << std::endl;
+  }
 
   std::vector<TA> h_A(m*k);
   std::vector<TB> h_B(n*k);
@@ -662,30 +663,33 @@ int main(int argc, char** argv)
        d_C, ldC);
   compat::wait_and_throw();
 
-  bool passed = verify(
-    d_A,
-    d_B,
-    d_C,
-    m,
-    n,
-    k,
-    alpha,
-    beta,
-    transA,
-    transB
-  );
-  std::cout << "\n Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
-
-  if(!passed) return -1;
+  if (enable_verify != 0) {
+    bool passed = verify(
+      d_A,
+      d_B,
+      d_C,
+      m,
+      n,
+      k,
+      alpha,
+      beta,
+      transA,
+      transB
+    );
+    std::cout << "\n Disposition: " << (passed ? "Passed" : "Failed") << std::endl;
+  
+    if (!passed) return -1;
+  } else {
+    std::cout << "Disposition is skipped." << std::endl;
+  }
 
   double tflops = (2.0*m*n*k) * 1e-12;
 
-  const int timing_iterations = 100;
   GPU_Clock timer;
 
   // Timing iterations
   timer.start();
-  for (int i = 0; i < timing_iterations; ++i) {
+  for (int i = 0; i < iterations; ++i) {
     gemm(transA, transB, m, n, k,
          alpha,
          d_A, ldA,
@@ -694,7 +698,7 @@ int main(int argc, char** argv)
          d_C, ldC);
   }
   compat::wait();
-  double cute_time = timer.seconds() / timing_iterations;
+  double cute_time = timer.seconds() / iterations;
   printf("CUTE_GEMM:     [%4.3f]TFlop/s  (%6.4f)ms\n", tflops / cute_time, cute_time*1000);
 
   return 0;

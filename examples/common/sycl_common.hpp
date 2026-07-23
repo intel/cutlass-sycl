@@ -48,6 +48,33 @@ template <class, class, class> class convert_dtype_name;
 template <typename SrcT, typename DstT, typename Runner>
 void convert_dtype(const SrcT* d_src, DstT* d_dst, size_t size) {
   compat::get_default_queue().parallel_for<convert_dtype_name<SrcT, DstT, Runner>>(size, [=](auto indx) {
-    d_dst[indx] = static_cast<DstT>(d_src[indx]);
+    if constexpr (cute::sizeof_bits_v<SrcT> < 8) {
+      d_dst[indx] = static_cast<DstT>(cute::subbyte_iterator<const SrcT>(d_src)[indx].get());
+    } else {
+      d_dst[indx] = static_cast<DstT>(d_src[indx]);
+    }
   }).wait();
+}
+
+template <typename SrcT, typename DstT, typename Runner>
+void convert_dtype(const cutlass::DeviceAllocation<SrcT>& src, cutlass::DeviceAllocation<DstT>& dst) {
+#if defined(CUTLASS_TEST_FOR_CRI)
+  if constexpr (cute::sizeof_bits_v<SrcT> < 8) {
+    convert_dtype<SrcT, DstT, Runner>(src.get(), dst.get(), src.size());
+  } else {
+    auto src_buff = std::vector<SrcT>(src.size());
+    compat::memcpy<SrcT>(src_buff.data(), src.get(), src.size());
+    compat::wait();
+
+    auto dst_buff = std::vector<DstT>(dst.size());
+    for (auto indx = 0; indx < src.size(); ++indx) {
+      dst_buff[indx] = static_cast<DstT>(src_buff[indx]);
+    }
+
+    compat::memcpy<DstT>(dst.get(), dst_buff.data(), dst.size());
+    compat::wait();
+  }
+#else
+  convert_dtype<SrcT, DstT, Runner>(src.get(), dst.get(), src.size());
+#endif
 }

@@ -154,7 +154,7 @@ struct Options {
       << "  --k=<int>                   Sets the K extent of the GEMM for all groups\n"
       << "  --groups=<int>              Sets the number of individual GEMM problems for Grouped GEMM\n"
       << "  --alpha=<f32>               Epilogue scalar alpha\n"
-      << "  --beta=<f32>                Epilogue scalar beta\n\n"
+      << "  --beta=<f32>                Epilogue scalar beta\n"
       << "  --iterations=<int>          Number of profiling iterations to perform\n"
       << "  --verify=<int>              Specify whether to verify.\n\n";
 
@@ -295,7 +295,7 @@ struct ExampleRunner {
 
       // Check if output from CUTLASS kernel and reference kernel are equal or not
       passed &= cutlass::reference::device::BlockCompareEqual(block_ref_D.get() + offset_D.at(i), block_D.get() + offset_D.at(i), M * N);
-      if(!passed)
+      if (!passed)
         break;
     }
     return passed;
@@ -482,7 +482,6 @@ void initialize(const Options &options) {
   cutlass::Status run(const Options& options, const cutlass::KernelHardwareInfo& hw_info, bool host_problem_shapes_available = true) {
     allocate(options);
     initialize(options);
-
     Gemm gemm_op;
 
     auto arguments = args_from_options(options, hw_info, host_problem_shapes_available);

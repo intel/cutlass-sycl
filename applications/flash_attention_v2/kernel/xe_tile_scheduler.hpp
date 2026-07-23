@@ -39,12 +39,19 @@
 #include "cutlass/kernel_hardware_info.h"
 
 namespace cutlass::fmha::kernel {
+namespace detail {
+struct EmptyDivmod {};
+}
 
+template <bool OneBatch = false, bool NoGQA = false>
 struct XeFHMAIndividualTileScheduler {
+  using NumHeadsDivmod   = cute::conditional_t<OneBatch, detail::EmptyDivmod, FastDivmod>;
+  using HeadGroupDivmod  = cute::conditional_t<NoGQA, detail::EmptyDivmod, FastDivmod>;
 
   struct Params {
     dim3 grid;
-    FastDivmod divmod_num_heads;
+    NumHeadsDivmod  divmod_num_heads;
+    HeadGroupDivmod divmod_head_group_q;
   };
 
   bool valid_ = true;
@@ -63,7 +70,15 @@ struct XeFHMAIndividualTileScheduler {
     dim3 grid(size(ceil_div(shape.head_size_vo, get<1>(tile_shape))),     // V
               size(ceil_div(shape.seq_len_qo,   get<0>(tile_shape))),     // Q
               size(shape.batch * shape.num_heads_q));                     // (h,b) -- split later
-    return Params{grid, {shape.num_heads_q}};
+    Params p{};
+    p.grid = grid;
+    if constexpr (!OneBatch) {
+      p.divmod_num_heads = FastDivmod(shape.num_heads_q);
+    }
+    if constexpr (!NoGQA) {
+      p.divmod_head_group_q = FastDivmod(shape.num_heads_q / shape.num_heads_kv);
+    }
+    return p;
   }
 
   template <int Num_SGs>
@@ -79,10 +94,26 @@ struct XeFHMAIndividualTileScheduler {
   CUTLASS_DEVICE
   auto get_block_coord() {
     using namespace cute;
-    int idx_b = BlockIdxZ();
     int head;
-    params.divmod_num_heads(idx_b, head, idx_b);
+    int idx_b;
+    if constexpr (OneBatch) {
+      // Single batch: grid.z == num_heads_q. No divmod needed.
+      head  = BlockIdxZ();
+      idx_b = 0;
+    } else {
+      idx_b = BlockIdxZ();
+      params.divmod_num_heads(idx_b, head, idx_b);
+    }
     return make_coord(params.grid.y - 1 - BlockIdxY(), BlockIdxX(), head, idx_b);
+  }
+
+  CUTLASS_DEVICE
+  int divide_head_group(int head_q) const {
+    if constexpr (NoGQA) {
+      return head_q;
+    } else {
+      return params.divmod_head_group_q.div(head_q);
+    }
   }
 
   CUTLASS_DEVICE
@@ -97,6 +128,7 @@ struct XeFHMAIndividualPersistentTileScheduler {
   struct Params {
     dim3 grid;
     FastDivmod divmod_num_heads;
+    FastDivmod divmod_head_group_q;
   };
 
   bool valid_ = true;
@@ -124,7 +156,7 @@ struct XeFHMAIndividualPersistentTileScheduler {
     int num_heads = shape.num_heads_q;
     grid.z = hw_info.sm_count;
 
-    return Params{grid, {num_heads}};
+    return Params{grid, {num_heads}, {shape.num_heads_q / shape.num_heads_kv}};
   }
 
   template <int Num_SGs>

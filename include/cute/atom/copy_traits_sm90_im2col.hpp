@@ -42,9 +42,65 @@
 #include "cutlass/fast_math.h"
 #include "cutlass/cuda_host_adapter.hpp"
 
+#if defined(SYCL_INTEL_XE4_TARGET)
+#include <cute/arch/copy_xe4_dma.hpp>
+#endif
+
 namespace cute
 {
+#if defined(SYCL_INTEL_XE4_TARGET)
+template <int NumBytesPerCopy, class GTensor>
+CUTE_HOST_DEVICE auto
+make_async_row_copy_desc(GTensor const& gtensor)
+{
+  using T = typename GTensor::value_type;
 
+  Im2ColTmaDescriptor<T, NumBytesPerCopy> tdesc_ptr;
+  tdesc_ptr.bytes[0] = reinterpret_cast<uint64_t>(&gtensor.data()[0]);
+  tdesc_ptr.bytes[1] = shape<0>(gtensor);
+  tdesc_ptr.bytes[2] = shape<1>(gtensor);
+  tdesc_ptr.bytes[3] = shape<2>(gtensor);
+  tdesc_ptr.bytes[4] = shape<3>(gtensor);
+
+  tdesc_ptr.bytes[6] = stride<1>(gtensor);
+  tdesc_ptr.bytes[7] = stride<2>(gtensor);
+  tdesc_ptr.bytes[8] = stride<3>(gtensor);
+
+  return tdesc_ptr;
+}
+
+template <class TensorDesc, class CoordTensor>
+struct Xe4Im2ColCache {
+  template <typename CopyOp>
+  using OpUnpack = XE4_COPY_Unpack<CopyOp>;
+
+  CUTE_HOST_DEVICE constexpr
+  auto get_tensor_desc() const {
+    return &tensor_desc_;
+  }
+
+  template <class GShape>
+  CUTE_HOST_DEVICE constexpr
+  auto get_tma_tensor([[maybe_unused]] GShape const& g_shape) const {
+    return coord_tensor_;
+  }
+
+  template <typename... Args>
+  CUTE_HOST_DEVICE constexpr
+  auto make_args_tuple(Args&&... args) const {
+    return make_tuple(&tensor_desc_, static_cast<Args&&>(args)...);
+  }
+
+  template <typename GmemPtr>
+  CUTE_HOST_DEVICE constexpr
+  void set_gmem_ptr(const GmemPtr &gmem_ptr) {
+    tensor_desc_.bytes[0] = reinterpret_cast<uint64_t>(gmem_ptr);
+  }
+
+  TensorDesc tensor_desc_;
+  CoordTensor coord_tensor_;
+};
+#else
 // Utility for unpacking TMA_LOAD_IM2COL arguments into a CopyOp
 template <class CopyOp>
 struct TMA_LOAD_IM2COL_Unpack
@@ -358,6 +414,7 @@ struct Copy_Traits<SM90_TMA_STORE_IM2COL, NumBitsPerTMA, TMATensor>
                                  dst_coord, tuple_seq<decltype(dst_coord)>{});
   }
 };
+#endif
 
 namespace detail {
 
@@ -404,7 +461,9 @@ make_im2col_tma_copy_desc(
     DilationStride              const& stride_srt,          // SRT stride - dilation
     TMA::DescriptorAuxParams    const& aux_params = {})
 {
+#if defined(__CUDA_ARCH__)
   static_assert(is_gmem<EngineA>::value, "Tensor must point to GPU global memory.");
+#endif
   using value_type = typename EngineA::value_type;
 
   constexpr uint32_t num_total_modes   = LayoutA::rank;
@@ -442,7 +501,22 @@ make_im2col_tma_copy_desc(
     tma_upper_corner[i] = static_cast<int32_t>(get<i>(upper_corner_whd));
   });
 
+#if defined(SYCL_INTEL_XE4_TARGET)
+  using T = typename EngineA::value_type;
+  constexpr int num_bytes_per_tma =
+    []{
+        if constexpr (decltype(stride<0>(smem_swizzle))::value == 1) {
+            return decltype(shape<0>(smem_swizzle))::value * sizeof(T);
+        } else {
+            return decltype(shape<1>(smem_swizzle))::value * sizeof(T);
+        }
+    }();
+
+  using Im2ColDesc = Im2ColTmaDescriptor<T, num_bytes_per_tma>;
+  Im2ColDesc tma_desc = make_async_row_copy_desc<num_bytes_per_tma>(tensor_cwhdn);
+#else
   Im2ColTmaDescriptor tma_desc;
+#endif
 
 #if (__CUDACC_VER_MAJOR__ >= 12)
 
@@ -503,11 +577,16 @@ make_im2col_tma_copy_desc(
 
   // For fprop/dgrad kernel, gemm_shapes is ((q, p, z, n), (c, s, r, t))
   // For wgrad kernel, gemm_shapes is ((c, s, r, t), (q, p, z, n))
+#if defined(SYCL_INTEL_XE4_TARGET)
+  auto gemm_shapes_common = make_shape(gemm_mn, gemm_k);
+#else
   auto gemm_shapes_common = make_shape(
       transform_leaf(gemm_mn, [](auto s) {
         return conditional_return(cute::is_static<decltype(s)>{}, s, cutlass::FastDivmod(s));
       }),
       gemm_k);
+#endif
+
   auto gemm_shapes = make_shape(
       basis_get(stride<0,1>(tma_layout_vt), gemm_shapes_common),
       basis_get(stride<0,0>(tma_layout_vt), gemm_shapes_common));
@@ -647,7 +726,11 @@ make_tma_atom_im2col(CopyOp,
       gtensor_cwhdn,
       range_c,
       range_whdn,
+#if defined(SYCL_INTEL_XE4_TARGET)
+      slayout,
+#else
       get_swizzle_portion(slayout),
+#endif
       tma_layout_vt,
       lower_corner_whd,
       upper_corner_whd,
@@ -663,9 +746,17 @@ make_tma_atom_im2col(CopyOp,
   //
 
   using T = typename GEngine::value_type;
-  constexpr int num_bits_per_tma = decltype(size(tma_layout_trunc))::value * sizeof(T) * 8;
+#if defined(SYCL_INTEL_XE4_TARGET)
+  constexpr int num_bits_per_tma = decltype(size<0, 0>(tma_layout_trunc))::value * sizeof(T) * 8;
+  constexpr int num_bytes_per_tma = decltype(size<0, 0>(tma_layout_trunc))::value * sizeof(T);
 
+  using Im2ColDesc = Im2ColTmaDescriptor<T, num_bytes_per_tma>;
+  using Im2ColCache = Xe4Im2ColCache<Im2ColDesc, decltype(tma_tensor)>;
+  using Traits = Copy_Traits<Xe4CopyOp<CopyOp>, cute::C<num_bits_per_tma>, Im2ColCache>;
+#else
+  constexpr int num_bits_per_tma = decltype(size(tma_layout_trunc))::value * sizeof(T) * 8;
   using Traits = Copy_Traits<CopyOp, cute::C<num_bits_per_tma>, decltype(tma_tensor)>;
+#endif
   using Atom = Copy_Atom<Traits, typename GEngine::value_type>;
 
 #if 0
@@ -673,7 +764,6 @@ make_tma_atom_im2col(CopyOp,
 #endif
 
   Traits tma_traits{tma_desc, tma_tensor};
-
   // Return the Copy_Atom
   return Atom{tma_traits};
 }
@@ -725,18 +815,30 @@ make_tma_copy_im2col(CopyOp                       const& copy_op,
   //
   // TMA parameter checking
   //
-
+#if defined(__CUDA_ARCH__)
   CUTE_STATIC_ASSERT_V(size(slayout) % cosize(cta_t_map) == Int<0>{},
     "Number of active CTAs in TMA must divide domain size of slayout.");
+#endif
 
   Copy_Atom atom = make_tma_atom_im2col(copy_op, gtensor, slayout, cosize(cta_t_map), cta_v_map,
                                         lower_corner_whd, upper_corner_whd, lower_padding_whd,
                                         upper_padding_whd, stride_whd, lower_srt, stride_srt, aux_params);
-
   //
   // Construct the TiledCopy
   //
+#if defined(SYCL_INTEL_XE4_TARGET)
+  if constexpr (decltype(stride<0>(slayout))::value == 1) {
+    auto layout_t = make_layout(make_shape(Int<1>{}, Int<cutlass::NumThreadsPerWarp>{}));
+    auto layout_v = make_layout(make_shape(shape<0>(cta_v_map), Int<1>{}));
 
+    return make_tiled_copy(atom, layout_t, layout_v);
+  } else {
+    auto layout_t = make_layout(make_shape(Int<cutlass::NumThreadsPerWarp>{}, Int<1>{}));
+    auto layout_v = make_layout(make_shape(Int<1>{}, shape<1>(cta_v_map)));
+
+    return make_tiled_copy(atom, layout_t, layout_v);
+  }
+#else
   auto cta_tiler = product_each(shape(cta_v_map));
 
   auto num_elems_per_tma = size<1>(typename decltype(atom)::RefLayout{}) / static_value<sizeof_bits<typename GEngine::value_type>>();
@@ -764,6 +866,7 @@ make_tma_copy_im2col(CopyOp                       const& copy_op,
 #endif
 
   return TiledCopy<decltype(atom), decltype(layout_TV), decltype(cta_tiler)>{atom};
+#endif
 }
 
 /// Make a TiledCopy for im2col TMA with no offsets.

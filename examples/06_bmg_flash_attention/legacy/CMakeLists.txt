@@ -27,6 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+if (NOT DEFINED SYCL_TARGET_INTEL_GPU_CRI)
 
 set(CUTLASS_APPLICATIONS_DIR ${CUTLASS_DIR}/applications)
 
@@ -72,3 +73,4 @@ foreach(HEAD_DIM 64 96 128 192)
   target_compile_definitions(06_bmg_prefill_attention_fp8_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM})
   target_compile_definitions(06_bmg_decode_attention_fp8_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM})
 endforeach()
+endif()

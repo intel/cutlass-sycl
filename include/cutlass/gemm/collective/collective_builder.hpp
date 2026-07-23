@@ -59,7 +59,9 @@
 #include "cutlass/gemm/collective/builders/sm120_blockwise_mma_builder.inl"
 #endif
 
-#if defined(SYCL_INTEL_TARGET)
+#if defined(SYCL_INTEL_XE4_TARGET)
+#include "cutlass/gemm/collective/builders/xe4_amma_builder.inl"
+#elif defined(SYCL_INTEL_TARGET)
 #include "cutlass/gemm/collective/builders/xe_mma_builder.inl"
 #endif
 

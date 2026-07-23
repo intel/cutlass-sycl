@@ -1,0 +1,25 @@
+#############################################################################
+### Mixed-dtype GEMM (ConvertOnly) — sync test cases (task F)              ###
+###                                                                        ###
+### Used to verify benchmark performance matches example                   ###
+###   examples/02_bmg_gemm_mixed_dtype/02_bmg_gemm_bf16_s8_bf16            ###
+###                                                                        ###
+### Aligned configuration:                                                 ###
+###   Narrow A   = int8 (RowMajor), Wide B = bfloat16 (RowMajor)           ###
+###   TileShape  = <_256, _256, _32>                                       ###
+###   MMA Atom   = XE_8x16x16_F32BF16BF16F32_TT (bf16 inputs, f32 acc)     ###
+###   GmemCopy   = XE_2D_U8x32x32_LD_N (A) / XE_2D_U16x32x32_LD_V (B)      ###
+###   Dispatch   = MainloopIntelXeXMX16MixedPrecision<3> (PipelineStages=3)###
+###   Epilogue   = IntelXeXMX16 (legacy)                                   ###
+###                                                                        ###
+### NOTE: benchmark covers ConvertOnly mode only (narrow upcast to bf16,   ###
+### no scale / zero-point). Compare against the example run in ConvertOnly:###
+###   ./examples/02_bmg_gemm_mixed_dtype/02_bmg_gemm_bf16_s8_bf16 \        ###
+###       --mode=0 --a_narrower=1 --m=<M> --n=<N> --k=<K> --iterations=20  ###
+#############################################################################
+
+# Test case 1: example 02 default shape (m=5120 n=4096 k=4096)
+# BmgMixedGemmS8BF16FP32_RRR_TileShape_256_256_32 --bm_name=bmg_mixed_s8bf16 --m=5120 --n=4096 --k=4096
+
+# Test case 2: small shape for fast simulator validation
+BmgMixedGemmS8BF16FP32_RRR_TileShape_256_256_32 --bm_name=bmg_mixed_s8bf16 --m=1024 --n=1024 --k=1024

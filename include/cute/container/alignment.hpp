@@ -66,5 +66,6 @@ template <class Child> struct CUTE_ALIGNAS( 32) aligned_struct< 32, Child> {};
 template <class Child> struct CUTE_ALIGNAS( 64) aligned_struct< 64, Child> {};
 template <class Child> struct CUTE_ALIGNAS(128) aligned_struct<128, Child> {};
 template <class Child> struct CUTE_ALIGNAS(256) aligned_struct<256, Child> {};
+template <class Child> struct CUTE_ALIGNAS(512) aligned_struct<512, Child> {};
 
 } // end namespace cute

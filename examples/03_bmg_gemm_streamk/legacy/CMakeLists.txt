@@ -26,13 +26,17 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set(TEST_BATCHES --l=2)
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_ARGS "--m=${CRI_GEMM_DEFAULT_SIZE} --n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+else()
+  set(TEST_ARGS --l=2)
+endif()
 
 cutlass_example_add_executable(
   03_bmg_gemm_streamk_legacy
   03_bmg_gemm_streamk.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_ARGS
 )
 if(NOT DPCPP_SYCL_TARGET STREQUAL "spir64")
   # TODO(codeplay): Remove these once IGC VectorAliasThreshold issue is fixed

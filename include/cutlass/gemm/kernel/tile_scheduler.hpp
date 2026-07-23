@@ -67,7 +67,9 @@ struct StaticPersistentScheduler { };
 #include "cutlass/gemm/kernel/sm100_tile_scheduler.hpp"            
 #include "cutlass/gemm/kernel/sm100_tile_scheduler_stream_k.hpp"   
 #include "cutlass/gemm/kernel/sm100_tile_scheduler_group.hpp"
-#if defined (SYCL_INTEL_TARGET)
+#if defined (SYCL_INTEL_XE4_TARGET)
+#include "cutlass/gemm/kernel/xe4_tile_scheduler.hpp"
+#elif defined (SYCL_INTEL_TARGET)
 #include "cutlass/gemm/kernel/xe_tile_scheduler_streamk.hpp"
 #include "cutlass/gemm/kernel/xe_tile_scheduler_group.hpp"
 #endif
@@ -179,7 +181,22 @@ struct TileSchedulerSelector<
   using Scheduler = PersistentTileSchedulerSm90Group<GroupProblemShape, SchedulerPipelineStageCount>;
 };
 
-#if defined (SYCL_INTEL_TARGET)
+#if defined (SYCL_INTEL_XE4_TARGET)
+template <
+  class TileShape,
+  class ClusterShape,
+  uint32_t SchedulerPipelineStageCount
+>
+struct TileSchedulerSelector<
+    PersistentScheduler,
+    cutlass::arch::Xe4,
+    TileShape,
+    ClusterShape,
+    SchedulerPipelineStageCount
+  > {
+  using Scheduler = PersistentTileSchedulerXe4<SchedulerPipelineStageCount,ClusterShape>;
+};
+#elif defined (SYCL_INTEL_TARGET)
 template <
   class TileShape,
   class ClusterShape,

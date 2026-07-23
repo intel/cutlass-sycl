@@ -67,6 +67,7 @@ struct Options {
   int batch, num_heads_q, num_heads_kv, seq_len_qo, seq_len_kv, seq_len_kv_cache, page_size, head_size_qk, head_size_vo, iterations, verify;
   float softmax_scale;
 
+
   Options()
       : help(false), error(false), is_causal(false), varlen(false), use_paged_kv(false), batch(32), num_heads_q(16), num_heads_kv(16), seq_len_qo(1), head_size_qk(128),
         seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), verify(1), softmax_scale(1.f), scheduler("Individual") {}
@@ -209,7 +210,7 @@ template <class FMHAKernel, bool isVarLen> struct ExampleRunner {
     using outType = cutlass::DeviceAllocation<cute::conditional_t<is_fp8_v<Tin>, half_t, Tin>>;
     if constexpr(is_fp8_v<Tin>) {
       cutlass::DeviceAllocation<half_t> out(in.size());
-      convert_dtype<Tin, half_t, ExampleRunner>(in.get(), out.get(), in.size());
+      convert_dtype<Tin, half_t, ExampleRunner>(in, out);
       return out;
     } else { 
       return in;

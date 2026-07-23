@@ -103,7 +103,8 @@ struct MMA_Op<MMA_Traits<MMA_Op_Arg, Args...>> {
 // Generic mma_unpack for any MMA_Traits
 //
 
-template <class AnyMMATraits,
+template <bool NoAcc = false,
+          class AnyMMATraits,
           class TD, class DLayout,
           class TA, class ALayout,
           class TB, class BLayout,
@@ -144,7 +145,7 @@ mma_unpack(AnyMMATraits        const& traits,
   CUTE_STATIC_ASSERT_V(size(rC) == Int<RegNumC>{});
 
 #if defined(CUTLASS_ENABLE_SYCL)
-  detail::explode_mma<MMA_Op>(rD, make_int_sequence<RegNumD>{},
+  detail::explode_mma<MMA_Op, NoAcc>(rD, make_int_sequence<RegNumD>{},
                           rA, make_int_sequence<RegNumA>{},
                           rB, make_int_sequence<RegNumB>{},
                           rC, make_int_sequence<RegNumC>{});

@@ -32,12 +32,28 @@
 #pragma once
 
 #include <benchmarks_decode_bf16.cpp>
+#include <benchmarks_decode_fp8.cpp>
+#include <benchmarks_decode_fp8kv_fp16mma.cpp>
 #include <benchmarks_prefill_bf16.cpp>
+#include <benchmarks_prefill_fp8.cpp>
+#include <benchmarks_prefill_fp8kv_fp16mma.cpp>
+#if defined(SYCL_INTEL_TARGET) && SYCL_INTEL_TARGET == 35
+#include <benchmarks_prefill_mxfp8.cpp>
+#include <benchmarks_prefill_mxfp4.cpp>
+#endif
 
 static void register_flash_attention_decode_benchmarks() {
   register_flash_attention_decode_benchmarks_bf16();
+  register_flash_attention_decode_benchmarks_fp8();
+  register_flash_attention_decode_benchmarks_fp8kv_fp16mma();
 }
 
 static void register_flash_attention_prefill_benchmarks() {
   register_flash_attention_prefill_benchmarks_bf16();
+  register_flash_attention_prefill_benchmarks_fp8();
+  register_flash_attention_prefill_benchmarks_fp8kv_fp16mma();
+#if defined(SYCL_INTEL_TARGET) && SYCL_INTEL_TARGET == 35
+  register_flash_attention_prefill_benchmarks_mxfp8();
+  register_flash_attention_prefill_benchmarks_mxfp4();
+#endif
 }

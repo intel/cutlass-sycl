@@ -106,8 +106,8 @@ struct Options {
   bool help = false;
 
   float alpha, beta;
-  int iterations, verify;
-  int m, n, k, groups;
+  int m, n, k, groups, iterations, verify;
+
   std::vector<typename ProblemShape::UnderlyingProblemShape> problem_sizes_host;
 
   Options() : error(false), help(false), alpha(FLT_MAX), beta(FLT_MAX), iterations(100), verify(1),
@@ -155,7 +155,7 @@ struct Options {
       << "  --k=<int>                   Sets the K extent of the GEMM for all groups\n"
       << "  --groups=<int>              Sets the number of individual GEMM problems for Grouped GEMM\n"
       << "  --alpha=<f32>               Epilogue scalar alpha\n"
-      << "  --beta=<f32>                Epilogue scalar beta\n\n"
+      << "  --beta=<f32>                Epilogue scalar beta\n"
       << "  --iterations=<int>          Number of profiling iterations to perform\n"
       << "  --verify=<int>              Specify whether to verify.\n\n";
 
@@ -271,14 +271,12 @@ struct ExampleRunner {
 
       // fp8 -> fp16
       convert_dtype<ElementType, half_t, ExampleRunner>(
-          block_A.get(),
-          block_A_fp16.get(),
-          block_A.size()
+          block_A,
+          block_A_fp16
       );
       convert_dtype<ElementType, half_t, ExampleRunner>(
-          block_B.get(),
-          block_B_fp16.get(),
-          block_B.size()
+          block_B,
+          block_B_fp16
       );
 
       cutlass::TensorRef ref_A(block_A_fp16.get() + offset_A.at(i), LayoutA::packed({M, K}));
@@ -312,7 +310,7 @@ struct ExampleRunner {
 
       // Check if output from CUTLASS kernel and reference kernel are equal or not
       passed &= cutlass::reference::device::BlockCompareEqual(block_ref_D.get() + offset_D.at(i), block_D.get() + offset_D.at(i), M * N);
-      if(!passed)
+      if (!passed)
         break;
     }
     return passed;

@@ -282,7 +282,7 @@ choose_tiled_mma(ATensor const& A, BTensor const& B, CTensor const&)
                                   && !(is_same_v<TB, cute::float_e5m2_t>))
                            || (b_n && sizeof_bits_v<TB> < 8);
 
-  using WGTile = Shape<_128, _128,  C<op.K * 2>>;                               // 256x256 WG tile size
+  using WGTile = Shape<_128, _128,  C<op.K * 2>>;                               // 128x128 WG tile size
   using SGLayout8x4 = Layout<Shape<_4, _4, _1>, Stride<_4, _1, _0>>;  // 8x4 SG tiling, n-major
 
   using SGLayout = SGLayout8x4;

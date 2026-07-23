@@ -1,5 +1,6 @@
 /***************************************************************************************************
  * Copyright (c) 2023 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * Copyright (c) 2025 - 2026 Intel Corporation, All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -134,6 +135,64 @@ struct LinCombEltAct
   static constexpr bool IsEltActSupported = true;
 };
 
+// D = activation(acc)
+template<
+  template <class> class ActivationFn_,
+  class ElementOutput_,
+  class ElementCompute_,
+  FloatRoundStyle RoundStyle_ = FloatRoundStyle::round_to_nearest
+>
+struct EltAct : FusionOperation {
+  using ElementOutput = ElementOutput_;
+  using ElementCompute = ElementCompute_;
+  using ActivationFn = ActivationFn_<ElementCompute_>;
+  static constexpr bool IsEltActSupported = true;
+  static constexpr auto RoundStyle = RoundStyle_;
+};
+
+// D = activation(acc) * C
+template<
+  template <class> class ActivationFn_,
+  class ElementOutput_,
+  class ElementCompute_,
+  class ElementSource_ = ElementOutput_,
+  FloatRoundStyle RoundStyle_ = FloatRoundStyle::round_to_nearest
+>
+struct EltActMul : EltAct<ActivationFn_, ElementOutput_, ElementCompute_, RoundStyle_> {
+  using ElementSource = ElementSource_;
+  static constexpr bool IsSourceSupported = true;
+};
+
+// D = activation(acc) + C
+template<
+  template <class> class ActivationFn_,
+  class ElementOutput_,
+  class ElementCompute_,
+  class ElementSource_ = ElementOutput_,
+  FloatRoundStyle RoundStyle_ = FloatRoundStyle::round_to_nearest
+>
+struct EltActAdd : EltAct<ActivationFn_, ElementOutput_, ElementCompute_, RoundStyle_> {
+  using ElementSource = ElementSource_;
+  static constexpr bool IsSourceSupported = true;
+};
+
+// D = acc + per-row bias
+template<
+  class ElementOutput_,
+  class ElementCompute_,
+  class ElementBias_ = ElementOutput_,
+  int AlignmentBias_ = 128 / cute::sizeof_bits_v<ElementBias_>,
+  FloatRoundStyle RoundStyle_ = FloatRoundStyle::round_to_nearest
+>
+struct PerColBias : FusionOperation {
+  using ElementOutput = ElementOutput_;
+  using ElementCompute = ElementCompute_;
+  using ElementBias = ElementBias_;
+  static constexpr auto RoundStyle = RoundStyle_;
+  static constexpr int AlignmentBias = AlignmentBias_;
+  static constexpr bool IsPerColBiasSupported = true;
+};
+
 // D = softmax(top_k(alpha * acc + beta * C))
 template<
   int TopK,
@@ -144,6 +203,20 @@ template<
   FloatRoundStyle RoundStyle_ = FloatRoundStyle::round_to_nearest
 >
 struct LinCombTopKSoftmaxCol
+    : LinearCombination<ElementOutput_, ElementCompute_, ElementSource_, ElementScalar_, RoundStyle_> {
+};
+
+// D = softmax(top_k(alpha * acc + beta * C)), with XE visitor-owned output store
+template<
+  int TopK,
+  class ElementOutput_,
+  class ElementCompute_,
+  class CopyOpR2G_,
+  class ElementSource_ = ElementOutput_,
+  class ElementScalar_ = ElementCompute_,
+  FloatRoundStyle RoundStyle_ = FloatRoundStyle::round_to_nearest
+>
+struct XeLinCombTopKSoftmaxCol
     : LinearCombination<ElementOutput_, ElementCompute_, ElementSource_, ElementScalar_, RoundStyle_> {
 };
 
@@ -400,7 +473,7 @@ struct PerColResAddPerColBiasEltAct
 };
 
 // Z = scale_a * scale_b * alpha * acc + beta * scale_c * C + per-row bias
-// if D is fp8 
+// if D is fp8
 //   D = scale_d * activation(Z)
 // else
 //   D = activation(Z)
@@ -421,7 +494,7 @@ struct ScaledLinCombPerRowBiasEltAct
 };
 
 // Z = scale_a * scale_b * alpha * acc + beta * scale_c * C + per-col bias
-// if D is fp8 
+// if D is fp8
 //   D = scale_d * activation(Z)
 // else
 //   D = activation(Z)
@@ -442,12 +515,12 @@ struct ScaledLinCombPerColBiasEltAct
 };
 
 // Z = scale_a * scale_b * alpha * acc + scale_c * beta * C + per-row bias
-// if D is fp8 
+// if D is fp8
 //   amax_d = max(abs(elements in activation(Z)))
 //   D = scale_d * activation(Z)
 // else
 //   D = activation(Z)
-// if Aux is fp8 
+// if Aux is fp8
 //   amax_aux = max(abs(elements in Z))
 //   Aux = scale_aux * Z
 // else
@@ -479,12 +552,12 @@ struct ScaledLinCombPerRowBiasEltActAmaxAux
 };
 
 // Z = scale_a * scale_b * alpha * acc + scale_c * beta * C + per-col bias
-// if D is fp8 
+// if D is fp8
 //   amax_d = max(abs(elements in activation(Z)))
 //   D = scale_d * activation(Z)
 // else
 //   D = activation(Z)
-// if Aux is fp8 
+// if Aux is fp8
 //   amax_aux = max(abs(elements in Z))
 //   Aux = scale_aux * Z
 // else

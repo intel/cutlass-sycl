@@ -2,4 +2,4 @@
 # Suite: new
 # Config Group: attention
 
-BmgFMHAPrefill_BF16_BF16_BF16_FP32_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=40 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+BmgFMHAPrefill_BF16_BF16_BF16_BF16_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=transformer_moe_dense.attn.flash_attn --batch=128 --num_heads_q=40 --num_heads_kv=8 --seq_len_qo=1024 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128

@@ -50,6 +50,7 @@ template <> struct vector_element_helper<bfloat16_t>   { using type = uint16_t; 
 template <> struct vector_element_helper<half_t>       { using type = uint16_t; };
 template <> struct vector_element_helper<float_e5m2_t> { using type = uint8_t;  };
 template <> struct vector_element_helper<float_e4m3_t> { using type = uint8_t;  };
+template <> struct vector_element_helper<float_ue8m0_t> { using type = uint8_t;  };
 
 template <class T, int N> struct vector_helper {
     using U = typename vector_element_helper<T>::type;
@@ -79,6 +80,7 @@ using uchar64 = vector_t<uchar, 64>;
 using float2 = vector_t<float, 2>;
 using float4 = vector_t<float, 4>;
 using float8 = vector_t<float, 8>;
+using float64 = vector_t<float, 64>;
 
 #ifndef __SYCL_DEVICE_ONLY__
 using half = sycl::half;

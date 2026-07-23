@@ -57,18 +57,33 @@ using namespace compat::experimental;
 #define LOG_THREAD (0)
 
 template <class atype, class btype, class ctype>
-void verify(uint32_t m, uint32_t n, uint32_t k, atype *A, btype *B, ctype *C,
+void verify(uint32_t m, uint32_t n, uint32_t k, atype *Aptr, btype *Bptr, ctype *C,
             bool row_a = true, bool row_b = true) {
   int cnt = 0;
   bool is_normal = true;
+
+  static_assert(sizeof_bits_v<ctype> >= 8);
 
   for (int i = 0; i < m; i++) {
     for (int j = 0; j < n; j++) {
       ctype expect = ctype(0);
       for (int z = 0; z < k; z++) {
-        auto a = row_a ? A[i * k + z] : A[i + z * m];
-        auto b = row_b ? B[z * n + j] : B[z + j * k];
-        expect += a * b;
+        atype a;
+        btype b;
+        if constexpr (sizeof_bits_v<atype> >= 8) {
+          a = row_a ? Aptr[i * k + z] : Aptr[i + z * m];
+        } else {
+          auto A = cute::subbyte_iterator<const atype>(Aptr);
+          a = row_a ? A[i * k + z].get() : A[i + z * m].get();
+        }
+
+        if constexpr (sizeof_bits_v<btype> >= 8) {
+          b = row_b ? Bptr[z * n + j] : Bptr[z + j * k];
+        } else {
+          auto B = cute::subbyte_iterator<const btype>(Bptr);
+          b = row_b ? B[z * n + j].get() : B[z + j * k].get();
+        }
+        expect += ctype(a) * ctype(b);
       }
 
       ctype val = C[i * n + j];
@@ -112,7 +127,10 @@ template <typename T> static void fill_matrix(cutlass::host_vector<T> &M) {
     start = (T)0;
     end = (T)5;
   } else {
-    CUTE_STATIC_ASSERT(false, "you must set coreect start/end value to initialize data");
+    const auto max = cutlass::platform::numeric_limits<T>::max();
+    const auto min = cutlass::platform::numeric_limits<T>::min();
+    start = min / T(4);
+    end = max / T(4);
   }
 
   std::uniform_real_distribution<float> dist((T)start, (T)end);

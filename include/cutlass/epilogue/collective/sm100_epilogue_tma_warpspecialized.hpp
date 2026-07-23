@@ -99,10 +99,7 @@ class CollectiveEpilogue<
     CopyOpR2S_,
     CopyOpR2R_
 > {
-public:
-  //
-  // Type Aliases
-  //
+public:;
   using DispatchPolicy = Sm100TmaWarpSpecialized<StagesC_, StagesD_, FragmentSize_, ReuseSmemC_, DelayTmaStore_>;
   using CtaTileShape = CtaTileShape_;
   using EpilogueTile = EpilogueTile_;

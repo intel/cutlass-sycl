@@ -78,9 +78,11 @@ struct XE_LOAD_2D : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidth>
   CUTE_HOST_DEVICE static void copy(const int *payload, T *dst) {
 #ifdef CUTE_ARCH_COPY_XE_ENABLED
     using namespace intel;
-    auto &dv = *reinterpret_cast<storage_vector_t<T, Width * Height * Bits / sg_size>*>(dst);
+    // TODO: to workaround the GRF aligned visa issue, may have better way in the future
+    constexpr auto grf_aligned_size = cute::max(64, Width * Height);
+    auto &dv = *reinterpret_cast<storage_vector_t<T, grf_aligned_size * Bits / sg_size> *>(dst);
     asm (
-      "lsc_load_block2d.ugm (M1, 1)  %0:d%2.%3x%4x%5nn flat[%1+(0,0)]"
+      "lsc_load_block2d.ugm.ca.ca.uc (M1, 1)  %0:d%2.%3x%4x%5nn flat[%1+(0,0)]"
         : "=rw"(dv)
         : "rw.u"(payload), "P"(Bits), "P"(Width/BlockWidth), "P"(BlockWidth), "P"(Height)
     );
@@ -103,7 +105,7 @@ struct XE_LOAD_2D_VNNI : XE_Copy_Op_2D_Base<Bits, Height, Width, Width/BlockWidt
     using namespace intel;
     auto &dv = *reinterpret_cast<storage_vector_t<T, Width * Height * Bits / sg_size>*>(dst);
     asm (
-      "lsc_load_block2d.ugm (M1, 1)  %0:d%2.%3x%4x%5nt flat[%1+(0,0)]"
+      "lsc_load_block2d.ugm.ca.ca.uc (M1, 1)  %0:d%2.%3x%4x%5nt flat[%1+(0,0)]"
         : "=rw"(dv)
         : "rw.u"(payload), "P"(Bits), "P"(Width/BlockWidth), "P"(BlockWidth), "P"(Height)
     );
@@ -119,8 +121,14 @@ template <int Bits, int Height, int Width>
 struct XE_LOAD_2D_TRANSPOSE : XE_Copy_Op_2D_Base<Bits, Height, Width, 1, true>
 {
   static_assert(Bits == 32 || Bits == 64, "Unsupported data size");
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+  static_assert((Bits == 32 && Width <= 16) || (Bits == 64 && Width <= 8),
+                "Width exceeds hardware limits");
+  static_assert(Bits != 64 || (Height == 8 && Width <= 8), "Unsupported D64 transpose block size");
+#else
   static_assert(Width <= 8, "Width exceeds hardware limits");
-  static_assert(Bits != 64 || (Height == 8 && Width < 4), "Unsupported D64 transpose block size");
+  static_assert(Bits != 64 || (Height == 8 && Width <= 4), "Unsupported D64 transpose block size");
+#endif
 
   template <typename T>
   CUTE_HOST_DEVICE static void copy(const int *payload, T *dst) {
@@ -128,7 +136,7 @@ struct XE_LOAD_2D_TRANSPOSE : XE_Copy_Op_2D_Base<Bits, Height, Width, 1, true>
     using namespace intel;
     auto &dv = *reinterpret_cast<storage_vector_t<T, Width * Height * Bits / sg_size>*>(dst);
     asm (
-      "lsc_load_block2d.ugm (M1, 1)  %0:d%2.%3x%4tn flat[%1+(0,0)]"
+      "lsc_load_block2d.ugm.ca.ca.uc (M1, 1)  %0:d%2.%3x%4tn flat[%1+(0,0)]"
         : "=rw"(dv)
         : "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
     );
@@ -145,10 +153,17 @@ struct XE_PREFETCH_2D : XE_Copy_Op_2D_Base<Bits, Height, Width>
 {
   CUTE_HOST_DEVICE static void copy(const int *payload) {
 #ifdef CUTE_ARCH_COPY_XE_ENABLED
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+    asm (
+      "lsc_load_block2d.ugm.ca.ca.uc (M1, 1)  %%null:d%1.%2x%3nn flat[%0+(0,0)]"
+        :: "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
+    );
+#else
     asm (
       "lsc_load_block2d.ugm.ca.ca (M1, 1)  %%null:d%1.%2x%3nn flat[%0+(0,0)]"
         :: "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
     );
+#endif
 #else
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe block 2D copy atom on non-Xe hardware");
 #endif
@@ -165,12 +180,19 @@ struct XE_STORE_2D : XE_Copy_Op_2D_Base<Bits, Height, Width>
   template <typename T>
   CUTE_HOST_DEVICE static void copy(const int *payload, const T *src) {
 #ifdef CUTE_ARCH_COPY_XE_ENABLED
-  using namespace intel;
-    auto &sv = *reinterpret_cast<const storage_vector_t<T, Width * Height * Bits / sg_size>*>(src); \
+    using namespace intel;
+    auto &sv = *reinterpret_cast<const storage_vector_t<T, Width * Height * Bits / sg_size>*>(src);
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
+    asm (
+      "lsc_store_block2d.ugm.uc.wb (M1, 1) flat[%1+(0,0)] %0:d%2.%3x%4nn"
+        :: "rw"(sv), "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
+    );
+#else
     asm (
       "lsc_store_block2d.ugm (M1, 1) flat[%1+(0,0)] %0:d%2.%3x%4nn"
         :: "rw"(sv), "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
     );
+#endif
 #else
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe block 2D copy atom on non-Xe hardware");
 #endif

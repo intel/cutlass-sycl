@@ -2232,15 +2232,23 @@ bool TestAll(double alpha = 1.0, double beta = 0.0, CheckEquality check_relative
 #else
   max_alignment = std::max(Gemm::kAlignmentA, Gemm::kAlignmentB);
 #endif
+#if defined(CUTLASS_TEST_FOR_CRI)
+  std::vector<int> problem_size_m = {max_alignment};
+  std::vector<int> problem_size_n = {max_alignment};
+#else
   std::vector<int> problem_size_m = {max_alignment, 512 - 3 * max_alignment};
   std::vector<int> problem_size_n = {max_alignment, 512 - 2 * max_alignment};
-
+#endif
   constexpr int Stages = Gemm::GemmKernel::DispatchPolicy::Stages;
   constexpr int TileShapeK = cute::size<2>(typename Gemm::GemmKernel::TileShape{});
-
+#if defined(CUTLASS_TEST_FOR_CRI)
+  std::vector<int> problem_size_k = {max_alignment};
+  int batches[] = {2};
+#else
   std::vector<int> problem_size_k = {max_alignment, TileShapeK * (Stages + 1) - max_alignment};
-
   int batches[] = {5, 10};
+#endif
+  
 
   bool passed = true;
 

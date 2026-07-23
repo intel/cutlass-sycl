@@ -28,3 +28,4 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 add_subdirectory(legacy)
+add_subdirectory(decode_dynamic_split)

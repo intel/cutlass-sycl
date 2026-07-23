@@ -113,6 +113,30 @@ struct Options {
       a_narrower = true;
     }
     assert(groups > 0);
+
+    // --g is the dequantization group size (group_size): how many K elements share one
+    // scale/zero value. Valid constraints: 0 < g <= k, k % g == 0.
+    // Further alignment checks against BLK_K (the tile size along K, which varies
+    // per example) are done in ExampleRunner::run().
+    if (g <= 0) {
+      std::cerr << "ERROR: --g=" << g << " is invalid. The dequantization group size must be positive.\n"
+                << "       Use --g=" << k << " for tensorwise, or --g=128 for group-wise. (current --k=" << k << ")" << std::endl;
+      error = true;
+      return;
+    }
+    if (g > k) {
+      std::cerr << "ERROR: --g=" << g << " exceeds --k=" << k << ". The group size cannot be larger than K.\n"
+                << "       Use --g=" << k << " for tensorwise dequantization." << std::endl;
+      error = true;
+      return;
+    }
+    if (k % g != 0) {
+      std::cerr << "ERROR: --k=" << k << " is not divisible by --g=" << g << " (remainder=" << (k % g) << ").\n"
+                << "       K must be evenly divisible by the group size g." << std::endl;
+      error = true;
+      return;
+    }
+
     problem_sizes_host.clear();
     problem_sizes_host.reserve(groups);
     for(int i = 0; i < groups; i++) {
@@ -126,18 +150,21 @@ struct Options {
     out << "BMG Grouped GEMM Mixed Type Example\n\n"
       << "Options:\n\n"
       << "  --help                      If specified, displays this usage statement\n\n"
-      << "  --m=<int>                   Sets the M extent of the GEMM\n"
-      << "  --n=<int>                   Sets the N extent of the GEMM\n"
-      << "  --k=<int>                   Sets the K extent of the GEMM\n"
-      << "  --l=<int>                   Sets the L extent (batch count) of the GEMM\n"
-      << "  --g=<int>                   The size of each group for the scales and zeros. To broadcast a vector of scales or zeros, set the group size to K.\n"
-      << "  --groups=<int>              Sets the number of individual GEMM problems for Grouped GEMM\n"
-      << "  --mode=<int>                The mode to run the gemm. 0 is Convert Only, 1 is Convert and Scale, 2 is Convert and Scale with Zero Point\n"
+      << "  --m=<int>                   Sets the M extent of the GEMM (default: 5120)\n"
+      << "  --n=<int>                   Sets the N extent of the GEMM (default: 4096)\n"
+      << "  --k=<int>                   Sets the K extent of the GEMM (default: 4096)\n"
+      << "  --l=<int>                   Sets the L extent (batch count) of the GEMM (default: 1)\n"
+      << "  --g=<int>                   Dequantization group size. Constraints: 0 < g <= K, K %% g == 0,\n"
+      << "                              and g must be a multiple of BLK_K (kernel tile size along K).\n"
+      << "                              Use --g=K for tensorwise, e.g. --g=4096 with default K. (default: 128)\n"
+      << "  --groups=<int>              Sets the number of individual GEMM problems for Grouped GEMM (default: 2)\n"
+      << "  --mode=<int>                The mode to run the gemm. 0 is Convert Only, 1 is Convert and Scale,\n"
+      << "                              2 is Convert and Scale with Zero Point (default: 2)\n"
       << "  --a_narrower                If specified, make A the narrower type (B is narrower by default).\n"
-      << "  --alpha=<s32>               Epilogue scalar alpha\n"
-      << "  --beta=<s32>                Epilogue scalar beta\n\n"
-      << "  --iterations=<int>          Iterations\n"
-      << "  --verify=<int>              Specify whether to verify.\n\n";
+      << "  --alpha=<s32>               Epilogue scalar alpha (default: 1.0)\n"
+      << "  --beta=<s32>                Epilogue scalar beta (default: 0.0)\n"
+      << "  --iterations=<int>          Iterations (default: 100)\n"
+      << "  --verify=<int>              Specify whether to verify (default: 1)\n\n";
 
     return out;
   }
@@ -902,6 +929,29 @@ struct ExampleRunner {
   }
 
   cutlass::Status run(const Options& options, const cutlass::KernelHardwareInfo& hw_info) {
+    std::cout << "Running with: m=" << options.m << " n=" << options.n << " k=" << options.k
+              << " g=" << options.g << " groups=" << options.groups << " mode=" << options.mode
+              << " iterations=" << options.iterations << " verify=" << options.verify << std::endl;
+
+    // Validate group_size against BLK_K (tile size along K, a compile-time constant that
+    // varies per example: e.g. 32 for bf16_s8, 64 for f16_u4).
+    // The kernel computes: k_reload_factor = group_size / BLK_K (integer division)
+    // then uses: k_tile / k_reload_factor
+    // So group_size must be >= BLK_K (otherwise k_reload_factor=0 → div-by-zero)
+    // and a multiple of BLK_K (otherwise integer truncation → wrong scale/zero reload).
+    constexpr int BLK_K = get<2>(typename Gemm::GemmKernel::TileShape{});
+    if (options.g < BLK_K || options.g % BLK_K != 0) {
+      std::cerr << "ERROR: --g=" << options.g << " is invalid for this kernel (BLK_K=" << BLK_K << ").\n"
+                << "       The dequantization group size must be a positive multiple of BLK_K.\n"
+                << "       Valid examples: ";
+      // Print a few valid values
+      for (int v = BLK_K, cnt = 0; v <= options.k && cnt < 4; v += BLK_K, ++cnt) {
+        std::cerr << (cnt ? ", " : "") << v;
+      }
+      std::cerr << ", ..., " << options.k << " (tensorwise)." << std::endl;
+      return cutlass::Status::kErrorInternal;
+    }
+
     allocate(options);
     initialize(options);
 

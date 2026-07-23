@@ -1,5 +1,22 @@
-SLM Pipeline Constructors
-=========================
+Xe SLM Pipeline APIs for SYCL-TLA
+====================
+
+Motivation
+----------
+
+Shared Local Memory (SLM) on Intel Xe GPUs provides a fast, on-chip memory layer that sits between global memory and registers. Many high-performance GPU kernels rely on SLM to stage data that will be consumed by DPAS (matrix engine) instructions. However, programming the SLM pipeline manually is tedious and error-prone: the kernel writer must carefully choose copy operations, manage data layouts between load and compute phases, handle register-to-SLM reorders, insert barriers with the correct memory fence semantics, and coordinate work partitioning across subgroups &mdash; all while ensuring that the data layout in SLM exactly matches what DPAS expects.
+
+The core goal of the APIs described in this document is to provide an **efficient and easy-to-use interface between SLM and registers**. Specifically:
+
+* **Efficiency.** The APIs automatically select the best copy operation (block 2D, block 1D, or scattered) for each transfer direction, choose SLM layouts that are natively aligned to DPAS requirements, and minimize unnecessary data movement or reordering.
+* **Ease of use.** A small set of composable helpers &mdash; `make_coop_block_2d_copy_{A,B}`, `make_{A,B}_slm_layout`, `make_{A,B}_slm_copies`, and `make_slm_copy` &mdash; encapsulate the complex layout algebra so that kernel writers can build SLM pipelines in just a few lines of code.
+* **Generality.** The same primitives support single-buffered and multi-buffered pipelines, producer&ndash;consumer subgroup specialization, fused multi-GEMM patterns, and non-GEMM use cases such as cross-subgroup reductions in FlashAttention.
+
+By lifting SLM&harr;register data movement into well-tested CuTe abstractions, these APIs free the kernel writer to focus on the algorithmic structure of the pipeline rather than the low-level plumbing.
+
+
+When to Use SLM Pipelines
+-------------------------
 
 There are several situations where the current Xe mainloops (based on prefetch and sharing A/B data out of L1) provide insufficient performance:
 * A/B preprocessing is computationally expensive or requires many registers (e.g. emulated e4m3 upconversion).
@@ -257,3 +274,41 @@ auto simple_slm_mainloop(TiledMMA tiled_mma,
   return tCrC;
 }
 ```
+
+
+Tutorial Examples
+-----------------
+
+Three tutorial examples demonstrate the SLM pipeline APIs in practice:
+
+### `xe_gemm_slm.cpp` &mdash; Basic SLM-Pipelined GEMM
+
+This example implements a standard GEMM ($C = A \times B$) where data flows through a **double-buffered SLM pipeline** (stages = 2). The high-level flow is:
+
+1. **Global &rarr; Registers**: Cooperative block 2D loads via `make_coop_block_2d_copy_{A,B}`.
+2. **Registers &rarr; SLM**: `reorder` + `copy` using the register-to-SLM TiledCopy returned by `make_{A,B}_slm_copies`.
+3. **Barrier** (workgroup scope, with release/acquire memory semantics).
+4. **SLM &rarr; Registers**: `copy` using the SLM-to-register TiledCopy, directly targeting the MMA fragments via `retile_D`.
+5. **DPAS compute**: `gemm(mma, ...)`.
+
+The example covers a wide range of data types (tf32, fp16, bf16, int8, int4) and both RowMajor/ColumnMajor input layouts, validating that the automated copy-construction APIs handle all supported type/layout combinations.
+
+### `xe_two_gemm_fusion.cpp` &mdash; Two-Stage Fused GEMM via SLM
+
+This example computes $D = (A \times B) \times C$ in a **single kernel launch** by staging the intermediate result through SLM:
+
+* **Stage 1**: A standard prefetch-based GEMM computes $AB = A \times B$ into accumulator registers, which are then converted to `half_t` and written to SLM (row-major).
+* **Barrier** (workgroup scope).
+* **Stage 2**: Each subgroup reads its portion of the intermediate matrix from SLM (column-major, effectively transposing it) and multiplies with $C$ to produce $D$.
+
+This pattern demonstrates that SLM is not limited to operand staging in a k-loop &mdash; it can also serve as an **inter-stage communication buffer** that eliminates a round-trip to global memory between two dependent GEMMs. The example uses `TiledCopy` with `UniversalCopy` atoms for the SLM store/load, showcasing the flexibility of mixing manual and automated copy construction.
+
+### `xe_gemm_subgroup_specialization_slm.cpp` &mdash; Producer&ndash;Consumer Subgroup Specialization
+
+This example implements the same GEMM as `xe_gemm_slm.cpp` but with **subgroup role specialization**: the workgroup is split into *producers* (which load from global memory and write to SLM) and *consumers* (which read from SLM and perform DPAS computation). Key features:
+
+* The workgroup size is **doubled** (`size(mma) * 2`) to accommodate both roles.
+* A **triple-buffered** SLM pipeline (stages = 3) is used so that producers can be one or more tiles ahead of consumers, overlapping global loads with computation.
+* Producers and consumers synchronize through workgroup barriers after each k-tile.
+
+This pattern is valuable when global memory loads are the bottleneck (e.g., large reduction dimensions or slow memory subsystems), as it allows the compute subgroups to remain fully utilized while dedicated load subgroups hide memory latency.

@@ -3103,6 +3103,7 @@ struct TestbedImpl {
         CUTLASS_TRACE_HOST("TestbedImpl::run: cudaGetLastError() is " << error_str);
         test::unit::LogUnsupportedOnce(printed_unsupported_once, error_str);
     #endif
+        return true;
       }
 #if (CUTLASS_DEBUG_TRACE_LEVEL > 1)
       CUTLASS_TRACE_HOST("TestbedImpl::run: Calling gemm_op.run");
@@ -4106,19 +4107,29 @@ bool TestXe(
     max_alignment_m = std::max(max_alignment_m, Gemm::EpilogueOutputOp::AlignmentAux);
     max_alignment_n = std::max(max_alignment_n, Gemm::EpilogueOutputOp::AlignmentAux);
   }
+#if defined(CUTLASS_TEST_FOR_CRI)
+  std::vector<int> problem_size_m = {max_alignment_m, 2 * max_alignment_m};
+  std::vector<int> problem_size_n = {max_alignment_n, 2 * max_alignment_n};
+  std::vector<int> problem_size_l = std::vector{1};
+#else
   std::vector<int> problem_size_m = {max_alignment_m, 512 - 3 * max_alignment_m};
   std::vector<int> problem_size_n = {max_alignment_n, 512 - 2 * max_alignment_n};
   std::vector<int> problem_size_l = test_batch ? std::vector{1, 3, 4} : std::vector{1};
-
+#endif
   constexpr int Stages = Gemm::GemmKernel::DispatchPolicy::Stages;
   constexpr int TileShapeK = cute::size<2>(typename Gemm::GemmKernel::TileShape{});
   int max_alignment_k = std::max(Gemm::kAlignmentA, Gemm::kAlignmentB);
-  std::vector<int> problem_size_k = {max_alignment_k, TileShapeK * (Stages + 1) - max_alignment_k};
+#if defined(CUTLASS_TEST_FOR_CRI)
+  std::vector<int> problem_size_k = {max_alignment_k};
+#else
+  std::vector<int> problem_size_k = {max_alignment_k, TileShapeK * (Stages + 1) - max_alignment_k};  
+#endif
 
   using DecompositionMode = typename cutlass::gemm::kernel::detail::PersistentTileSchedulerXeStreamKParams::DecompositionMode;
   std::vector decomposition_modes = {DecompositionMode::Heuristic};
   std::vector problem_splits = {detail::Splits{1}};
   static constexpr bool UsesStreamKScheduler = cute::is_same_v<typename Gemm::GemmKernel::TileSchedulerTag, cutlass::gemm::StreamKScheduler>;
+#if not defined(CUTLASS_TEST_FOR_CRI)
   if constexpr (UsesStreamKScheduler) {
     problem_splits.push_back(detail::Splits{2});
     problem_splits.push_back(detail::Splits{3});
@@ -4131,7 +4142,7 @@ bool TestXe(
     static constexpr int min_tiles_per_sk_unit = cutlass::gemm::kernel::detail::PersistentTileSchedulerXeStreamKParams::min_iters_per_sk_unit_;
     problem_size_k = {TileShapeK * min_tiles_per_sk_unit, TileShapeK * 3 * min_tiles_per_sk_unit};
   }
-
+#endif
   using RasterOrderOptions = typename cutlass::gemm::kernel::detail::PersistentTileSchedulerSm90::RasterOrderOptions;
   std::vector<RasterOrderOptions> raster_orders = {RasterOrderOptions::AlongM};
   std::vector max_swizzle_sizes{detail::MaxSwizzleSize{1}};
@@ -4146,6 +4157,7 @@ bool TestXe(
             for (auto max_swizzle_size : max_swizzle_sizes) {
               for (DecompositionMode decomp_mode : decomposition_modes) {
                 std::vector problem_splits = {detail::Splits{1}};
+#if not defined(CUTLASS_TEST_FOR_CRI)
                 if (decomp_mode == DecompositionMode::Heuristic || decomp_mode == DecompositionMode::SplitK) {
                   auto max_splits = (k + TileShapeK - 1) / TileShapeK;
                   if (max_splits > 2) {
@@ -4161,7 +4173,7 @@ bool TestXe(
                   // case, split-K will fall back to a splitting factor of `max_splits`.
                   problem_splits.push_back(detail::Splits{max_splits + 1});
                 }
-
+#endif
                 for (auto splits : problem_splits) {
                   ProblemShapeType problem_size{m, n, k, l};
                   try {

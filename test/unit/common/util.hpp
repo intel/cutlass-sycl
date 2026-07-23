@@ -71,7 +71,9 @@ class host_vector {
   }
 
   T* data() { return vec.data(); }
-  T& operator[](std::size_t index) {return vec[index]; }
+  const T* data() const { return vec.data(); }
+  T& operator[](std::size_t index) { return vec[index]; }
+  const T& operator[](std::size_t index) const { return vec[index]; }
   std::size_t size() const { return vec.size(); }
 
   host_vector<T>& operator=(device_vector<T>);

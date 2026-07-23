@@ -996,16 +996,29 @@ struct fast_exp_op<Array<half_t, N>> {
 
 template <typename T, int N>
 struct fast_exp_op<Array<T, N>> {
+  static constexpr T kLog2e = 1.4426950408889634074; // log_2(e) = M_LOG2E
+
   CUTLASS_HOST_DEVICE
   Array<T, N> operator()(Array<T, N> const &rhs) const {
 
+  Array<T, N> y;
+
+#if defined(SYCL_INTEL_XE4_TARGET)
+  multiplies<Array<T, N>> mul;
+  auto mul_res = mul(rhs, kLog2e);
+
+  CUTLASS_PRAGMA_UNROLL
+  for (int i = 0; i < N; ++i) {
+    y[i] = sycl::exp2(mul_res[i]);
+  }
+#else
     fast_exp_op<T> fast_op;
-    Array<T, N> y;
 
     CUTLASS_PRAGMA_UNROLL
     for (int i = 0; i < N; ++i) {
       y[i] = fast_op(rhs[i]);
     }
+#endif
 
     return y;
   }

@@ -1,7 +1,9 @@
 # Flash attention decode bf16
 
-# bf16
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_decode_bf16 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_WgQ128K64V32_SgQ8K64_HDimQK32V64_NonCausal_FixedLen --bm_name=attention_decode_bf16 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=512 --head_size_qk=128 --head_size_vo=128
+# bf16 - hdim64, FixedLen matching the example
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_h64_Causal_FixedLen --bm_name=attention_decode_bf16 --batch=1 --seq_len_qo=1 --seq_len_kv=256 --num_heads_q=4 --num_heads_kv=4 --head_size_qk=64 --head_size_vo=64
 
-BmgFMHADecode_BF16_BF16_BF16_FP32_RCR_h64_Causal_VarLen --bm_name=attention_decode_bf16 --batch=1 --seq_len_qo=1 --seq_len_kv=256 --num_heads_q=4 --num_heads_kv=4 --head_size_qk=64 --head_size_vo=64
+# bf16 - hdim128, tile shape aligned with develop decode (KV_TILE=512, NUM_SG=8)
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_decode_bf16 --batch=1 --num_heads_q=32 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=1024 --head_size_qk=128 --head_size_vo=128
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_NonCausal_FixedLen --bm_name=attention_decode_bf16 --batch=1 --num_heads_q=16 --num_heads_kv=8 --seq_len_qo=1 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128
+BmgFMHADecode_BF16_BF16_BF16_BF16_RCR_WgQ1K512V32_SgQ1K64_HDimQK64V128_Causal_FixedLen --bm_name=attention_decode_bf16 --batch=1 --num_heads_q=4 --num_heads_kv=4 --seq_len_qo=1 --seq_len_kv=4096 --head_size_qk=128 --head_size_vo=128

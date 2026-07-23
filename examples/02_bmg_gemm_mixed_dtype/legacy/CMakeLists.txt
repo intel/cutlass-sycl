@@ -26,16 +26,21 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set(TEST_BATCHES --l=2)
-set(TEST_MODE_1 --l=2 --mode=1)
-set(TEST_MODE_0 --l=2 --mode=0)
-set(TEST_A_NARROW --l=2 --a_narrower)
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_BASE "--m=${CRI_GEMM_DEFAULT_SIZE} --n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+else()
+  set(TEST_BASE --l=2)
+endif()
+
+set(TEST_MODE_1 ${TEST_BASE} --mode=1)
+set(TEST_MODE_0 ${TEST_BASE} --mode=0)
+set(TEST_A_NARROW ${TEST_BASE} --a_narrower)
 
 cutlass_example_add_executable(
   02_bmg_gemm_bf16_s8_bf16_legacy
   02_bmg_gemm_bf16_s8_bf16.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_BASE
   TEST_MODE_1
   TEST_MODE_0
   TEST_A_NARROW
@@ -45,7 +50,7 @@ cutlass_example_add_executable(
   02_bmg_gemm_f16_u4_f16_legacy
   02_bmg_gemm_f16_u4_f16.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_BASE
   TEST_MODE_1
   TEST_MODE_0
 )
@@ -54,7 +59,7 @@ cutlass_example_add_executable(
   02_bmg_gemm_f16_u4_s8_legacy
   02_bmg_gemm_f16_u4_s8.cpp
   TEST_COMMAND_OPTIONS
-  TEST_BATCHES
+  TEST_BASE
   TEST_MODE_1
   TEST_MODE_0
 )

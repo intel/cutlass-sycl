@@ -1,5 +1,20 @@
 # SYCL*TLA (previously referred to as cutlass-sycl) Changelog
 
+## [SYCL*TLA 0.9.2](https://github.com/intel/sycl-tla/releases/tag/v0.9.2) (2026-07-17)
+### Enhancements
+- **Support CRI platform ([#833](https://github.com/intel/sycl-tla/pull/833))**
+- **Fix register spills in XeRowBroadcast/XeColBroadcast ([#815](https://github.com/intel/sycl-tla/pull/815))**
+- **Fix identity fast path double-rounding and add EpilogueTile divisibility guard ([#832](https://github.com/intel/sycl-tla/pull/832))**
+
+### Bug Fixes
+- **Fix NumericConverter for SYCL device code (float→int32/int8/uint8) ([#817](https://github.com/intel/sycl-tla/pull/817))**
+- **Fix inductor UTs workflow ([#823](https://github.com/intel/sycl-tla/pull/823))**
+- **Fix BMG EVT workflow to run on any BMG runner ([#831](https://github.com/intel/sycl-tla/pull/831))**
+- **Fix bare ushort in host-context templates on Windows ([#835](https://github.com/intel/sycl-tla/pull/835))**
+  
+### Documentation
+- **Clean up NV references, make public repo Intel-first ([#821](https://github.com/intel/sycl-tla/pull/821))**
+
 ## [SYCL*TLA 0.9.1](https://github.com/intel/sycl-tla/releases/tag/v0.9.1) (2026-06-11)
 ### Enhancements
 - **Support Stream-K GEMM ops in Python API ([#800](https://github.com/intel/sycl-tla/pull/800))**

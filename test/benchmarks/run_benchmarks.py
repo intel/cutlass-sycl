@@ -30,6 +30,7 @@
 #################################################################################################
 
 import csv
+import os
 import re
 import subprocess
 from datetime import datetime
@@ -57,35 +58,37 @@ TEST_SUITES = [
     {
         "name": "cutlass_benchmarks_gemm_sycl_legacy",
         "executable": "./benchmarks/gemm/legacy/cutlass_benchmarks_gemm_sycl_legacy",
-        "config_file": "../benchmarks/device/bmg/input_files/all_in_one.in",
+        "config_file": "../benchmarks/device/bmg/input_files/legacy/all_in_one.in",
     }
 ]
 
 def run_command(command, cwd, log_path=None):
+    """Run a benchmark binary, tee its output to log_path, and return its exit code."""
     print(f"\n$ {' '.join(command)}")
-    if log_path:
-        with open(log_path, "w") as log_file:
-            try:
-                results = subprocess.run(command, cwd=cwd, text=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                for line in results.stdout.splitlines(keepends=True):
-                    sys.stdout.write(line)
-                    log_file.write(line)
-            except subprocess.CalledProcessError as e:
-                print(f"Error: Command failed with return code {e.returncode}")
-                if e.stdout:
-                    print("Stdout:", e.stdout)
-                    print(e.stdout)
-                else:
-                    print("No output captured.")
-        print(f"Log written to: {log_path}")
-    else:
-        subprocess.run(command, cwd=cwd, check=True)
+    if log_path is None:
+        return subprocess.run(command, cwd=cwd, check=True).returncode
+
+    with open(log_path, "w") as log_file:
+        try:
+            results = subprocess.run(command, cwd=cwd, text=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            output = results.stdout
+            returncode = 0
+        except subprocess.CalledProcessError as e:
+            # Still tee whatever the binary produced before dying, otherwise the
+            # uploaded log is empty and the failure cannot be triaged after the fact.
+            output = e.stdout or ""
+            returncode = e.returncode
+            print(f"Error: Command failed with return code {e.returncode}")
+            if not output:
+                print("No output captured.")
+        for line in output.splitlines(keepends=True):
+            sys.stdout.write(line)
+            log_file.write(line)
+    print(f"Log written to: {log_path}")
+    return returncode
 
 def parse_benchmark_log(log_path):
     records = []
-    total=0
-    failed=0
-    passed=0
     if not log_path.exists():
         return records
 
@@ -113,17 +116,18 @@ def parse_benchmark_log(log_path):
             if any(sub in line for sub in ["ERROR OCCURRED", "ERROR"]):
                 result = "Fail"
                 reason=line.strip()
-                failed+=1
             elif "avg_tflops" in line:
                 result = "Pass"
-                passed+=1
                 tflops_match = re.search(r"avg_tflops=([0-9.]+[a-z]*)", line)
                 throughput_match = re.search(r"avg_throughput=([0-9.]+)", line)
                 if tflops_match:
                     avg_tflops = tflops_match.group(1)
                 if throughput_match:
                     avg_throughput = throughput_match.group(1)
-            total+=1
+            else:
+                # Neither a reported error nor a line carrying timing counters. Treat
+                # as a failure rather than dropping it, so it cannot pass unnoticed.
+                reason = "No timing counters reported"
             records.append({
                 "Kernel": kernel_name,
                 "Shape": dimensions,
@@ -132,10 +136,18 @@ def parse_benchmark_log(log_path):
                 "Throughput": avg_throughput,
                 "Reason": reason
             })
-    print("failed: ", failed)
-    print("passed: ", passed)
-    print("total: ", total)
+    # Counts are derived from the records so the CSV and the pass/fail verdict can
+    # never disagree.
+    print("failed: ", count_failed(records))
+    print("passed: ", count_passed(records))
+    print("total: ", len(records))
     return records
+
+def count_failed(records):
+    return sum(1 for r in records if r["Result"] != "Pass")
+
+def count_passed(records):
+    return sum(1 for r in records if r["Result"] == "Pass")
 
 def write_report_csv(path, records):
     with open(path, "w", newline="") as csvfile:
@@ -163,6 +175,13 @@ def get_git_commit_id(repo_root):
 
 
 def run_tests(logs_dir, branch, build_dir, repo_root, grafana, git_commit_id):
+    """Run every suite and return a per-suite summary list.
+
+    Every suite is run even if an earlier one fails, so a single broken suite does
+    not hide the results of the others.
+    """
+    summaries = []
+    work_dir = Path(repo_root, build_dir)
     for test_suite in TEST_SUITES:
         run_cmd = [
             test_suite["executable"],
@@ -171,11 +190,74 @@ def run_tests(logs_dir, branch, build_dir, repo_root, grafana, git_commit_id):
         test_name = test_suite["name"]
         test_log = logs_dir / f"{test_name}_run_{branch}.log"
         test_report = logs_dir / f"{test_name}_report_{branch}.csv"
-        run_command(run_cmd, cwd=Path(repo_root, build_dir), log_path=test_log)
+
+        # Preflight the config path so a stale entry is reported by name up front,
+        # rather than as an opaque non-zero exit from the benchmark binary.
+        missing_config = not (work_dir / test_suite["config_file"]).exists()
+        if missing_config:
+            print(f"\nError: config file not found for suite '{test_name}': {test_suite['config_file']}")
+
+        returncode = run_command(run_cmd, cwd=work_dir, log_path=test_log)
         main_records = parse_benchmark_log(test_log)
         if grafana:
             push_results(main_records, test_name, git_commit_id=git_commit_id)
         write_report_csv(test_report, main_records)
+
+        failed = count_failed(main_records)
+        total = len(main_records)
+        errors = []
+        if missing_config:
+            errors.append(f"config file not found: {test_suite['config_file']}")
+        if returncode != 0:
+            errors.append(f"binary exited with code {returncode}")
+        if total == 0:
+            # A suite that reports nothing is a failure, not a pass. This is what
+            # let a stale --config_file path silently drop a whole suite from CI.
+            errors.append("no benchmarks ran (missing config file or empty result set)")
+        if failed:
+            errors.append(f"{failed} of {total} benchmarks failed")
+
+        summaries.append({
+            "name": test_name,
+            "returncode": returncode,
+            "total": total,
+            "passed": count_passed(main_records),
+            "failed": failed,
+            "errors": errors,
+        })
+    return summaries
+
+
+def report_summary(summaries):
+    """Print a per-suite verdict and emit a GitHub step summary. Returns True if all suites passed."""
+    all_ok = all(not s["errors"] for s in summaries)
+
+    print("\n" + "=" * 72)
+    print("BENCHMARK SUMMARY")
+    print("=" * 72)
+    for s in summaries:
+        status = "PASS" if not s["errors"] else "FAIL"
+        print(f"[{status}] {s['name']}: {s['passed']} passed, {s['failed']} failed, {s['total']} total")
+        for error in s["errors"]:
+            print(f"         -> {error}")
+    print("=" * 72)
+    print("OVERALL: " + ("PASS" if all_ok else "FAIL"))
+
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary:
+        with open(step_summary, "a") as handle:
+            handle.write("## SYCL-TLA Benchmark Results\n\n")
+            handle.write(f"**Overall: {'✅ PASS' if all_ok else '❌ FAIL'}**\n\n")
+            handle.write("| Suite | Status | Passed | Failed | Total | Details |\n")
+            handle.write("|---|---|---|---|---|---|\n")
+            for s in summaries:
+                status = "✅ PASS" if not s["errors"] else "❌ FAIL"
+                details = "; ".join(s["errors"]) or "-"
+                handle.write(
+                    f"| {s['name']} | {status} | {s['passed']} | {s['failed']} | {s['total']} | {details} |\n"
+                )
+
+    return all_ok
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmarking script for cutlass kernels.")
@@ -184,6 +266,11 @@ def main():
         dest="grafana",
         action="store_true",
         help="Push benchmark results to the Grafana/InfluxDB dashboard"
+    )
+    parser.add_argument(
+        "--allow-failures",
+        action="store_true",
+        help="Report benchmark failures but still exit 0 (for local experimentation)"
     )
     args = parser.parse_args()
 
@@ -198,8 +285,12 @@ def main():
     logs_dir = logs_root / workdir
     logs_dir.mkdir(parents=True, exist_ok=True)
     git_commit_id = get_git_commit_id(repo_root)
-    run_tests(logs_dir, branch, build_dir, repo_root, args.grafana, git_commit_id)
+    summaries = run_tests(logs_dir, branch, build_dir, repo_root, args.grafana, git_commit_id)
+    all_ok = report_summary(summaries)
+    if not all_ok and not args.allow_failures:
+        return 1
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
 

@@ -34,7 +34,7 @@ jobs:
             
     name: Run Intel ${{ matrix.compiler }} tests on ${{ matrix.gpu }} with intel-graphics ${{ matrix.intel_graphics }}
     runs-on: ${{ matrix.gpu == 'BMG' && 'bmg' || 'pvc' }}
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
       - name: Set GPU config

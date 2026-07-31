@@ -37,7 +37,6 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import argparse
-from utils.grafana_push import push_results
 
 TEST_SUITES = [
     {
@@ -159,22 +158,7 @@ def write_report_csv(path, records):
         writer.writerows(records)
         print(f"csv written to: {path}")
 
-def get_git_commit_id(repo_root):
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_root,
-            text=True,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        return result.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return ""
-
-
-def run_tests(logs_dir, branch, build_dir, repo_root, grafana, git_commit_id):
+def run_tests(logs_dir, branch, build_dir, repo_root):
     """Run every suite and return a per-suite summary list.
 
     Every suite is run even if an earlier one fails, so a single broken suite does
@@ -199,8 +183,6 @@ def run_tests(logs_dir, branch, build_dir, repo_root, grafana, git_commit_id):
 
         returncode = run_command(run_cmd, cwd=work_dir, log_path=test_log)
         main_records = parse_benchmark_log(test_log)
-        if grafana:
-            push_results(main_records, test_name, git_commit_id=git_commit_id)
         write_report_csv(test_report, main_records)
 
         failed = count_failed(main_records)
@@ -262,12 +244,6 @@ def report_summary(summaries):
 def main():
     parser = argparse.ArgumentParser(description="Benchmarking script for cutlass kernels.")
     parser.add_argument(
-        "--push-to-dashboard",
-        dest="grafana",
-        action="store_true",
-        help="Push benchmark results to the Grafana/InfluxDB dashboard"
-    )
-    parser.add_argument(
         "--allow-failures",
         action="store_true",
         help="Report benchmark failures but still exit 0 (for local experimentation)"
@@ -284,8 +260,7 @@ def main():
     workdir = f"{datetime.now().strftime('%Y%m%d%I%M')}_benchmarks_{branch}"
     logs_dir = logs_root / workdir
     logs_dir.mkdir(parents=True, exist_ok=True)
-    git_commit_id = get_git_commit_id(repo_root)
-    summaries = run_tests(logs_dir, branch, build_dir, repo_root, args.grafana, git_commit_id)
+    summaries = run_tests(logs_dir, branch, build_dir, repo_root)
     all_ok = report_summary(summaries)
     if not all_ok and not args.allow_failures:
         return 1

@@ -50,6 +50,28 @@ jobs:
             echo "IGC_VERSION_MINOR=11" >> $GITHUB_ENV
           fi
 
+      - name: Calculate job allocation based on memory for BMG
+        shell: bash
+        run: |
+          if [ "${{ matrix.gpu }}" = "BMG" ]; then
+            # Get total memory in KB and convert to GB
+            TOTAL_MEMORY_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+            TOTAL_MEMORY_GB=$((TOTAL_MEMORY_KB / 1024 / 1024))
+            # Calculate jobs = total_memory / 5
+            CALCULATED_JOBS=$((TOTAL_MEMORY_GB / 5))
+            # Get number of processors
+            NPROC=$(nproc)
+            # Use minimum of calculated jobs and nproc
+            BUILD_JOBS=$((CALCULATED_JOBS < NPROC ? CALCULATED_JOBS : NPROC))
+            # Ensure at least 1 job
+            BUILD_JOBS=$((BUILD_JOBS < 1 ? 1 : BUILD_JOBS))
+            echo "Total Memory: ${TOTAL_MEMORY_GB}GB, Calculated Jobs: ${CALCULATED_JOBS}, nproc: ${NPROC}, Final BUILD_JOBS: ${BUILD_JOBS}"
+            echo "BUILD_JOBS=${BUILD_JOBS}" >> $GITHUB_ENV
+          else
+            # For PVC, use default of 8 jobs
+            echo "BUILD_JOBS=8" >> $GITHUB_ENV
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       
@@ -97,7 +119,11 @@ jobs:
             -DIGC_VERSION_MINOR=${{ env.IGC_VERSION_MINOR }} \
             -DCMAKE_CXX_FLAGS="-Werror" \
             -DCUTLASS_SYCL_RUNNING_CI=ON
-          cmake --build . 
+          if [ "${{ matrix.gpu }}" = "BMG" ]; then
+            cmake --build . -j ${{ env.BUILD_JOBS }}
+          else
+            cmake --build .
+          fi 
       
       - name: Unit test
         shell: bash

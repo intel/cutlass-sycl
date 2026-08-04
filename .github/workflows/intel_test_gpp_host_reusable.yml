@@ -57,8 +57,8 @@ jobs:
           # Get total memory in KB and convert to GB
           TOTAL_MEMORY_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
           TOTAL_MEMORY_GB=$((TOTAL_MEMORY_KB / 1024 / 1024))
-          # Calculate jobs = total_memory / 5
-          CALCULATED_JOBS=$((TOTAL_MEMORY_GB / 5))
+          # Calculate jobs = total_memory / 10
+          CALCULATED_JOBS=$((TOTAL_MEMORY_GB / 10))
           # Get number of processors
           NPROC=$(nproc)
           # Use minimum of calculated jobs and nproc

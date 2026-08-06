@@ -146,6 +146,8 @@ public:
     StrideK dK_cache{};
     const ElementV *V_cache;
     StrideV dV_cache{};
+    const ElementScale *scaleP = nullptr;
+    StrideScaleV dScaleP{};
   };
   using KernelParams = KernelArguments;
 
@@ -254,7 +256,7 @@ public:
         const int kblocks_new = cute::ceil_div(seq_len_new, get<1>(TileShapeQK{}));
         k_blocks = kblocks_cache + kblocks_new;
       } else {
-        k_blocks = static_cast<int>(static_cast<unsigned>(seq_len) / static_cast<unsigned>(get<1>(TileShapeQK{})));
+        k_blocks = cute::ceil_div(seq_len, get<1>(TileShapeQK{}));
       }
 
       int offset_q = 0, offset_k = 0, offset_v = 0, offset_o = 0;
@@ -321,6 +323,90 @@ public:
 
       // Main loop
       CollectiveMainloop mainloop(params.mainloop, shared_storage.mainloop);
+      CollectiveEpilogue epilogue{params.epilogue, shared_storage.epilogue};
+      static constexpr int QK_BLK_M = decltype(get<0>(TileShapeQK{}))::value;
+      constexpr bool kGqaFusion = TileScheduler::kGqaFusion;
+      constexpr bool kDisablePrefetchV = TileScheduler::kDisablePrefetchV;
+
+      if constexpr (kGqaFusion) {
+        const int head_kv = head;
+        const int g = tile_scheduler.get_gqa_group_size();
+
+        const int q_len = seq_len_qo;
+        const int total_rows = g * q_len;
+        const int num_q_blocks = (total_rows + int(QK_BLK_M) - 1) / int(QK_BLK_M);
+
+        int fusion_seq_len          = seq_len;
+        int fusion_k_blocks         = k_blocks;
+        int fusion_full_tile_offset = full_tile_offset;
+        int fusion_discard          = discard_seq_coord;
+        int gqa_fusion_q_per_head   = 0;
+        if constexpr (CollectiveMainloop::CausalMask) {
+          gqa_fusion_q_per_head   = q_len;
+          fusion_seq_len          = seq_len_kv;
+          fusion_full_tile_offset = seq_len_kv - cute::min(q_len, seq_len_kv);
+          fusion_discard          = 0;
+          fusion_k_blocks         = cute::ceil_div(seq_len_kv, get<1>(TileShapeQK{}));
+        }
+
+        const int idx_b_l = idx_b;
+        const auto q_group_off = head_kv * g * stride<2>(Q.layout()); 
+        const auto o_group_off = head_kv * g * stride<2>(O.layout());
+        for (int qb = 0; qb < num_q_blocks; ++qb) {
+          const int row_start  = qb * int(QK_BLK_M);
+          const int valid_rows = cute::min(int(QK_BLK_M), total_rows - row_start);
+
+          auto make_gqa_view_q = [&, idx_b_l, row_start, valid_rows]() {
+            auto offset = idx_b_l * stride<3>(Q.layout())
+                        + q_group_off
+                        + row_start * stride<0>(Q.layout());
+            return make_tensor(
+              Q.data() + offset,
+              make_layout(make_shape(valid_rows, int(s.head_size_qk)),
+                          make_stride(int(stride<0>(Q.layout())), stride<1>(Q.layout()))));
+          };
+          auto make_gqa_view_o = [&, idx_b_l, row_start, valid_rows]() {
+            auto offset = idx_b_l * stride<3>(O.layout())
+                        + o_group_off
+                        + row_start * stride<0>(O.layout());
+            return make_tensor(
+              O.data() + offset,
+              make_layout(make_shape(valid_rows, int(s.head_size_vo)),
+                          make_stride(int(stride<0>(O.layout())), stride<1>(O.layout()))));
+          };
+
+          if (qb > 0) {
+            sycl::group_barrier(get_work_group<3>());
+          }
+
+          FragA tArA;
+          FragARow tA_max;
+          FragSPartialRow tA_sum;
+
+          mainloop.template operator()<true, kDisablePrefetchV>(
+                  make_gqa_view_q(),
+                  K(_,_,head_kv,idx_b),
+                  V(_,_,head_kv,idx_b),
+                  tArA, tA_max, tA_sum,
+                  blk_qv, 0, fusion_k_blocks, fusion_k_blocks,
+                  thr_id,
+                  fusion_seq_len, seq_len_kv_cache, idx_b,
+                  fusion_full_tile_offset, fusion_discard,
+                  row_start, gqa_fusion_q_per_head,
+                  K_cache(_,_,head,l_coord),
+                  V_cache(_,_,head,l_coord),
+                  p.scale_k, p.scale_v, p.scale_q);
+
+          if constexpr (!is_empty_v<MainloopSharedStorage> && !is_empty_v<EpilogueSharedStorage>) {
+            sycl::group_barrier(get_work_group<3>());
+          }
+
+          epilogue(make_gqa_view_o(),
+                  tArA, tA_max, tA_sum,
+                  blk_qv, thr_id, p.scale_v);
+        }
+        return;
+      }
       if constexpr (BlockScale) {
         auto scale_q = cute::ceil_div(s.head_size_qk, p.group_size);
         auto scale_k = cute::ceil_div(s.head_size_qk, p.group_size);
@@ -348,36 +434,42 @@ public:
         auto dcScaleQ = const_cast<ElementScale*>(p.scaleQ + offset_scaleQ);
         auto dcScaleK = const_cast<ElementScale*>(p.scaleK + offset_scaleK);
         auto dcScaleV = const_cast<ElementScale*>(p.scaleV + offset_scaleV);
+        auto dcScaleP = const_cast<ElementScale*>(p.scaleP + offset_scaleV);
 
         Tensor ScaleQ = make_tensor(make_gmem_ptr(dcScaleQ), make_layout(shape_scale_Q, stride_scaleQ));
         Tensor ScaleK = make_tensor(make_gmem_ptr(dcScaleK), make_layout(shape_scale_K, stride_scaleK));
         Tensor ScaleV = make_tensor(make_gmem_ptr(dcScaleV), make_layout(shape_scale_V, stride_scaleV));
+        Tensor ScaleP = make_tensor(make_gmem_ptr(dcScaleP), make_layout(shape_scale_V, stride_scaleV));
 
         auto ScaleQ_head = ScaleQ(_, _, head_q, l_coord);
         auto ScaleK_head = ScaleK(_, _, head, l_coord);
         auto ScaleV_head = ScaleV(_, _, head, l_coord);
+        auto ScaleP_head = ScaleP(_, _, head, l_coord);
 
-        mainloop(Q(_,_,head_q,l_coord),
+        mainloop.template operator()<false, kDisablePrefetchV>(Q(_,_,head_q,l_coord),
                  K(_,_,head,l_coord),
                  V(_,_,head,l_coord),
                  tArA, tA_max, tA_sum,
                  blk_qv, 0, k_blocks, k_blocks,
                  thr_id, seq_len, 0, l_coord,
                  full_tile_offset, discard_seq_coord,
+                 0,0,
                  K_cache(_,_,head,l_coord),
                  V_cache(_,_,head,l_coord),
                  p.scale_k, p.scale_v, p.scale_q,
                  ScaleQ_head,
                  ScaleK_head,
-                 ScaleV_head);
+                 ScaleV_head,
+                 ScaleP_head);
       } else {
-        mainloop(Q(_,_,head_q,l_coord),
+        mainloop.template operator()<false, kDisablePrefetchV>(Q(_,_,head_q,l_coord),
                  K(_,_,head,l_coord),
                  V(_,_,head,l_coord),
                  tArA, tA_max, tA_sum,
                  blk_qv, 0, k_blocks, k_blocks,
                  thr_id, seq_len, seq_len_kv_cache, idx_b,
                  full_tile_offset, discard_seq_coord,
+                 0,0,
                  K_cache(_,_,head,l_coord),
                  V_cache(_,_,head,l_coord),
                  p.scale_k, p.scale_v, p.scale_q);
@@ -387,7 +479,6 @@ public:
       }
 
       // Epilogue
-      CollectiveEpilogue epilogue{params.epilogue, shared_storage.epilogue};
       epilogue(O(_,_,head_q,l_coord),
                tArA, tA_max, tA_sum,
                blk_qv, thr_id, p.scale_v);
@@ -399,8 +490,8 @@ public:
 // batch_head. This depends on sm_count and num_batch_heads at runtime.
 // Free function (template-independent) so it can be unit-tested without
 // instantiating the full kernel type.
-inline int compute_max_num_partitions(int sm_count, int num_batch_heads) {
-  return cute::ceil_div(sm_count, cute::max(1, num_batch_heads)) + 1;
+inline int compute_max_num_partitions(int num_partition_wgs, int num_batch_heads) {
+  return cute::ceil_div(num_partition_wgs, cute::max(1, num_batch_heads)) + 1;
 }
 
 template <class ProblemShape_, class CollectiveMainloop_, class CollectiveEpilogue_, class TileScheduler_>
@@ -505,7 +596,7 @@ public:
     ElementA *partial_results_ptr = nullptr;
     // for atomic add
     int32_t *atomic_reduce_cnt_ptr = nullptr;
-    // max partitions per batch_head (computed from sm_count)
+    // max partitions per batch_head (computed from sm_count/2)
     int max_num_partitions = 0;
   };
 
@@ -513,11 +604,16 @@ public:
   // Methods
   //
 
+  static size_t partial_results_byte_offset(int num_batch_heads) {
+    return ((num_batch_heads * sizeof(int32_t) + size_t(15)) / 16) * 16;
+  }
+
   static Params to_underlying_arguments(Arguments const &args, void *workspace) {
-    int num_batch_heads = args.kernel.shape.batch * args.kernel.shape.num_heads_q;
-    int max_parts = compute_max_num_partitions(args.hw_info.sm_count, num_batch_heads);
+    int num_batch_heads = args.kernel.shape.batch * args.kernel.shape.num_heads_kv;
+    int max_parts = compute_max_num_partitions(args.hw_info.sm_count / 2, num_batch_heads);
     int32_t *atomic_reduce_cnt_ptr = reinterpret_cast<int32_t *>(workspace);
-    ElementA *partial_results_ptr = reinterpret_cast<ElementA *>(atomic_reduce_cnt_ptr + num_batch_heads);
+    ElementA *partial_results_ptr = reinterpret_cast<ElementA *>(
+        reinterpret_cast<char *>(workspace) + partial_results_byte_offset(num_batch_heads));
     return {args.kernel,
             CollectiveMainloop::to_underlying_arguments(args.mainloop, workspace),
             CollectiveEpilogue::to_underlying_arguments(args.epilogue, workspace),
@@ -527,37 +623,30 @@ public:
   }
 
   static bool can_implement(Arguments const &args) {
-    // current kernel only support decode
-    if (args.kernel.shape.seq_len_qo > 1) {
-      return false;
-    }
-    // current kernel only support num batch heads less than total XeCore count
-    if (args.kernel.shape.batch * args.kernel.shape.num_heads_q > args.hw_info.sm_count) {
-      return false;
-    }
     return CollectiveMainloop::can_implement(args.mainloop)
         && CollectiveEpilogue::can_implement(args.epilogue);
   }
 
   static int get_workspace_size(Arguments const &args) {
     int ws_size = 0;
-    int num_batch_heads = args.kernel.shape.batch * args.kernel.shape.num_heads_q;
-    int max_parts = compute_max_num_partitions(args.hw_info.sm_count, num_batch_heads);
+    int num_batch_heads = args.kernel.shape.batch * args.kernel.shape.num_heads_kv;
+    int max_parts = compute_max_num_partitions(args.hw_info.sm_count / 2, num_batch_heads);
     const int wg_size = SGPerWG::value * intel::sg_size;
 
     // partial attn outputs, exp sum and max logits
     ws_size += (max_parts * num_batch_heads) * wg_size * num_elem_per_thread * sizeof(ElementA);
     // atomic counter
-    ws_size += num_batch_heads * sizeof(int32_t);
+    ws_size += partial_results_byte_offset(num_batch_heads);
     return ws_size;
   }
 
   static cutlass::Status initialize_workspace(Arguments const &args, void *workspace = nullptr,
                                               cudaStream_t stream = nullptr, CudaHostAdapter *cuda_adapter = nullptr) {
-    int num_batch_heads = args.kernel.shape.batch * args.kernel.shape.num_heads_q;
+    int num_batch_heads = args.kernel.shape.batch * args.kernel.shape.num_heads_kv;
     compat::fill(reinterpret_cast<int32_t*>(workspace), (int32_t)0, num_batch_heads);
-    auto partial_ws_count = (get_workspace_size(args) - num_batch_heads * sizeof(int32_t)) / sizeof(ElementA);
-    auto* partial_results_ptr = reinterpret_cast<ElementA*>(reinterpret_cast<int32_t*>(workspace) + num_batch_heads);
+    size_t cnt_bytes = partial_results_byte_offset(num_batch_heads);
+    auto partial_ws_count = (get_workspace_size(args) - cnt_bytes) / sizeof(ElementA);
+    auto* partial_results_ptr = reinterpret_cast<ElementA*>(reinterpret_cast<char*>(workspace) + cnt_bytes);
     compat::fill(partial_results_ptr, (ElementA)0, partial_ws_count);
     return Status::kSuccess;
   }
@@ -639,7 +728,7 @@ public:
 
     int sg_id = thr_id / intel::sg_size;
     int tid_in_sg = thr_id % intel::sg_size;
-    int num_batch_heads = s.batch * s.num_heads_q;
+    int num_batch_heads = s.batch * s.num_heads_kv;
 
     int local_k_blocks = cute::ceil_div(s.seq_len_kv, get<1>(TileShapeQK{}));
     // total number of blocks need to be processed across all wgs
@@ -682,7 +771,7 @@ public:
 
       // compute num computed blocks for start batch head id
       int num_computed_blocks = (start_batch_head_id == 0) ? (wg_id * num_blocks_per_wg) : (wg_id * num_blocks_per_wg - start_batch_head_id * local_k_blocks);
-      int start_blk, end_blk, head_q, idx_b, head_kv;
+      int start_blk, end_blk, idx_b, head_kv;
       // leader wg is also responsible for reducing partial results, while other
       // worker wg only to compute partial results
       bool is_leader_wg = wg_id < num_batch_heads;
@@ -724,16 +813,33 @@ public:
           is_update_batch_head_id = false;
         }
 
-        head_q = batch_head_id % s.num_heads_q;
-        idx_b = batch_head_id / s.num_heads_q;
-        head_kv = head_q / head_group_q;
-        // mainloop
-        mainloop(Q(_,_,head_q,idx_b),
+        head_kv = batch_head_id % s.num_heads_kv;
+        idx_b = batch_head_id / s.num_heads_kv;
+        const int total_rows_q  = head_group_q * s.seq_len_qo;
+        const auto q_group_off  = head_kv * head_group_q * stride<2>(Q.layout());
+        auto make_gqa_view_q = [&]() {
+          auto offset = idx_b * stride<3>(Q.layout()) + q_group_off;
+          return make_tensor(
+            Q.data() + offset,
+            make_layout(make_shape(total_rows_q, int(s.head_size_qk)),
+                        make_stride(int(stride<0>(Q.layout())), stride<1>(Q.layout()))));
+        };
+
+        int split_full_tile_offset = 0;
+        int split_q_per_head       = 0;
+        if constexpr (CollectiveMainloop::CausalMask) {
+          split_q_per_head       = s.seq_len_qo;
+          split_full_tile_offset = s.seq_len_kv - cute::min(int(s.seq_len_qo), int(s.seq_len_kv));
+        }
+
+        mainloop.template operator()<true>(
+              make_gqa_view_q(),
               K(_,_,head_kv,idx_b),
               V(_,_,head_kv,idx_b),
               tArA, tA_max, tA_sum_partial,
               blk_qv, start_blk, end_blk, local_k_blocks,
-              thr_id, s.seq_len_kv, 0, 0, 0, 0);
+              thr_id, s.seq_len_kv, 0, idx_b,
+              split_full_tile_offset, 0, 0, split_q_per_head);
 
         tA_sum = reduce<0, cute::ReduceMode::Horizontal>(tA_sum_partial, sycl::plus<void>{});
 
@@ -832,13 +938,22 @@ public:
           sycl::group_barrier(get_work_group<3>());
         }
 
-        head_q = wg_id % s.num_heads_q;
-        idx_b = wg_id / s.num_heads_q;
-        head_kv = head_q / head_group_q;
+        head_kv = wg_id % s.num_heads_kv;
+        idx_b = wg_id / s.num_heads_kv;
+
+        const int total_rows_o = head_group_q * s.seq_len_qo;
+        const auto o_group_off = head_kv * head_group_q * stride<2>(O.layout());
+        auto make_gqa_view_o = [&]() {
+          auto offset = idx_b * stride<3>(O.layout()) + o_group_off;
+          return make_tensor(
+            O.data() + offset,
+            make_layout(make_shape(total_rows_o, int(s.head_size_vo)),
+                        make_stride(int(stride<0>(O.layout())), stride<1>(O.layout()))));
+        };
 
         // Epilogue
         CollectiveEpilogue epilogue{params.epilogue, shared_storage.epilogue};
-        epilogue.template operator()<true>(O(_,_,head_q,idx_b),
+        epilogue.template operator()<true>(make_gqa_view_o(),
                 tArA, tA_max, tA_sum,
                 blk_qv, thr_id);
       }

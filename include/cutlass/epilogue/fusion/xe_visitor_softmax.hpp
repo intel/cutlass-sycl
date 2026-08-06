@@ -298,8 +298,14 @@ public:
   to_underlying_arguments(ProblemShape const& problem_shape, Arguments const& args, void* workspace) {
     auto problem_shape_MNKL = append<4>(problem_shape, 1);
     auto [M, N, K, L] = problem_shape_MNKL;
-    XE_Copy_output output = make_tiled_copy(Copy_Atom<Copy_Traits<CopyOpR2G>, ElementOutput>{}.with(
-                            args.ptr_output, M, N),
+    // Build the output as a 3D tensor so that the copy traits extract the
+    // correct batch stride (stride_l = M * N).  The 2D block store offsets
+    // each batch's base address by l * stride_l, then uses (n, m) within a
+    // per-batch surface of height M and width N.
+    auto mOutput = make_tensor(make_gmem_ptr(args.ptr_output),
+                               make_layout(make_shape(M, N, L),
+                                           make_stride(int64_t(N), Int<1>{}, int64_t(M) * int64_t(N))));
+    XE_Copy_output output = make_tiled_copy(Copy_Atom<Copy_Traits<CopyOpR2G>, ElementOutput>{}.with(mOutput),
                             Layout<Shape<_1, Int<IntelXeXMX16::SubgroupSize>>>{},
                             make_layout(make_shape(get<0>(typename XE_Copy_output::BlockShape{}),
                                                    get<1>(typename XE_Copy_output::BlockShape{}) / Int<IntelXeXMX16::SubgroupSize>{})));
@@ -312,12 +318,12 @@ public:
   can_implement(ProblemShape const& problem_shape, Arguments const& args) {
     auto [M, N, K, L] = problem_shape;
     auto [tile_M, tile_N, tile_K] = CtaTileShapeMNK{};
-    // Cross CTA reduction is not possible because there is no guarantee that all CTAs run
-    // concurrently.
-    // Cross epilogue tile reduction is possible, but re-visiting and applying reduction
-    // to accumulators is only possible for the current epilogue tile.
+    // Softmax requires a full row reduction within a single workgroup.
+    // Cross-CTA reduction is not possible (no concurrent-CTA guarantee), and
+    // the current implementation does not mask out padding lanes, so partial
+    // tiles (N < tile_N) produce incorrect results.
     auto [epi_M, epi_N] = EpilogueTile{};
-    return N <= tile_N;
+    return N == tile_N;
   }
 
   template <class ProblemShape>

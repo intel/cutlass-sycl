@@ -182,17 +182,10 @@ struct XE_STORE_2D : XE_Copy_Op_2D_Base<Bits, Height, Width>
 #ifdef CUTE_ARCH_COPY_XE_ENABLED
     using namespace intel;
     auto &sv = *reinterpret_cast<const storage_vector_t<T, Width * Height * Bits / sg_size>*>(src);
-#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
-    asm (
-      "lsc_store_block2d.ugm.uc.wb (M1, 1) flat[%1+(0,0)] %0:d%2.%3x%4nn"
-        :: "rw"(sv), "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
-    );
-#else
     asm (
       "lsc_store_block2d.ugm (M1, 1) flat[%1+(0,0)] %0:d%2.%3x%4nn"
         :: "rw"(sv), "rw.u"(payload), "P"(Bits), "P"(Width), "P"(Height)
     );
-#endif
 #else
     CUTE_INVALID_CONTROL_PATH("Cannot use Xe block 2D copy atom on non-Xe hardware");
 #endif

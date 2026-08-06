@@ -87,12 +87,19 @@ cutlass_example_add_executable(
   TEST_SINGLE_BATCH
 )
 
-#TODO(Codeplay): enable batch > 1 test once implementation is fixed.
+# Softmax requires n == workgroup tile N (512).  Override n for CRI and enable
+# batch > 1 now that the batch stride fix is in place.
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_SOFTMAX "--n=512 --k=${CRI_GEMM_DEFAULT_SIZE} --l=2 --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+else()
+  set(TEST_SOFTMAX "--n=512 --l=2")
+endif()
+
 cutlass_example_add_executable(
   05_bmg_gemm_with_epilogue_softmax
   05_bmg_gemm_with_epilogue_softmax.cpp
   TEST_COMMAND_OPTIONS
-  TEST_SINGLE_BATCH
+  TEST_SOFTMAX
 )
 
 cutlass_example_add_executable(

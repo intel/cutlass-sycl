@@ -1,0 +1,19 @@
+#############################################################################
+### MoE GEMM benchmark (aligned with example 12_xe20_moe_gemm_cute_interface) ###
+#############################################################################
+#
+# Maps grouped-gemm options onto a MoE problem:
+#   --num_experts -> number of experts
+#   --num_tokens  -> total tokens (distributed across experts)
+#   --topk        -> top-k routing factor
+#   --n/--k       -> MoE GEMM N / K extents
+# Config: PersistentTileSchedulerXeMoE + TileShape <256, 128, 32>, bf16 in/out.
+# Note: GroupedGEMMOptions requires num_experts/ep_size > 2 (groups is computed internally).
+
+# small shapes kept active for the CRI simulator
+CriMoEGemmBF16BF16BF16_RRR_TileShape_256_128_32 --bm_name=cri_moe_mm --num_experts=8 --num_of_tokens=256 --n=256 --k=256 --topk=8 --ep_size=1 --verify=true
+CriMoEGemmBF16BF16BF16_RRR_TileShape_256_128_32 --bm_name=cri_moe_mm --num_experts=8 --num_of_tokens=512 --n=512 --k=512 --topk=8 --ep_size=1 --verify=true
+
+# example-aligned gpt-oss-20b prefill shapes (n=2880/5760, k=2880), disabled for CRI as time-consuming
+# CriMoEGemmBF16BF16BF16_RRR_TileShape_256_128_32 --bm_name=cri_moe_mm --num_experts=32 --num_of_tokens=256 --n=2880 --k=2880 --topk=32 --ep_size=1 --verify=true
+# CriMoEGemmBF16BF16BF16_RRR_TileShape_256_128_32 --bm_name=cri_moe_mm --num_experts=32 --num_of_tokens=256 --n=5760 --k=2880 --topk=32 --ep_size=1 --verify=true

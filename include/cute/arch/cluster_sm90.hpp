@@ -195,6 +195,8 @@ CUTE_HOST_DEVICE uint32_t elect_one_sync()
   return pred;
 #elif defined(__CUDA_ARCH__)
   return (threadIdx.x % 32) == 0;
+#elif (SYCL_INTEL_TARGET == 40)
+  return sycl::ext::oneapi::this_work_item::get_sub_group().leader();
 #else
   return true;
 #endif

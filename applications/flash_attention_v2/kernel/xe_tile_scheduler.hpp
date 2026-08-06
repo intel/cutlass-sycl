@@ -43,15 +43,18 @@ namespace detail {
 struct EmptyDivmod {};
 }
 
-template <bool OneBatch = false, bool NoGQA = false>
+template <bool OneBatch = false, bool NoGQA = false, bool CausalMask = false, bool GqaFusion = false, bool DisablePrefetchV = false>
 struct XeFHMAIndividualTileScheduler {
+  static constexpr bool kGqaFusion = GqaFusion;
+  static constexpr bool kDisablePrefetchV = DisablePrefetchV;
   using NumHeadsDivmod   = cute::conditional_t<OneBatch, detail::EmptyDivmod, FastDivmod>;
-  using HeadGroupDivmod  = cute::conditional_t<NoGQA, detail::EmptyDivmod, FastDivmod>;
+  using HeadGroupDivmod  = cute::conditional_t<NoGQA || GqaFusion, detail::EmptyDivmod, FastDivmod>;
 
   struct Params {
     dim3 grid;
     NumHeadsDivmod  divmod_num_heads;
     HeadGroupDivmod divmod_head_group_q;
+    int gqa_group_size;
   };
 
   bool valid_ = true;
@@ -67,15 +70,28 @@ struct XeFHMAIndividualTileScheduler {
   {
     using namespace cute;
 
-    dim3 grid(size(ceil_div(shape.head_size_vo, get<1>(tile_shape))),     // V
-              size(ceil_div(shape.seq_len_qo,   get<0>(tile_shape))),     // Q
-              size(shape.batch * shape.num_heads_q));                     // (h,b) -- split later
+    int heads_in_grid = GqaFusion ? shape.num_heads_kv : shape.num_heads_q;
+
+    dim3 grid;
+    if constexpr (CausalMask) {
+      // Causal: grid layout (V, batch*heads, Q) groups all heads for the same
+      // Q tile adjacent, enabling wave-level load balancing under causal mask.
+      grid = dim3(size(ceil_div(shape.head_size_vo, get<1>(tile_shape))),   // V
+            size(shape.batch * heads_in_grid),                         // (h,b)
+                  size(ceil_div(shape.seq_len_qo,   get<0>(tile_shape))));  // Q
+    } else {
+      // Non-causal: original grid layout (V, Q, batch*heads).
+      grid = dim3(size(ceil_div(shape.head_size_vo, get<1>(tile_shape))),   // V
+                  size(ceil_div(shape.seq_len_qo,   get<0>(tile_shape))),   // Q
+            size(shape.batch * heads_in_grid));                        // (h,b)
+    }
     Params p{};
     p.grid = grid;
+    p.gqa_group_size = shape.num_heads_q / shape.num_heads_kv;
     if constexpr (!OneBatch) {
-      p.divmod_num_heads = FastDivmod(shape.num_heads_q);
+      p.divmod_num_heads = FastDivmod(heads_in_grid);
     }
-    if constexpr (!NoGQA) {
+    if constexpr (!NoGQA && !GqaFusion) {
       p.divmod_head_group_q = FastDivmod(shape.num_heads_q / shape.num_heads_kv);
     }
     return p;
@@ -96,25 +112,46 @@ struct XeFHMAIndividualTileScheduler {
     using namespace cute;
     int head;
     int idx_b;
-    if constexpr (OneBatch) {
-      // Single batch: grid.z == num_heads_q. No divmod needed.
-      head  = BlockIdxZ();
-      idx_b = 0;
+    if constexpr (CausalMask) {
+      // Causal grid layout: (V, batch*heads, Q).
+      if constexpr (OneBatch) {
+        // Single batch: grid.y == num_heads_q. No divmod needed.
+        head  = BlockIdxY();
+        idx_b = 0;
+      } else {
+        idx_b = BlockIdxY();
+        params.divmod_num_heads(idx_b, head, idx_b);
+      }
+      // Reverse Q dispatch: last Q tile first (causal mask: later Q tiles have more K-blocks)
+      int q_tile = params.grid.z - 1 - BlockIdxZ();
+      return make_coord(q_tile, BlockIdxX(), head, idx_b);
     } else {
-      idx_b = BlockIdxZ();
-      params.divmod_num_heads(idx_b, head, idx_b);
+      // Non-causal grid layout: (V, Q, batch*heads).
+      if constexpr (OneBatch) {
+        // Single batch: grid.z == num_heads_q. No divmod needed.
+        head  = BlockIdxZ();
+        idx_b = 0;
+      } else {
+        idx_b = BlockIdxZ();
+        params.divmod_num_heads(idx_b, head, idx_b);
+      }
+      // Reverse Q dispatch: last Q tile first.
+      int q_tile = params.grid.y - 1 - BlockIdxY();
+      return make_coord(q_tile, BlockIdxX(), head, idx_b);
     }
-    return make_coord(params.grid.y - 1 - BlockIdxY(), BlockIdxX(), head, idx_b);
   }
 
   CUTLASS_DEVICE
   int divide_head_group(int head_q) const {
-    if constexpr (NoGQA) {
+    if constexpr (NoGQA || GqaFusion) {
       return head_q;
     } else {
       return params.divmod_head_group_q.div(head_q);
     }
   }
+
+  CUTLASS_DEVICE
+  int get_gqa_group_size() const { return params.gqa_group_size; }
 
   CUTLASS_DEVICE
   XeFHMAIndividualTileScheduler& operator++() {
@@ -154,7 +191,7 @@ struct XeFHMAIndividualPersistentTileScheduler {
               size(ceil_div(shape.seq_len_qo,   get<0>(tile_shape))),     // Q
               size(shape.batch * shape.num_heads_q));                     // (h,b) -- split later
     int num_heads = shape.num_heads_q;
-    grid.z = hw_info.sm_count;
+    grid.z = hw_info.sm_count /2;
 
     return Params{grid, {num_heads}, {shape.num_heads_q / shape.num_heads_kv}};
   }

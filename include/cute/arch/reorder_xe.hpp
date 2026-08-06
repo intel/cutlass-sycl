@@ -55,6 +55,31 @@ struct Xe_Reorder<ReorderKind::UU, T, T> {
   }
 };
 
+template <>
+struct Xe_Reorder<ReorderKind::UU, float, cutlass::tfloat32_t>
+{
+  using SRegisters = intel::float2[1];
+  using DRegisters = intel::float2[1];
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::float2 const& src0, intel::float2& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    asm (
+      "{\n"
+        ".decl IN_UD  v_type=G type=UD num_elts=32 alias=<%1,0>\n"
+        ".decl OUT_UD v_type=G type=UD num_elts=32 alias=<%0,0>\n"
+        "and (M1_NM, 32) OUT_UD(0,0)<1> IN_UD(0,0)<1;1,0> 0xFFFFE000:ud\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0)
+    );
+#else
+    CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
 template <typename T>
 struct Xe_Reorder<ReorderKind::UU_Universal, T, T> : Xe_Reorder<ReorderKind::UU, T, T> {};
 

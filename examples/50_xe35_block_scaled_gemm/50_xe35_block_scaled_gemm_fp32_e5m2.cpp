@@ -76,7 +76,7 @@ cutlass::Status run_mx_case(Options & options){
   using TiledMma = typename TiledMMAHelper<MMA_Atom<XE_BDPAS_TT<8, float, ElementInputB>>, Layout<TileShape>, ThreadLayout>::TiledMMA;
 
   constexpr int PipelineStages = 2;
-  using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16BlockScaled<PipelineStages, GroupSize>;
+  using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16BlockScaled<PipelineStages, Int<GroupSize>>;
   using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeGeneric;
 
   using EpilogueOp = cutlass::epilogue::fusion::LinearCombination<ElementOutput, ElementComputeEpilogue,

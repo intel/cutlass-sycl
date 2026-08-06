@@ -1,0 +1,7 @@
+#############################################################################
+### Flash attention prefill fp8 - single representative shape            ###
+### Shape: B=1, H_q=16, H_kv=8, S=2048, D=64                             ###
+### FLOPs = 4*1*16*2048*2048*64 = 17.18 GFLOPs                           ###
+#############################################################################
+
+CriFMHAPrefill_E4M3_E4M3_E4M3_BF16_RCR_h64_Causal_FixedLen --bm_name=attention_prefill_fp8 --batch=1 --seq_len_qo=2048 --seq_len_kv=2048 --num_heads_q=16 --num_heads_kv=8 --head_size_qk=64 --head_size_vo=64

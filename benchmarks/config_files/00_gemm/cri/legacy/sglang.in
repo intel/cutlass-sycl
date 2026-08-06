@@ -1,0 +1,43 @@
+#############################################################################
+### Benchmarks for required shapes for second SGLang release              ###
+#############################################################################
+
+# TODO: Match GEMM config name with HW platform name
+
+# q_mm 1,8 4096 4096
+PvcGemmFP16FP16FP32_RCR_5 --bm_name=q_mm --m=1 --k=4096 --n=4096
+PvcGemmFP16FP16FP32_RCR_5 --bm_name=q_mm --m=8 --k=4096 --n=4096
+
+# k_mm 1,8 4096 1024
+# v_mm 1,8 4096 1024
+PvcGemmFP16FP16FP32_RCR_7 --bm_name=k_v_mm --m=1 --k=4096 --n=1024
+PvcGemmFP16FP16FP32_RCR_16 --bm_name=k_v_mm --m=8 --k=4096 --n=1024
+
+# qkv_fusion 1,8 4096 6144 = (4096 + 1024 + 1024)
+PvcGemmFP16FP16FP32_RCR_9 --bm_name=qkv_fusion --m=1 --k=4096 --n=6144
+PvcGemmFP16FP16FP32_RCR_7 --bm_name=qkv_fusion --m=8 --k=4096 --n=6144
+
+# mm_common 1,8 4096 4096
+PvcGemmFP16FP16FP32_RCR_5 --bm_name=mm_common --m=1 --k=4096 --n=4096
+PvcGemmFP16FP16FP32_RCR_5 --bm_name=mm_common --m=8 --k=4096 --n=4096
+
+#############################################################################
+### Benchmarks for required shapes for first SGLang release               ###
+#############################################################################
+
+# q_mm 1,8 4096 4096
+PvcGemmBF16BF16FP32_RCR_5 --bm_name=q_mm --m=1 --k=4096 --n=4096
+PvcGemmBF16BF16FP32_RCR_5 --bm_name=q_mm --m=8 --k=4096 --n=4096
+
+# k_mm 1,8 4096 1024
+# v_mm 1,8 4096 1024
+PvcGemmBF16BF16FP32_RCR_7 --bm_name=k_v_mm --m=1 --k=4096 --n=1024
+PvcGemmBF16BF16FP32_RCR_16 --bm_name=k_v_mm --m=8 --k=4096 --n=1024
+
+# qkv_fusion 1,8 4096 6144 = (4096 + 1024 + 1024)
+PvcGemmBF16BF16FP32_RCR_9 --bm_name=qkv_fusion --m=1 --k=4096 --n=6144
+PvcGemmBF16BF16FP32_RCR_7 --bm_name=qkv_fusion --m=8 --k=4096 --n=6144
+
+# mm_common 1,8 4096 4096
+PvcGemmBF16BF16FP32_RCR_5 --bm_name=mm_common --m=1 --k=4096 --n=4096
+PvcGemmBF16BF16FP32_RCR_5 --bm_name=mm_common --m=8 --k=4096 --n=4096

@@ -93,7 +93,7 @@ cutlass::Status run_mx_case(Options & options){
           FusionCallBacks,
           void, void>;
 
-  using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroup<PipelineStages, GroupSize>;
+  using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16BlockScaledGroup<PipelineStages, Int<GroupSize>>;
   using CollectiveMainloop = cutlass::gemm::collective::CollectiveMma<
           GEMMDispatchPolicy,
           TileShape,

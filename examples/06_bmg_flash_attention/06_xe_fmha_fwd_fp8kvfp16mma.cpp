@@ -154,8 +154,8 @@ int main(int argc, const char **argv) {
   using ElementScale = float;
 
   using Scheduler = cutlass::fmha::kernel::XeFHMAIndividualTileScheduler<>;
-  using FMHACausal    = FMHAConfig<true, false, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, false, ElementQ, ElementK, ElementV, ElementScale>;
-  using FMHANonCausal = FMHAConfig<false, false, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, false, ElementQ, ElementK, ElementV, ElementScale>;
+  using FMHACausal    = FMHAConfig<true, false, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, ElementQ, ElementK, ElementV, ElementScale>;
+  using FMHANonCausal = FMHAConfig<false, false, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, ElementQ, ElementK, ElementV, ElementScale>;
 
   if (options.seq_len_kv_cache > 0 || options.use_paged_kv) {
     std::cerr << "Error: CachedKV/PagedKV requested. Use the cached_kv binary." << std::endl;

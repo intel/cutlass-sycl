@@ -1,0 +1,2 @@
+# Row 6: MXFP8, tile 352x256
+CriBLockScalingGroupedGemm_E4M3E4M3BF16_RRR_TileShape_352_256_64  --bm_name=best_mxfp8 --n=3584 --k=256 --uniform_m=64 --num_experts=2 --verify=true

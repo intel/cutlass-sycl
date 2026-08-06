@@ -1,0 +1,47 @@
+# Row 2: FP8, tile 352×256, M=683
+CriGroupedGemm_E4M3E4M3BF16_RRR_TileShape_352_256_64 --bm_name=best_fp8 --n=3584 --k=1280 --uniform_m=683 --num_experts=8 --verify=true
+
+# Row 3: FP8, tile 128×896, M=1366 (N=896 tile)
+CriGroupedGemm_E4M3E4M3BF16_RRR_TileShape_128_896_64 --bm_name=best_fp8 --n=3584 --k=1280 --uniform_m=1366 --num_experts=8 --verify=true
+
+# Row 4: FP8, tile 320×512, M=2560
+CriGroupedGemm_E4M3E4M3BF16_RRR_TileShape_320_512_64 --bm_name=best_fp8 --n=3584 --k=1280 --uniform_m=2560 --num_experts=4 --verify=true
+
+# Row 5: FP8, tile 64×896, M=2731 (N=896 tile)
+CriGroupedGemm_E4M3E4M3BF16_RRR_TileShape_64_896_64 --bm_name=best_fp8 --n=3584 --k=1280 --uniform_m=2731 --num_experts=8 --verify=true
+
+# Row 6: MXFP8, tile 352×256, M=683
+CriBLockScalingGroupedGemm_E4M3E4M3BF16_RRR_TileShape_352_256_64 --bm_name=best_mxfp8 --n=3584 --k=1280 --uniform_m=683 --num_experts=8 --verify=true
+
+# Row 7: MXFP8, tile 128×896, M=1366 (N=896 tile)
+CriBLockScalingGroupedGemm_E4M3E4M3BF16_RRR_TileShape_128_896_64 --bm_name=best_mxfp8 --n=3584 --k=1280 --uniform_m=1366 --num_experts=8 --verify=true
+
+# Row 8: MXFP8, tile 320×512, M=2560
+CriBLockScalingGroupedGemm_E4M3E4M3BF16_RRR_TileShape_320_512_64 --bm_name=best_mxfp8 --n=3584 --k=1280 --uniform_m=2560 --num_experts=4 --verify=true
+
+# Row 9: MXFP8, tile 64×1792, M=2731
+CriBLockScalingGroupedGemm_E4M3E4M3BF16_RRR_TileShape_64_1792_64 --bm_name=best_mxfp8 --n=3584 --k=1280 --uniform_m=2731 --num_experts=16 --verify=true
+
+# Row 10: MXFP4, tile 352×256, M=683
+CriBLockScalingGroupedGemm_E2M1E2M1BF16_RCR_TileShape_352_256_128 --bm_name=best_mxfp4 --n=3584 --k=1280 --uniform_m=683 --num_experts=8 --verify=true
+
+# Row 11: MXFP4, tile 128×896, M=1366 (N=896 tile)
+CriBLockScalingGroupedGemm_E2M1E2M1BF16_RCR_TileShape_128_896_128 --bm_name=best_mxfp4 --n=3584 --k=1280 --uniform_m=1366 --num_experts=8 --verify=true
+
+# Row 12: MXFP4, tile 320×512, M=2560
+CriBLockScalingGroupedGemm_E2M1E2M1BF16_RCR_TileShape_320_512_128 --bm_name=best_mxfp4 --n=3584 --k=1280 --uniform_m=2560 --num_experts=4 --verify=true
+
+# Row 13: MXFP4, tile 96×896, M=2731 (N=896 tile)
+CriBLockScalingGroupedGemm_E2M1E2M1BF16_RCR_TileShape_96_896_128 --bm_name=best_mxfp4 --n=3584 --k=1280 --uniform_m=2731 --num_experts=8 --verify=true
+
+# Row 14: BF16, tile 64×1536, M=0.25
+CriGroupedGemmBF16BF16BF16_RRR_TileShape_64_1536_32 --bm_name=best_bf16 --n=3072 --k=4096 --uniform_m=0.25 --num_experts=16 --verify=true
+
+# Row 15: BF16, tile 64×1536, M=1
+CriGroupedGemmBF16BF16BF16_RRR_TileShape_64_1536_32 --bm_name=best_bf16 --n=3072 --k=4096 --uniform_m=1 --num_experts=16 --verify=true
+
+# Row 16: BF16, tile 64×1536, M=4
+CriGroupedGemmBF16BF16BF16_RRR_TileShape_64_1536_32 --bm_name=best_bf16 --n=3072 --k=4096 --uniform_m=4 --num_experts=16 --verify=true
+
+# Row 17: BF16, tile 64×1536, M=16
+CriGroupedGemmBF16BF16BF16_RRR_TileShape_64_1536_32 --bm_name=best_bf16 --n=3072 --k=4096 --uniform_m=16 --num_experts=16 --verify=true

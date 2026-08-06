@@ -116,11 +116,24 @@ int main(int argc, const char **argv) {
   using SubgroupLayoutQK = Layout<Shape<_8, _1, _1>>;
 
 #elif HEAD_DIM == 128
-  using ShapeQK = Shape<_128, _64, _32>;
-  using ShapePV = Shape<_128, _32, _64>;
-  using ShapeOut = Shape<_128, _128>;
-  using SubgroupLayoutQK = Layout<Shape<_16, _1, _1>>;
-
+  #if !(defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35))
+    using ShapeQK = Shape<_128, _64, _32>;
+    using ShapePV = Shape<_128, _32, _64>;
+    using ShapeOut = Shape<_128, _128>;
+    using SubgroupLayoutQK = Layout<Shape<_16, _1, _1>>;
+  #else
+    #if defined(IS_MX_FLOAT_E5M2) || defined(IS_MX_FLOAT_E4M3)
+      using ShapeQK = Shape<_512, _64, _64>;
+      using ShapePV = Shape<_512, _64, _64>;
+      using ShapeOut = Shape<_512, _128>;
+      using SubgroupLayoutQK = Layout<Shape<_32, _1, _1>>;
+    #else
+      using ShapeQK = Shape<_128, _64, _32>;
+      using ShapePV = Shape<_128, _32, _64>;
+      using ShapeOut = Shape<_128, _128>;
+      using SubgroupLayoutQK = Layout<Shape<_16, _1, _1>>;
+    #endif
+  #endif
 #elif HEAD_DIM == 192
   using ShapeQK = Shape<_256, _64, _32>;
   using ShapePV = Shape<_256, _32, _64>;
@@ -174,8 +187,8 @@ int main(int argc, const char **argv) {
 #if defined(IS_MX_FLOAT_E5M2) || defined(IS_MX_FLOAT_E4M3) || defined(IS_MX_FLOAT_E2M1)
   // BlockScale does not support CachedKV/PagedKV
   using Scheduler = cutlass::fmha::kernel::XeFHMAIndividualTileScheduler<>;
-  using FMHACausal    = FMHAConfig<true, BlockScale, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, false, ElementQ, ElementK, ElementV, ElementScale>;
-  using FMHANonCausal = FMHAConfig<false, BlockScale, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, false, ElementQ, ElementK, ElementV, ElementScale>;
+  using FMHACausal    = FMHAConfig<true, BlockScale, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, ElementQ, ElementK, ElementV, ElementScale>;
+  using FMHANonCausal = FMHAConfig<false, BlockScale, ShapeQK, ShapePV, ShapeOut, SubgroupLayoutQK, void, PipelineStages, ElementQ, ElementK, ElementV, ElementScale>;
 
   if (options.is_causal) {
     if (options.varlen) {

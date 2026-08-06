@@ -270,26 +270,38 @@ public:
 
     using MMATile = decltype(take<0,2>(typename TiledMMA::AtomShape_MNK{}));
 
-    static constexpr int EpiRPreferred = 8;
-    static constexpr int EpiCPreferred = 512 / cute::min(sizeof_bits_v<NonVoidElementC>, sizeof_bits_v<ElementD>);    // 1 cache line
-    static constexpr int EpiR = cute::gcd(EpiRPreferred, get<0>(MMATile{}));
-    static constexpr int EpiC = cute::gcd(EpiCPreferred, get<1>(MMATile{}));
-
-    using DefaultEpilogueTile = Shape<Int<EpiR>, Int<EpiC>>;
-    using RequestedEpilogueTile = conditional_t<is_void_v<EpilogueTile_> || is_same_v<EpilogueTile_, EpilogueTileAuto>,
-                                       DefaultEpilogueTile,
-                                       EpilogueTile_>;
-
-    // When the user-specified EpilogueTile groups multiple MMA iterations, the per-SG
-    // iteration count in each dimension must be evenly divisible.  Otherwise flat_divide
-    // creates phantom iterations that read out-of-bounds accumulator data and corrupt
-    // the output.  Fall back to the safe DefaultEpilogueTile when divisibility fails.
-    static constexpr auto _req_mma_per_epi = shape_div(RequestedEpilogueTile{}, MMATile{});
-    static constexpr auto _acc_mma_m = size<1>(Accumulator{});
-    static constexpr auto _acc_mma_n = size<2>(Accumulator{});
-    static constexpr bool _epi_divides = (_acc_mma_m % get<0>(_req_mma_per_epi) == 0) &&
-                                         (_acc_mma_n % get<1>(_req_mma_per_epi) == 0);
-    using EpilogueTile = conditional_t<_epi_divides, RequestedEpilogueTile, DefaultEpilogueTile>;
+    // Compute the epilogue tile size.
+    //
+    // When no EpilogueTile is specified (void / EpilogueTileAuto):
+    //   Use a default tile whose rows target 8 and columns target one cache line
+    //   (512 bits), each clamped to the MMA atom tile via gcd.
+    //
+    // When the user provides an explicit EpilogueTile:
+    //   The requested tile may not evenly divide the per-SG accumulator shape
+    //   (which would make flat_divide create phantom iterations that read
+    //   out-of-bounds accumulator data).  Instead of falling back to the
+    //   default, we *fit* the tile: divide the request by the MMA atom tile,
+    //   gcd with the per-SG MMA iteration count, then multiply back.  This
+    //   yields the largest tile <= the request that still divides evenly.
+    const auto epilogue_tile = [&]() {
+      if constexpr (is_void_v<EpilogueTile_> || is_same_v<EpilogueTile_, EpilogueTileAuto>) {
+        // Default: gcd(preferred, MMA atom) in each dimension
+        static constexpr int RowsPreferred = 8;
+        static constexpr int ColsPreferred = 512 / cute::min(sizeof_bits_v<NonVoidElementC>,
+                                                             sizeof_bits_v<ElementD>);
+        static constexpr int EpiRows = cute::gcd(RowsPreferred, get<0>(MMATile{}));
+        static constexpr int EpiCols = cute::gcd(ColsPreferred, get<1>(MMATile{}));
+        return Shape<Int<EpiRows>, Int<EpiCols>>{};
+      } else {
+        // Fit in MMA-tile space to guarantee result is always a multiple of MMATile
+        static constexpr auto RequestedPerMMA = shape_div(EpilogueTile_{}, MMATile{});
+        static constexpr int EpiRows = cute::gcd(get<0>(RequestedPerMMA),
+                                                 size<1>(Accumulator{})) * get<0>(MMATile{});
+        static constexpr int EpiCols = cute::gcd(get<1>(RequestedPerMMA),
+                                                 size<2>(Accumulator{})) * get<1>(MMATile{});
+        return Shape<Int<EpiRows>, Int<EpiCols>>{};
+      }
+    }();
 
     // Check if C is in column-major layout or not
     constexpr bool IsColMajorC = cutlass::gemm::detail::is_major<0, StrideC>();
@@ -298,13 +310,13 @@ public:
     // For sub-32-bit data types, calculate the number of elements packed into 32-bits
     static constexpr int Sub32BitFactor = CopyBitsCTranspose / CopyBitsC;
     // Get copy atom operations for non-transposed and transposed load respectively
-    using DefaultCopyOpG2RNonTranspose =  XE_LOAD_2D<CopyBitsC, cute::gcd(8, get<0>(EpilogueTile{})), cute::gcd(512 / CopyBitsC, get<1>(EpilogueTile{}))>;
-    using DefaultCopyOpG2RTranspose = XE_LOAD_2D_TRANSPOSE<CopyBitsCTranspose, cute::gcd(512 / CopyBitsC, get<1>(EpilogueTile{})), cute::gcd(8 / Sub32BitFactor, get<0>(EpilogueTile{}))>;
+    using DefaultCopyOpG2RNonTranspose =  XE_LOAD_2D<CopyBitsC, cute::gcd(8, get<0>(epilogue_tile)), cute::gcd(512 / CopyBitsC, get<1>(epilogue_tile))>;
+    using DefaultCopyOpG2RTranspose = XE_LOAD_2D_TRANSPOSE<CopyBitsCTranspose, cute::gcd(512 / CopyBitsC, get<1>(epilogue_tile)), cute::gcd(8 / Sub32BitFactor, get<0>(epilogue_tile))>;
     // Use transpose load if C is in column-major layout
     // Use non-transpose load for C otherwise
     using DefaultCopyOpG2R = conditional_t<IsColMajorC, DefaultCopyOpG2RTranspose, DefaultCopyOpG2RNonTranspose>;
 
-    using DefaultCopyOpR2G = XE_STORE_2D<CopyBitsD, cute::gcd(8, get<0>(EpilogueTile{})), cute::gcd(512 / CopyBitsD, get<1>(EpilogueTile{}))>;
+    using DefaultCopyOpR2G = XE_STORE_2D<CopyBitsD, cute::gcd(8, get<0>(epilogue_tile)), cute::gcd(512 / CopyBitsD, get<1>(epilogue_tile))>;
 
     using ActualGmemTiledCopyC = replace_void_t<CopyOpG2R, DefaultCopyOpG2R>;
     using ActualGmemTiledCopyD = replace_void_t<CopyOpR2G, DefaultCopyOpR2G>;
@@ -319,7 +331,7 @@ public:
     auto tCDgCD = thr_mma.partition_C(gCD);                                             // (mma_v,mma_m,mma_n) -> coord
 
     // Tile accumulator into epilogue tiles.
-    auto mma_per_epi = shape_div(EpilogueTile{}, MMATile{});
+    auto mma_per_epi = shape_div(epilogue_tile, MMATile{});
     auto tiled_acc_layout = group<0,3>(prepend(flat_divide(remove<0>(accumulators.layout()), mma_per_epi),
                                                get<0>(accumulators.layout())));
     auto tiled_acc = make_tensor(accumulators.data(), tiled_acc_layout);                // ((mma_v,mma_m,mma_n),epi_m,epi_n)
@@ -335,7 +347,7 @@ public:
 
     // Partition global coordinate tensors into epilogue tiles,
     // matching the work-division from the TiledMMA.
-    auto gCD_epi_layout = append(append(make_identity_layout(EpilogueTile{}),
+    auto gCD_epi_layout = append(append(make_identity_layout(epilogue_tile),
                                         get<3>(sg_v_coord)), get<4>(sg_v_coord));
     auto gCD_epi = make_tensor(tCDgCD.data(), gCD_epi_layout);                          // (m,n,epi_m,epi_n) -> coord
 
@@ -419,7 +431,7 @@ public:
         WGTileMNK{},
         tile_coord_mnkl,
         TiledMMA{},
-        EpilogueTile{},
+        epilogue_tile,
         copy_d,
         gCD,
         residue_gCD,

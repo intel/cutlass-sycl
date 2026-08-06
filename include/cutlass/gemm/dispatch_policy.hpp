@@ -1266,13 +1266,9 @@ struct MainloopIntelXeXMX16Group : MainloopIntelXeXMX16<Stages_, KernelScheduler
 };
 
 template<int Stages_, class GroupSize_ = cute::Int<32>, class KernelSchedule = KernelXePtrArrayCooperative>
-struct MainloopIntelXeXMX16BlockScaledGroupImpl : MainloopIntelXeXMX16<Stages_, KernelSchedule> {
+struct MainloopIntelXeXMX16BlockScaledGroup : MainloopIntelXeXMX16<Stages_, KernelSchedule> {
   using GroupSize = GroupSize_;
 };
-
-template<int Stages_, int GroupSize_ = 32, class KernelSchedule = KernelXePtrArrayCooperative>
-using MainloopIntelXeXMX16BlockScaledGroup =
-    MainloopIntelXeXMX16BlockScaledGroupImpl<Stages_, cute::Int<GroupSize_>, KernelSchedule>;
 
 template<int Stages_, class KernelScheduler = KernelXePtrArrayCooperative>
 struct MainloopXeL1StagedGroup : MainloopIntelXeXMX16<Stages_, KernelScheduler> {
@@ -1287,13 +1283,9 @@ struct MainloopIntelXeXMX16MixedPrecision : MainloopIntelXeXMX16<Stages_, Kernel
 };
 
 template<int Stages_, class GroupSize_ = cute::Int<32>, class KernelSchedule = KernelXe>
-struct MainloopIntelXeXMX16BlockScaledImpl : MainloopIntelXeXMX16<Stages_, KernelSchedule> {
+struct MainloopIntelXeXMX16BlockScaled : MainloopIntelXeXMX16<Stages_, KernelSchedule> {
   using GroupSize = GroupSize_;
 };
-
-template<int Stages_, int GroupSize_ = 32, class KernelSchedule = KernelXe>
-using MainloopIntelXeXMX16BlockScaled =
-    MainloopIntelXeXMX16BlockScaledImpl<Stages_, cute::Int<GroupSize_>, KernelSchedule>;
 
 template<int Stages_, class KernelSchedule = KernelXe>
 struct MainloopIntelW8A8 : MainloopIntelXeXMX16<Stages_, KernelSchedule> {

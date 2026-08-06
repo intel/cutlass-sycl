@@ -111,6 +111,14 @@ struct Options {
     cmd.get_cmd_line_argument("beta", beta, 0.f);
     cmd.get_cmd_line_argument("iterations", iterations, 100);
     cmd.get_cmd_line_argument("verify", verify, 1);
+
+    // Softmax requires n == workgroup tile N (512).  The row-wise reduction
+    // runs entirely within one workgroup and cannot handle partial tiles.
+    if (n != 512) {
+      std::cerr << "ERROR: --n=" << n << " is not supported.  "
+                << "Row-wise softmax requires n == 512 (workgroup tile N).\n";
+      error = true;
+    }
   }
 
   /// Prints the usage statement.
@@ -120,7 +128,7 @@ struct Options {
       << "Options:\n\n"
       << "  --help                      If specified, displays this usage statement\n\n"
       << "  --m=<int>                   Sets the M extent of the GEMM\n"
-      << "  --n=<int>                   Sets the N extent of the GEMM\n"
+      << "  --n=<int>                   Sets the N extent of the GEMM (must be 512)\n"
       << "  --k=<int>                   Sets the K extent of the GEMM\n"
       << "  --l=<int>                   Sets the L extent (batch count) of the GEMM\n"
       << "  --alpha=<s32>               Epilogue scalar alpha\n"

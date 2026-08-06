@@ -1,6 +1,6 @@
 /******************************************************************************
  * Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * Copyright (C) 2025 Intel Corporation, All rights reserved.
+ * Copyright (C) 2025 - 2026 Intel Corporation, All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,8 +45,148 @@
 #include "cutlass/trace.h"
 #include "exceptions.h"
 
+// Advisory device-memory size check (opt-in, SYCL only).
+//
+// Keeps a running total of the bytes live through this utility and warns once when a workload's
+// cumulative footprint would exceed the usable device budget. Disabled by default because the
+// bookkeeping (atomic counter, mutex, hash map) carries a small runtime cost.
+
+
+#undef CUTLASS_DEVICE_ALLOCATION_SIZE_CHECK_ACTIVE
+#if defined(CUTLASS_ENABLE_SYCL) && defined(CUTLASS_ENABLE_DEVICE_ALLOCATION_SIZE_CHECK)
+#define CUTLASS_DEVICE_ALLOCATION_SIZE_CHECK_ACTIVE
+#endif
+
+#ifdef CUTLASS_DEVICE_ALLOCATION_SIZE_CHECK_ACTIVE
+#include <atomic>
+#include <iostream>
+#include <mutex>
+#include <unordered_map>
+#include <cute/util/compat/device.hpp>
+#endif
+
 namespace cutlass {
 namespace device_memory {
+
+namespace detail {
+
+// Advisory cumulative-allocation size check.
+//
+// A single GEMM/attention problem allocates several buffers (A, B, C, D, or Q, K, V, ...) that are
+// all live at the same time, so the workload can run out of memory even when every individual
+// allocation comfortably fits. Comparing only one allocation against the device budget therefore
+// misses the common failure mode. Instead we keep a running total of the bytes currently live
+// through this utility and warn once when that cumulative footprint would exceed the usable budget.
+// The check is intentionally non-fatal: the underlying allocator still runs, so the program can
+// either succeed or surface the canonical out-of-memory error from the driver.
+//
+// A single switch (CUTLASS_DEVICE_ALLOCATION_SIZE_CHECK_ACTIVE) turns the whole feature on or off:
+// when off, the entry points below compile down to empty inline stubs with zero runtime cost.
+
+#ifdef CUTLASS_DEVICE_ALLOCATION_SIZE_CHECK_ACTIVE
+
+// Total device global memory in bytes (queried once). Returns 0 when unknown / unsupported.
+inline size_t device_total_memory_bytes() {
+  // `get_global_mem_size()` is cheap and does not emit the "ext_intel_free_memory is not
+  // supported" notice that `get_memory_info()` does on unsupported devices.
+  static size_t const device_total =
+      compat::get_current_device().get_global_mem_size();
+  return device_total;
+}
+
+// Usable portion of device memory we expect a workload to stay under.
+inline size_t device_usable_memory_bytes() {
+  static double const usable_fraction = 0.9;
+  return static_cast<size_t>(device_total_memory_bytes() * usable_fraction);
+}
+
+// Running total of bytes currently live through this utility.
+inline std::atomic<size_t>& live_allocated_bytes() {
+  static std::atomic<size_t> bytes{0};
+  return bytes;
+}
+
+// Per-pointer size table so free() can decrement the running total (free() has no size argument).
+inline std::mutex& allocation_table_mutex() {
+  static std::mutex m;
+  return m;
+}
+inline std::unordered_map<void const*, size_t>& allocation_table() {
+  static std::unordered_map<void const*, size_t> table;
+  return table;
+}
+
+// Warn (once per process) when adding `additional_bytes` to the live footprint would exceed the
+// usable device-memory budget.
+inline void warn_if_cumulative_too_large(size_t additional_bytes) {
+  size_t const total = device_total_memory_bytes();
+  size_t const limit = device_usable_memory_bytes();
+  if (total == 0) {
+    return;
+  }
+
+  size_t const projected =
+      live_allocated_bytes().load(std::memory_order_relaxed) + additional_bytes;
+  if (projected <= limit) {
+    return;
+  }
+
+  // Throttle warnings so a workload that issues many oversized allocations does not flood stderr.
+  // Use an atomic exchange so concurrent allocations from multiple threads stay race-free while
+  // still emitting the warning exactly once. Relaxed ordering is sufficient: we only need the
+  // atomicity of the flip, not ordering relative to other memory operations.
+  static std::atomic<bool> warned{false};
+  if (warned.exchange(true, std::memory_order_relaxed)) {
+    return;
+  }
+
+  std::cerr << "[Warning] Problem size may be too large: cumulative device allocations of ~"
+            << (projected / 1000000) << " MB would be live, but only ~" << (limit / 1000000)
+            << " MB of " << (total / 1000000)
+            << " MB device memory is usable. Execution may fail with an out-of-memory error."
+            << std::endl;
+}
+
+// Record a successful allocation in the live-byte accounting.
+inline void track_allocation(void const* ptr, size_t bytes) {
+  if (ptr == nullptr || bytes == 0) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> guard(allocation_table_mutex());
+    allocation_table()[ptr] = bytes;
+  }
+  live_allocated_bytes().fetch_add(bytes, std::memory_order_relaxed);
+}
+
+// Remove an allocation from the live-byte accounting on free.
+inline void untrack_allocation(void const* ptr) {
+  if (ptr == nullptr) {
+    return;
+  }
+  size_t bytes = 0;
+  {
+    std::lock_guard<std::mutex> guard(allocation_table_mutex());
+    auto it = allocation_table().find(ptr);
+    if (it == allocation_table().end()) {
+      return;
+    }
+    bytes = it->second;
+    allocation_table().erase(it);
+  }
+  live_allocated_bytes().fetch_sub(bytes, std::memory_order_relaxed);
+}
+
+#else  // CUTLASS_DEVICE_ALLOCATION_SIZE_CHECK_ACTIVE not defined: compile the check out entirely.
+
+// No-op stubs so allocate()/free() can call these unconditionally with zero runtime cost.
+inline void warn_if_cumulative_too_large(size_t /*additional_bytes*/) {}
+inline void track_allocation(void const* /*ptr*/, size_t /*bytes*/) {}
+inline void untrack_allocation(void const* /*ptr*/) {}
+
+#endif  // CUTLASS_DEVICE_ALLOCATION_SIZE_CHECK_ACTIVE
+
+}  // namespace detail
 
 /******************************************************************************
  * Allocation lifetime
@@ -58,6 +198,8 @@ T* allocate(size_t count = 1) {
 
   T* ptr = 0;
   size_t bytes = count * sizeof_bits<T>::value / 8;
+
+  detail::warn_if_cumulative_too_large(bytes);
 
 #if defined(CUTLASS_ENABLE_SYCL)
   if (count > 0) {
@@ -86,6 +228,7 @@ T* allocate(size_t count = 1) {
   }
 #endif
 #endif
+  detail::track_allocation(ptr, bytes);
   return ptr;
 }
 
@@ -93,6 +236,7 @@ T* allocate(size_t count = 1) {
 template <typename T>
 void free(T* ptr) {
   if (ptr) {
+    detail::untrack_allocation(ptr);
 #if defined(CUTLASS_ENABLE_SYCL)
     compat::free(ptr);
     if (ptr != nullptr) {

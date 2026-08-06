@@ -1,0 +1,22 @@
+# GDN chunkwise attention benchmarks — BMG (Intel Arc B-series / Xe20)
+# BF16 activations, FP32 SSM state
+#
+# Format per line:
+#   <ConfigTag> --bm_name=<label> --batch=<B> --num_v_heads=<H> --num_k_heads=<G>
+#               --head_k_dim=<Dk> --head_v_dim=<Dv> --seq_len=<S>
+# Linear Attention customer model configurations
+# Prefill: single sequence (batch=1), long context.
+GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=1 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=4096
+GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=1 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=8192
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=1 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=16384
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=1 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=128000
+#
+# Decode: many concurrent sequences (batch = 128/256/512 in the real model, but reduced to 4 due to memory constraints and CI timeouts), context len = seq_len.
+GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=4 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=8192
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=4 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=128000
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=128 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=8192
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=128 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=128000
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=256 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=8192
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=256 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=128000
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=512 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=8192
+# GdnConfig_BF16_FP32 --bm_name=gdn_bf16 --batch=512 --num_v_heads=64 --num_k_heads=16 --head_k_dim=128 --head_v_dim=128 --seq_len=128000

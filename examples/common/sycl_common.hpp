@@ -60,7 +60,20 @@ template <typename SrcT, typename DstT, typename Runner>
 void convert_dtype(const cutlass::DeviceAllocation<SrcT>& src, cutlass::DeviceAllocation<DstT>& dst) {
 #if defined(CUTLASS_TEST_FOR_CRI)
   if constexpr (cute::sizeof_bits_v<SrcT> < 8) {
-    convert_dtype<SrcT, DstT, Runner>(src.get(), dst.get(), src.size());
+    // Host-side conversion for sub-byte types on CRI (device kernel may not be available)
+    const size_t src_bytes_count = cute::ceil_div(src.size() * size_t(cute::sizeof_bits_v<SrcT>), size_t(8));
+    auto src_bytes = std::vector<uint8_t>(src_bytes_count);
+    cutlass::device_memory::copy_to_host(src_bytes.data(), reinterpret_cast<uint8_t const*>(src.get()), src_bytes.size());
+    compat::wait();
+
+    auto dst_buff = std::vector<DstT>(dst.size());
+    auto src_iter = cute::subbyte_iterator<const SrcT>(src_bytes.data());
+    for (size_t indx = 0; indx < src.size(); ++indx) {
+      dst_buff[indx] = static_cast<DstT>(src_iter[indx].get());
+    }
+
+    compat::memcpy<DstT>(dst.get(), dst_buff.data(), dst.size());
+    compat::wait();
   } else {
     auto src_buff = std::vector<SrcT>(src.size());
     compat::memcpy<SrcT>(src_buff.data(), src.get(), src.size());

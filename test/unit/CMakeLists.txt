@@ -199,6 +199,14 @@ if (CUTLASS_ENABLE_SYCL)
   if(SYCL_INTEL_TARGET)
     list(APPEND SUBDIRS flash_attention)
   endif()
+  # GDN chunkwise attention builds on BMG (Xe20, the default Intel baseline)
+  # and CRI (Xe-3.5). PVC is excluded (kernels not validated there), so build
+  # by default and gate PVC out. The unit test then runs in both the CRI
+  # workflow (.github/workflows/tiny_coverage_with_small_shapes_test.yml) and
+  # the BMG matrix of full_coverage_with_common_shapes_test.yml.
+  if(NOT SYCL_TARGET_INTEL_GPU_PVC)
+    list(APPEND SUBDIRS gdn_attention)
+  endif()
 endif()
 
 foreach(SUBDIR ${SUBDIRS})

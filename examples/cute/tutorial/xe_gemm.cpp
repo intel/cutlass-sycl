@@ -202,8 +202,7 @@ choose_tiled_mma(ATensor const& A, BTensor const& B, CTensor const&)
 
   constexpr bool use_1x_dpas_per_k = a_t                                  // Use one DPAS in k dimension for A^T case
                                   || (byte && b_n);                       //  pending compiler improvements (also int8 B^N).
-  constexpr bool use_4x8_sg = ((sizeof_bits_v<TB> < sizeof_bits_v<TA>)    // Use smaller B loads for expensive reorders.
-                                  && !(is_same_v<TB, cute::float_e5m2_t>))
+  constexpr bool use_4x8_sg = (sizeof_bits_v<TB> < sizeof_bits_v<TA>)     // Use smaller B loads for expensive reorders.
                            || (b_n && sizeof_bits_v<TB> < 8);
 
   using _K = conditional_t<use_1x_dpas_per_k,

@@ -1677,7 +1677,8 @@ struct FMHAConfig {
         CollectiveMainloop,
         TileShapeOutput,
         TensorO,
-        GmemTiledCopyO
+        GmemTiledCopyO,
+        /*EnableLSE=*/true
     >;
 
     cutlass::Status status;

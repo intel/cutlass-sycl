@@ -50,7 +50,9 @@ using namespace cute;
 template <class CollectiveMainloop, // Attention mainloop
           class TileShapeO_,        // Shape of output tile, may be larger than P*V GEMM
           class TensorO_,           // 2D slice of global output tensor
-          class TiledCopyO_ = void> // Optional TiledCopy for loading O
+          class TiledCopyO_ = void, // Optional TiledCopy for loading O
+          bool EnableLSE = false>   // Compile-time LSE output; keeps the non-LSE
+                                    // instantiation free of any LSE overhead
 class FMHAFwdEpilogue {
 
 public:
@@ -203,28 +205,31 @@ public:
       tOrO(i) = static_cast<ElementO>(rA(i) * broadcast<0>(rA_sum, rA, i));
     copy(copy_o, tOrO, tOgO);
 
-    /* ---- Write LSE output if requested ---- */
-    if (lse_ptr) {
-      /* The softmax uses exp2 throughout. LSE = max + log2(sum).
-         After rA_sum inversion: log2(1/rA_sum) = log(1/rA_sum) * log2(e). */
-      constexpr float kLog2e = 1.4426950408889634f;
-      int total_q_global = size<0>(O.shape());
-      int64_t lse_base = (int64_t)idx_b * (int64_t)num_heads_q_param * (int64_t)total_q_global +
-                          (int64_t)head_q * (int64_t)total_q_global;
-      /* The reduced O fragment (rA) is aligned with the per-thread partition of
-         the global-coordinate tensor (tOgO): tOgO(i) == (q, v) global coordinate
-         of rA(i) (the same tensor used by the O store).  Per-row max/sum are
-         fetched with broadcast<0>, exactly as the O store does.  Each (q,v)
-         element is owned by a single work-item, so writing only the v==0 element
-         of each row writes every Q row exactly once. */
-      CUTLASS_PRAGMA_UNROLL
-      for (int i = 0; i < rA.size(); ++i) {
-        if (get<1>(tOgO(i)) == 0) {
-          int q_global = get<0>(tOgO(i));
-          if (q_global < total_q_global) {
-            ElementA lse_val = broadcast<0>(tA_max, rA, i)
-                             + sycl::log(ElementA(1) / broadcast<0>(rA_sum, rA, i)) * kLog2e;
-            lse_ptr[lse_base + q_global] = static_cast<float>(lse_val);
+    /* ---- Write LSE output if requested (compile-time gated so that the
+       non-LSE instantiation carries zero overhead) ---- */
+    if constexpr (EnableLSE) {
+      if (lse_ptr) {
+        /* The softmax uses exp2 throughout. LSE = max + log2(sum).
+           After rA_sum inversion: log2(1/rA_sum) = log(1/rA_sum) * log2(e). */
+        constexpr float kLog2e = 1.4426950408889634f;
+        int total_q_global = size<0>(O.shape());
+        int64_t lse_base = (int64_t)idx_b * (int64_t)num_heads_q_param * (int64_t)total_q_global +
+                            (int64_t)head_q * (int64_t)total_q_global;
+        /* The reduced O fragment (rA) is aligned with the per-thread partition of
+           the global-coordinate tensor (tOgO): tOgO(i) == (q, v) global coordinate
+           of rA(i) (the same tensor used by the O store).  Per-row max/sum are
+           fetched with broadcast<0>, exactly as the O store does.  Each (q,v)
+           element is owned by a single work-item, so writing only the v==0 element
+           of each row writes every Q row exactly once. */
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < rA.size(); ++i) {
+          if (get<1>(tOgO(i)) == 0) {
+            int q_global = get<0>(tOgO(i));
+            if (q_global < total_q_global) {
+              ElementA lse_val = broadcast<0>(tA_max, rA, i)
+                               + sycl::log(ElementA(1) / broadcast<0>(rA_sum, rA, i)) * kLog2e;
+              lse_ptr[lse_base + q_global] = static_cast<float>(lse_val);
+            }
           }
         }
       }

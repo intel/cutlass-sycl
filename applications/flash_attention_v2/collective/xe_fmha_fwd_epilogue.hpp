@@ -206,38 +206,26 @@ public:
     /* ---- Write LSE output if requested ---- */
     if (lse_ptr) {
       /* The softmax uses exp2 throughout. LSE = max + log2(sum).
-         After rA_sum inversion: log2(1/rA_sum) = log(1/rA_sum) * log2(e) */
+         After rA_sum inversion: log2(1/rA_sum) = log(1/rA_sum) * log2(e). */
       constexpr float kLog2e = 1.4426950408889634f;
-      constexpr int num_q_elems = sizeof(FragARow) / sizeof(ElementA);
-      constexpr int total_a_elems = sizeof(FragA) / sizeof(ElementA);
-      constexpr int tile_q_size = size<0>(TileShapeO{});
-      constexpr int elems_per_q = total_a_elems / num_q_elems;
-      static_assert(total_a_elems % num_q_elems == 0,
-                    "FragA elements must be divisible by FragARow elements");
-
-      /* Write LSE.  Each subgroup covers a portion of the Q output.
-         tile_q_size / SGPerWG gives Q-rows per subgroup (minimum 1).
-         The last tile may have fewer Q-rows; the q_global check handles it. */
-      constexpr int total_tile_sgs = decltype(SGPerWG{})::value;
-      constexpr int q_per_sg = tile_q_size > total_tile_sgs
-                               ? (tile_q_size + total_tile_sgs - 1) / total_tile_sgs
-                               : 1;
-      int sg_id = thr_id / intel::sg_size;
-      int q_offset = sg_id * q_per_sg;
-      int blk_q = static_cast<int>(cute::get<0>(blk_qv));
       int total_q_global = size<0>(O.shape());
       int64_t lse_base = (int64_t)idx_b * (int64_t)num_heads_q_param * (int64_t)total_q_global +
                           (int64_t)head_q * (int64_t)total_q_global;
+      /* The reduced O fragment (rA) is aligned with the per-thread partition of
+         the global-coordinate tensor (tOgO): tOgO(i) == (q, v) global coordinate
+         of rA(i) (the same tensor used by the O store).  Per-row max/sum are
+         fetched with broadcast<0>, exactly as the O store does.  Each (q,v)
+         element is owned by a single work-item, so writing only the v==0 element
+         of each row writes every Q row exactly once. */
       CUTLASS_PRAGMA_UNROLL
-      for (int i = 0; i < q_per_sg; ++i) {
-        int q_global = blk_q * tile_q_size + q_offset + i;
-        if (q_global < total_q_global) {
-          /* Access tA_max/rA_sum using the position within this SG's range.
-             Use q_idx = i (since num_q_elems may differ from q_per_sg due to
-             VTiles folding, clamp to num_q_elems-1 if needed). */
-          int qi = i < num_q_elems ? i : num_q_elems - 1;
-          ElementA lse_val = tA_max(qi) + sycl::log(ElementA(1) / rA_sum(qi)) * kLog2e;
-          lse_ptr[lse_base + q_global] = static_cast<float>(lse_val);
+      for (int i = 0; i < rA.size(); ++i) {
+        if (get<1>(tOgO(i)) == 0) {
+          int q_global = get<0>(tOgO(i));
+          if (q_global < total_q_global) {
+            ElementA lse_val = broadcast<0>(tA_max, rA, i)
+                             + sycl::log(ElementA(1) / broadcast<0>(rA_sum, rA, i)) * kLog2e;
+            lse_ptr[lse_base + q_global] = static_cast<float>(lse_val);
+          }
         }
       }
     }

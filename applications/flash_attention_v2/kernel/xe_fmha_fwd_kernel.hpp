@@ -146,6 +146,7 @@ public:
     StrideK dK_cache{};
     const ElementV *V_cache;
     StrideV dV_cache{};
+    float *Lse = nullptr;  // LSE output buffer (null = skip)
   };
   using KernelParams = KernelArguments;
 
@@ -169,9 +170,16 @@ public:
   //
 
   static Params to_underlying_arguments(Arguments const &args, void *workspace) {
+    // Forward LSE info to epilogue if requested
+    auto epi_args = args.epilogue;
+    if (args.kernel.Lse) {
+      epi_args.lse_ptr = args.kernel.Lse;
+      epi_args.seq_len_qo = args.kernel.shape.seq_len_qo;
+      epi_args.num_heads_q = args.kernel.shape.num_heads_q;
+    }
     return {args.kernel,
             CollectiveMainloop::to_underlying_arguments(args.mainloop, workspace),
-            CollectiveEpilogue::to_underlying_arguments(args.epilogue, workspace),
+            CollectiveEpilogue::to_underlying_arguments(epi_args, workspace),
             TileScheduler::to_underlying_arguments(args.kernel.shape, args.hw_info, TileShapeO{})};
   }
 
@@ -390,7 +398,7 @@ public:
       CollectiveEpilogue epilogue{params.epilogue, shared_storage.epilogue};
       epilogue(O(_,_,head_q,l_coord),
                tArA, tA_max, tA_sum,
-               blk_qv, thr_id, p.scale_v);
+               blk_qv, thr_id, head_q, idx_b, p.scale_v);
     }
   }
 };
@@ -485,6 +493,7 @@ public:
     StrideK dK_cache{};
     const ElementV *V_cache = nullptr;
     StrideV dV_cache{};
+    float *Lse = nullptr;  // LSE output buffer (null = skip)
   };
   using KernelParams = KernelArguments;
 
@@ -518,9 +527,16 @@ public:
     int max_parts = compute_max_num_partitions(args.hw_info.sm_count, num_batch_heads);
     int32_t *atomic_reduce_cnt_ptr = reinterpret_cast<int32_t *>(workspace);
     ElementA *partial_results_ptr = reinterpret_cast<ElementA *>(atomic_reduce_cnt_ptr + num_batch_heads);
+    // Forward LSE info to epilogue if requested
+    auto epi_args = args.epilogue;
+    if (args.kernel.Lse) {
+      epi_args.lse_ptr = args.kernel.Lse;
+      epi_args.seq_len_qo = args.kernel.shape.seq_len_qo;
+      epi_args.num_heads_q = args.kernel.shape.num_heads_q;
+    }
     return {args.kernel,
             CollectiveMainloop::to_underlying_arguments(args.mainloop, workspace),
-            CollectiveEpilogue::to_underlying_arguments(args.epilogue, workspace),
+            CollectiveEpilogue::to_underlying_arguments(epi_args, workspace),
             TileScheduler::to_underlying_arguments(args.kernel.shape, args.hw_info, TileShapeO{}),
             partial_results_ptr, atomic_reduce_cnt_ptr, max_parts
           };
@@ -840,7 +856,7 @@ public:
         CollectiveEpilogue epilogue{params.epilogue, shared_storage.epilogue};
         epilogue.template operator()<true>(O(_,_,head_q,idx_b),
                 tArA, tA_max, tA_sum,
-                blk_qv, thr_id);
+                blk_qv, thr_id, head_q, idx_b);
       }
     }
   }

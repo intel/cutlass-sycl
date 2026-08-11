@@ -63,12 +63,12 @@ struct Options {
   bool use_paged_kv = false;
   std::string scheduler;
 
-  int batch, num_heads_q, num_heads_kv, seq_len_qo, seq_len_kv, seq_len_kv_cache, page_size, head_size_qk, head_size_vo, iterations, warmup, verify;
+  int batch, num_heads_q, num_heads_kv, seq_len_qo, seq_len_kv, seq_len_kv_cache, page_size, head_size_qk, head_size_vo, iterations, warmup, verify, seq_chunk_len;
   float softmax_scale;
 
   Options()
       : help(false), error(false), is_causal(false), varlen(false), use_paged_kv(false), batch(32), num_heads_q(16), num_heads_kv(16), seq_len_qo(512), head_size_qk(128),
-        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), warmup(100), softmax_scale(1.f), verify(1), scheduler("Individual") {}
+        seq_len_kv(512), seq_len_kv_cache(0), page_size(128), head_size_vo(128), iterations(100), warmup(100), softmax_scale(1.f), verify(1), scheduler("Individual"), seq_chunk_len(0) {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -111,6 +111,7 @@ struct Options {
     cmd.get_cmd_line_argument("iterations", iterations, 100);
     cmd.get_cmd_line_argument("warmup", warmup, 1);
     cmd.get_cmd_line_argument("verify", verify, 1);
+    cmd.get_cmd_line_argument("seq_chunk_len", seq_chunk_len, 0);
 
     if (cmd.check_cmd_line_flag("use_paged_kv")) {
         use_paged_kv = true;
@@ -150,7 +151,9 @@ struct Options {
         << "  --head_size_vo=<int>        Sets the Attention Head dimension of the 2nd Matrix Multiplication in Multi-Head Self Attention module\n"
         << "  --iterations=<int>          Iterations\n"
         << "  --warmup=<int>              Warmup iterations before timing\n"
-        << "  --verify=<int>              Specify whether to verify.\n\n";
+        << "  --verify=<int>              Specify whether to verify.\n"
+        << "  --seq_chunk_len=<int>       KV chunk length for sequence-parallel (LSE) runs.\n"
+        << "                              <=0 means a single full chunk.\n\n";
     return out;
   }
 };
@@ -1128,6 +1131,340 @@ template <class FMHAKernel, bool isVarLen = false> struct ExampleRunner {
   }
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Sequence-Parallel (SP) runner built on top of the new LSE output feature.
+//
+// The KV sequence is split into `sp_chunks` contiguous chunks. For each chunk we
+// launch the FMHA kernel with seq_len_kv = chunk length, pointing K/V at the
+// chunk slice of the full buffers (keeping the full-tensor strides, since the
+// buffers are flat [B, H, S, D] contiguous) and writing a partial output O_c
+// plus its log-sum-exp LSE_c. The partials are then combined on the host with
+// the standard sequence-parallel reduction, which only needs the LSE values:
+//
+//     M    = max_c  LSE_c
+//     w_c  = exp(LSE_c - M)
+//     O    = sum_c (w_c * O_c) / sum_c w_c
+//
+// The combined output is written into block_O and validated against the full
+// reference using ExampleRunner::verify(). The kernel LSE from a single full
+// run is additionally compared against a host log-sum-exp reference, and the
+// performance of the full vs the chunked (SP) execution is reported.
+//
+// Current restrictions: non-causal, non-varlen, no cached/paged KV, bf16.
+///////////////////////////////////////////////////////////////////////////////////////////////////
+template <class FMHAKernel, bool isVarLen = false>
+struct SequenceParallelRunner : public ExampleRunner<FMHAKernel, isVarLen> {
+  using Base = ExampleRunner<FMHAKernel, isVarLen>;
+  using ProblemShapeType = typename Base::ProblemShapeType;
+  using ElementQ = typename FMHAKernel::ElementQ;
+  using ElementK = typename FMHAKernel::ElementK;
+  using ElementV = typename FMHAKernel::ElementV;
+  using ElementO = typename FMHAKernel::ElementO;
+
+  // Buffers for sequence-parallel partial results
+  cutlass::DeviceAllocation<ElementO> partial_O;    // [sp_chunks][B][H][S][V]
+  cutlass::DeviceAllocation<float>    partial_lse;  // [sp_chunks][B][H][S]
+  cutlass::DeviceAllocation<ElementO> O_full;       // single full-run output
+  cutlass::DeviceAllocation<float>    lse_full;     // single full-run LSE
+
+  // Build kernel arguments for a (possibly chunked) KV problem. K/V point into
+  // the chunk slice, but the strides are the FULL-tensor strides (the buffers
+  // are flat contiguous [B, H, S, D]). This mirrors the varlen stride handling.
+  typename FMHAKernel::Arguments
+  make_arguments(const ProblemShapeType &shape,
+                 ElementO *O_ptr, ElementK *K_ptr, ElementV *V_ptr,
+                 float *lse_ptr,
+                 const Options &options,
+                 const cutlass::KernelHardwareInfo &hw_info) {
+    typename FMHAKernel::Arguments args{
+      {
+        shape,
+        this->block_Q.get(), this->stride_Q,
+        K_ptr, this->stride_K,
+        V_ptr, this->stride_V,
+        O_ptr, this->stride_O,
+        nullptr, typename FMHAKernel::StrideScaleQ{},
+        nullptr, typename FMHAKernel::StrideScaleK{},
+        nullptr, typename FMHAKernel::StrideScaleV{},
+        /*scale_k=*/1.f, /*scale_v=*/1.f, /*scale_q=*/1.f,
+        GROUP_SIZE,
+        nullptr, typename FMHAKernel::StrideK{},       // no cached KV in SP runs
+        nullptr, typename FMHAKernel::StrideV{},
+        lse_ptr
+      },
+      { options.softmax_scale, nullptr, 0, nullptr },   // no paged KV
+      {},                                               // no epilogue args
+      hw_info
+    };
+    return args;
+  }
+
+  // Host reference: LSE = log2( sum_s exp(softmax_scale * (Q_q . K_s)) ) for
+  // each (b, h, q). The kernel softmax is exp2-based, so its LSE is in log
+  // base 2; we match that here (kLog2e = log2(e)).
+  void compute_reference_lse(const ProblemShapeType &shape, float softmax_scale,
+                             std::vector<float> &lse_ref) {
+    auto batch = shape.batch;
+    auto num_heads_q = shape.num_heads_q;
+    auto num_heads_kv = shape.num_heads_kv;
+    auto seq_len_qo = shape.seq_len_qo;
+    auto seq_len_kv = shape.seq_len_kv;
+    auto head_size_qk = shape.head_size_qk;
+
+    std::vector<ElementQ> q_host(this->block_Q.size());
+    std::vector<ElementK> k_host(this->block_K.size());
+    compat::memcpy<ElementQ>(q_host.data(), this->block_Q.get(), q_host.size());
+    compat::memcpy<ElementK>(k_host.data(), this->block_K.get(), k_host.size());
+    compat::wait();
+
+    constexpr float kLog2e = 1.4426950408889634f;
+    int head_group = num_heads_q / num_heads_kv;
+    std::size_t rows = (std::size_t)batch * num_heads_q * seq_len_qo;
+    lse_ref.assign(rows, 0.f);
+    std::vector<float> s(seq_len_kv);
+    for (int b = 0; b < batch; ++b) {
+      for (int h = 0; h < num_heads_q; ++h) {
+        int h_kv = h / head_group;
+        std::size_t q_base = ((std::size_t)b * num_heads_q + h) * seq_len_qo * head_size_qk;
+        std::size_t k_base = ((std::size_t)b * num_heads_kv + h_kv) * seq_len_kv * head_size_qk;
+        for (int q = 0; q < seq_len_qo; ++q) {
+          float maxv = -INFINITY;
+          for (int kv = 0; kv < seq_len_kv; ++kv) {
+            float dot = 0.f;
+            for (int d = 0; d < head_size_qk; ++d) {
+              dot += (float)q_host[q_base + q * head_size_qk + d]
+                   * (float)k_host[k_base + kv * head_size_qk + d];
+            }
+            s[kv] = softmax_scale * dot;
+            maxv = std::max(maxv, s[kv]);
+          }
+          float sum_exp = 0.f;
+          for (int kv = 0; kv < seq_len_kv; ++kv) sum_exp += expf(s[kv] - maxv);
+          std::size_t idx = ((std::size_t)b * num_heads_q + h) * seq_len_qo + q;
+          lse_ref[idx] = (maxv + logf(sum_exp)) * kLog2e;
+        }
+      }
+    }
+  }
+
+  // Combine partial (O_c, LSE_c) over the KV chunks into a single output.
+  //
+  // The kernel LSE is the log-sum-exp in BASE 2 (LSE_c = log2(Z_c), where
+  // Z_c = sum_k exp(s_k) over the chunk).  The exact combine is
+  //   w_c = 2^(LSE_c - M) = exp2f(LSE_c - M),   M = max_c LSE_c,
+  //   O   = sum_c (w_c * O_c) / sum_c w_c.
+  // (The common factor 2^-M cancels between numerator and denominator.)
+  void combine_partials(int sp_chunks, int batch, int num_heads_q,
+                        int seq_len_qo, int head_size_vo,
+                        const std::vector<float> &lse_host,
+                        const std::vector<ElementO> &partial_O_host,
+                        std::vector<ElementO> &combined) {
+    std::size_t rows = (std::size_t)batch * num_heads_q * seq_len_qo;
+    combined.assign(rows * head_size_vo, ElementO(0));
+    std::vector<float> acc(head_size_vo);
+    for (std::size_t r = 0; r < rows; ++r) {
+      float M = -INFINITY;
+      for (int c = 0; c < sp_chunks; ++c)
+        M = std::max(M, lse_host[(std::size_t)c * rows + r]);
+      float sum_w = 0.f;
+      std::fill(acc.begin(), acc.end(), 0.f);
+      for (int c = 0; c < sp_chunks; ++c) {
+        float w = exp2f(lse_host[(std::size_t)c * rows + r] - M);
+        sum_w += w;
+        const ElementO *Oc = &partial_O_host[(std::size_t)c * rows * head_size_vo + r * head_size_vo];
+        for (int d = 0; d < head_size_vo; ++d) acc[d] += w * (float)Oc[d];
+      }
+      for (int d = 0; d < head_size_vo; ++d)
+        combined[r * head_size_vo + d] = (ElementO)(acc[d] / sum_w);
+    }
+  }
+
+  cutlass::Status run_sp(const Options &options, const cutlass::KernelHardwareInfo &hw_info) {
+
+    if (options.is_causal) {
+      std::cerr << "Error: Sequence-parallel LSE example does not support Causal mask yet." << std::endl;
+      return cutlass::Status::kErrorInvalidProblem;
+    }
+    if constexpr (isVarLen) {
+      std::cerr << "Error: Sequence-parallel LSE example does not support varlen yet." << std::endl;
+      return cutlass::Status::kErrorInvalidProblem;
+    }
+
+    ProblemShapeType shape = this->initialize(options);
+
+    int batch = shape.batch;
+    int num_heads_q = shape.num_heads_q;
+    int seq_len_qo = shape.seq_len_qo;
+    int seq_len_kv = shape.seq_len_kv;
+    int head_size_qk = shape.head_size_qk;
+    int head_size_vo = shape.head_size_vo;
+
+    // Sequence-parallel decomposition of the KV dimension.
+    int chunk_len = options.seq_chunk_len;
+    if (chunk_len <= 0) chunk_len = seq_len_kv;
+    chunk_len = std::min(chunk_len, seq_len_kv);
+    int sp_chunks = cute::ceil_div(seq_len_kv, chunk_len);
+
+    std::size_t rows = (std::size_t)batch * num_heads_q * seq_len_qo;
+    partial_O.reset(sp_chunks * rows * head_size_vo);
+    partial_lse.reset(sp_chunks * rows);
+    O_full.reset(rows * head_size_vo);
+    lse_full.reset(rows);
+
+    // Chunk K/V pointers into the full contiguous [B,H,S,D] buffers.
+    std::vector<ElementK*> k_chunk_ptr(sp_chunks);
+    std::vector<ElementV*> v_chunk_ptr(sp_chunks);
+    std::vector<int> chunk_kv_len(sp_chunks);
+    for (int c = 0; c < sp_chunks; ++c) {
+      int kv_start = c * chunk_len;
+      chunk_kv_len[c] = std::min(chunk_len, seq_len_kv - kv_start);
+      k_chunk_ptr[c] = this->block_K.get() + (std::size_t)kv_start * head_size_qk;
+      v_chunk_ptr[c] = this->block_V.get() + (std::size_t)kv_start * head_size_vo;
+    }
+
+    // Full-run (single chunk) and per-chunk shapes.
+    std::vector<ProblemShapeType> chunk_shapes(sp_chunks);
+    for (int c = 0; c < sp_chunks; ++c) {
+      chunk_shapes[c] = shape;
+      chunk_shapes[c].seq_len_kv = chunk_kv_len[c];
+      chunk_shapes[c].seq_len_kv_cache = 0;
+    }
+
+    typename FMHAKernel::Arguments full_args =
+        make_arguments(shape, O_full.get(), this->block_K.get(), this->block_V.get(),
+                       lse_full.get(), options, hw_info);
+
+    // FMHAKernel::Arguments is not copy-assignable (its mainloop Arguments holds
+    // a const member), so build the per-chunk args via copy construction.
+    std::vector<typename FMHAKernel::Arguments> chunk_args;
+    chunk_args.reserve(sp_chunks);
+    for (int c = 0; c < sp_chunks; ++c) {
+      chunk_args.push_back(make_arguments(chunk_shapes[c],
+                                          partial_O.get() + (std::size_t)c * rows * head_size_vo,
+                                          k_chunk_ptr[c], v_chunk_ptr[c],
+                                          partial_lse.get() + (std::size_t)c * rows,
+                                          options, hw_info));
+    }
+
+    if (!FMHAKernel::can_implement(full_args)) {
+      std::cout << "Invalid Problem Size: " << options.batch << 'x' << options.num_heads_q << 'x' <<
+        options.seq_len_qo << 'x' << options.seq_len_kv << 'x' << options.head_size_qk << 'x' << options.head_size_vo << std::endl;
+      return cutlass::Status::kErrorInvalidProblem;
+    }
+
+    std::size_t workspace_size = FMHAKernel::get_workspace_size(full_args);
+    cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+    CUTLASS_CHECK(FMHAKernel::initialize_workspace(full_args, workspace.get()));
+
+    auto launch = [&](const typename FMHAKernel::Arguments &args) {
+      auto params = FMHAKernel::to_underlying_arguments(args, workspace.get());
+      Base::run(params);
+    };
+
+    // Warmup
+    for (int i = 0; i < options.warmup; ++i) {
+      launch(full_args);
+      for (int c = 0; c < sp_chunks; ++c) launch(chunk_args[c]);
+    }
+    compat::wait();
+
+    // Performance: full single-kernel run vs sequence-parallel (all chunks).
+    // Measured in two alternating orders (full-then-sp, sp-then-full) and
+    // averaged, to cancel GPU DVFS/ordering bias between the two timings.
+    double ms_full = 0.0, ms_sp = 0.0;
+    if (options.iterations > 0) {
+      auto time_full = [&]() -> double {
+        GPU_Clock t;
+        t.start();
+        for (int i = 0; i < options.iterations; ++i) launch(full_args);
+        compat::wait();
+        return t.seconds() / options.iterations * 1000.0;
+      };
+      auto time_sp = [&]() -> double {
+        GPU_Clock t;
+        t.start();
+        for (int i = 0; i < options.iterations; ++i)
+          for (int c = 0; c < sp_chunks; ++c) launch(chunk_args[c]);
+        compat::wait();
+        return t.seconds() / options.iterations * 1000.0;
+      };
+      // order A: full first, then sp
+      ms_full += time_full();
+      ms_sp   += time_sp();
+      // order B: sp first, then full
+      ms_sp   += time_sp();
+      ms_full += time_full();
+      ms_full *= 0.5;
+      ms_sp   *= 0.5;
+    }
+
+    // Collect results (one execution per launch for validation)
+    launch(full_args);
+    for (int c = 0; c < sp_chunks; ++c) launch(chunk_args[c]);
+    compat::wait();
+
+    std::vector<ElementO> O_full_host(O_full.size());
+    std::vector<float>    lse_full_host(lse_full.size());
+    std::vector<ElementO> partial_O_host(partial_O.size());
+    std::vector<float>    partial_lse_host(partial_lse.size());
+    compat::memcpy<ElementO>(O_full_host.data(), O_full.get(), O_full.size());
+    compat::memcpy<float>(lse_full_host.data(), lse_full.get(), lse_full.size());
+    compat::memcpy<ElementO>(partial_O_host.data(), partial_O.get(), partial_O.size());
+    compat::memcpy<float>(partial_lse_host.data(), partial_lse.get(), partial_lse.size());
+    compat::wait();
+
+    bool full_passed = true, lse_passed = true, sp_passed = true;
+    if (options.verify != 0) {
+      // (1) Single full-kernel output vs reference
+      compat::memcpy<ElementO>(this->block_O.get(), O_full_host.data(), O_full_host.size());
+      compat::wait();
+      full_passed = this->verify(shape, /*is_causal=*/false);
+      std::cout << "Full kernel (LSE) output vs reference        : " << (full_passed ? "Passed" : "Failed") << std::endl;
+
+      // (2) Kernel LSE vs host log-sum-exp reference
+      std::vector<float> lse_ref;
+      compute_reference_lse(shape, options.softmax_scale, lse_ref);
+      float max_lse_err = 0.f;
+      for (std::size_t i = 0; i < lse_ref.size(); ++i)
+        max_lse_err = std::max(max_lse_err, std::fabs(lse_full_host[i] - lse_ref[i]));
+      lse_passed = (max_lse_err < 0.1f);
+      std::cout << "LSE output vs host log-sum-exp reference     : " << (lse_passed ? "Passed" : "Failed")
+                << "  (max abs err = " << max_lse_err << ")" << std::endl;
+
+      // (3) Sequence-parallel combined output vs reference
+      std::vector<ElementO> combined(rows * head_size_vo);
+      combine_partials(sp_chunks, batch, num_heads_q, seq_len_qo, head_size_vo,
+                       partial_lse_host, partial_O_host, combined);
+      compat::memcpy<ElementO>(this->block_O.get(), combined.data(), combined.size());
+      compat::wait();
+      sp_passed = this->verify(shape, /*is_causal=*/false);
+      std::cout << "Sequence-parallel (" << sp_chunks << " chunks) combined vs reference: "
+                << (sp_passed ? "Passed" : "Failed") << std::endl;
+    } else {
+      std::cout << "Disposition is skipped." << std::endl;
+    }
+
+    // Performance report
+    if (options.iterations > 0) {
+      double effective_seq_len_kv = (double)seq_len_kv;
+      double flops_qk = 2.0 * num_heads_q * (double)batch * seq_len_qo * effective_seq_len_kv * head_size_qk;
+      double flops_pv = 2.0 * num_heads_q * (double)batch * seq_len_qo * effective_seq_len_kv * head_size_vo;
+      double tflops_full = ((flops_qk + flops_pv) * 1e-12) / (ms_full / 1000.0);
+      double tflops_sp   = ((flops_qk + flops_pv) * 1e-12) / (ms_sp   / 1000.0);
+      std::cout << "Batch: " << batch << "\tNumHeads_q: " << num_heads_q << "\tNumHeads_kv: " << shape.num_heads_kv
+                << "\tSeq Length QO: " << seq_len_qo << "\tSeq Length KV: " << seq_len_kv
+                << "\tHead Size QK: " << head_size_qk << "\tHead Size VO: " << head_size_vo
+                << "\tSP Chunks: " << sp_chunks << " (chunk len " << chunk_len << ")" << std::endl;
+      printf("Performance Full:   %6.4f ms,  %4.3f TFlop/s\n", ms_full, tflops_full);
+      printf("Performance SP-%-2d:  %6.4f ms,  %4.3f TFlop/s\n", sp_chunks, ms_sp, tflops_sp);
+      printf("SP/FULL time ratio: %4.3f x\n\n", ms_sp / ms_full);
+    }
+
+    bool all_passed = full_passed && lse_passed && sp_passed;
+    return all_passed ? cutlass::Status::kSuccess : cutlass::Status::kErrorInternal;
+  }
+};
+
 template <bool Causal,
           bool BlockScale,
           typename TileShapeQK,
@@ -1283,6 +1620,90 @@ struct FMHAConfig {
       } else {
         status = run_with(std::false_type{}, std::false_type{});
       }
+    }
+    CUTLASS_CHECK(status);
+    return 0;
+  }
+
+  // Sequence-parallel / LSE entry point. Runs the FMHA kernel with LSE output
+  // on KV chunks and combines the partials (see SequenceParallelRunner).
+  template <bool isVarLen, bool CachedKV, bool PagedKV, class Scheduler>
+  static int run_lse(const Options &options) {
+    static_assert(!is_same_v<Scheduler, cutlass::fmha::kernel::XeFHMAIndividualPersistentTileScheduler>,
+                  "Sequence-parallel LSE example requires the Individual tile scheduler");
+
+    cutlass::KernelHardwareInfo hw_info;
+    hw_info.sm_count = cutlass::KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id);
+
+    using ProblemShapeType = cutlass::fmha::kernel::FMHAProblemShape<isVarLen>;
+
+    using TiledMMAQK = typename TiledMMAHelper<MMA_Atom<MMAOperation>, Layout<TileShapeQK>, SubgroupLayoutQK>::TiledMMA;
+    using TiledMMAPV = typename TiledMMAHelper<MMA_Atom<MMAOperationPV>, Layout<TileShapePV>, SubgroupLayoutPV>::TiledMMA;
+
+    static_assert(get<0>(TileShapeOutput{}) == get<0>(TileShapePV{}),
+        "Output tile and P*V tile have different sizes in Q dimension");
+    constexpr int VTiles = get<1>(TileShapeOutput{}) / get<1>(TileShapePV{});
+
+    auto make_dummy_tensor = [&](auto val, auto stride) {
+      return make_tensor(make_gmem_ptr(&val),
+                         make_layout(repeat<rank_v<decltype(stride)>>(1), stride));
+    };
+
+    using TensorQ = decltype(make_dummy_tensor(ElementQ{}, StrideQ{}));
+    using TensorK = decltype(make_dummy_tensor(ElementK{}, StrideK{}));
+    using TensorV = decltype(make_dummy_tensor(ElementV{}, StrideV{}));
+    using TensorO = decltype(make_dummy_tensor(ElementO{}, StrideO{}));
+    using TensorScaleQ = decltype(make_dummy_tensor(ElementScale{}, StrideScaleQ{}));
+    using TensorScaleK = decltype(make_dummy_tensor(ElementScale{}, StrideScaleK{}));
+    using TensorScaleV = decltype(make_dummy_tensor(ElementScale{}, StrideScaleV{}));
+
+    using TensorK_cache = TensorK;
+    using TensorV_cache = TensorV;
+    using GmemTiledCopyK_cache = GmemTiledCopyK;
+    using GmemTiledCopyV_cache = GmemTiledCopyV;
+
+    using MainloopDispatchPolicy = cutlass::fmha::XeDefault<PipelineStages>;
+    using CollectiveMainloop = cutlass::fmha::collective::FMHAFwdMainloop<
+        MainloopDispatchPolicy, Causal, BlockScale, F8kvF16mma, PerTensorScale,
+        CachedKV, PagedKV, TiledMMAQK, TiledMMAPV, VTiles,
+        TensorQ, TensorK, TensorV,
+        TensorScaleQ, TensorScaleK, TensorScaleV,
+        TensorK_cache, TensorV_cache,
+        GmemTiledCopyQ, GmemTiledCopyK, GmemTiledCopyV,
+        GmemTiledCopyK_cache, GmemTiledCopyV_cache
+    >;
+
+    using CollectiveEpilogue = cutlass::fmha::collective::FMHAFwdEpilogue<
+        CollectiveMainloop,
+        TileShapeOutput,
+        TensorO,
+        GmemTiledCopyO,
+        /*EnableLSE=*/true
+    >;
+
+    cutlass::Status status;
+    auto run_with = [&](auto bo_t, auto hgo_t) -> cutlass::Status {
+      constexpr bool BO  = decltype(bo_t)::value;
+      constexpr bool HGO = decltype(hgo_t)::value;
+      using SchedulerSpec = cutlass::fmha::kernel::XeFHMAIndividualTileScheduler<BO, HGO>;
+      using FMHAKernel = cutlass::fmha::kernel::XeFMHAFwdKernel<
+          ProblemShapeType, CollectiveMainloop, CollectiveEpilogue, SchedulerSpec>;
+      SequenceParallelRunner<FMHAKernel, isVarLen> runner;
+      return runner.run_sp(options, hw_info);
+    };
+
+    const bool batch_one = (options.batch == 1);
+    const bool no_gqa    = (options.num_heads_q == options.num_heads_kv);
+
+    if (batch_one && no_gqa) {
+      status = run_with(std::true_type{},  std::true_type{});
+    }
+    else if (batch_one) {
+      status = run_with(std::true_type{},  std::false_type{});
+    } else if (no_gqa) {
+      status = run_with(std::false_type{}, std::true_type{});
+    } else {
+      status = run_with(std::false_type{}, std::false_type{});
     }
     CUTLASS_CHECK(status);
     return 0;

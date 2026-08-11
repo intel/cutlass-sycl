@@ -64,6 +64,9 @@ foreach(HEAD_DIM 64 96 128 192)
       set(TEST_CACHED_KV_PREFILL "--seq_len_kv_cache=64")
       set(TEST_CACHED_KV_DECODE "--seq_len_kv_cache=64")
     endif()
+
+    # LSE / sequence-parallel prefill test: split KV into 128-token chunks.
+    set(TEST_LSE_PREFILL ${TEST_NO_PAGED_PREFILL} "--seq_chunk_len=128")
  
     if(INPUT_TYPE STREQUAL "bfloat16_t")
       set(INPUT_MACRO "IS_BFLOAT16")
@@ -142,6 +145,17 @@ foreach(HEAD_DIM 64 96 128 192)
         TEST_CACHED_KV_DECODE
       )
       target_compile_definitions(06_xe_fmha_fwd_decode_cached_kv_${INPUT_TYPE}_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM} DECODE SHOW_DIFF=1 INPUT_TYPE=${INPUT_TYPE} ${INPUT_MACRO})
+    endif()
+
+    # --- LSE output / sequence-parallel target (bfloat16 only) ---
+    if (INPUT_TYPE STREQUAL "bfloat16_t")
+      cutlass_example_add_executable(
+        06_xe_fmha_fwd_lse_${INPUT_TYPE}_hdim${HEAD_DIM}
+        06_xe_fmha_fwd_lse.cpp
+        TEST_COMMAND_OPTIONS
+        TEST_LSE_PREFILL
+      )
+      target_compile_definitions(06_xe_fmha_fwd_lse_${INPUT_TYPE}_hdim${HEAD_DIM} PRIVATE HEAD_DIM=${HEAD_DIM} PREFILL SHOW_DIFF=1 INPUT_TYPE=${INPUT_TYPE} ${INPUT_MACRO})
     endif()
   endforeach()
 

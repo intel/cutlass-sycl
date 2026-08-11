@@ -50,7 +50,9 @@ using namespace cute;
 template <class CollectiveMainloop, // Attention mainloop
           class TileShapeO_,        // Shape of output tile, may be larger than P*V GEMM
           class TensorO_,           // 2D slice of global output tensor
-          class TiledCopyO_ = void> // Optional TiledCopy for loading O
+          class TiledCopyO_ = void, // Optional TiledCopy for loading O
+          bool EnableLSE = false>   // Compile-time LSE output; keeps the non-LSE
+                                    // instantiation free of any LSE overhead
 class FMHAFwdEpilogue {
 
 public:
@@ -103,9 +105,17 @@ public:
   using DefaultTiledCopyO = decltype(default_tiled_copy_O_helper());
   using TiledCopyO = conditional_t<is_void_v<TiledCopyO_>, DefaultTiledCopyO, TiledCopyO_>;
 
-  // Stateless design -- no arguments or parameters.
-  struct Arguments {};
-  struct Params {};
+  // LSE output configuration (optional, null = skip).
+  struct Arguments {
+    float* lse_ptr = nullptr;
+    int seq_len_qo = 0;
+    int num_heads_q = 0;
+  };
+  struct Params {
+    float* lse_ptr = nullptr;
+    int seq_len_qo = 0;
+    int num_heads_q = 0;
+  };
 
   // Shared memory storage
   // Note sum/max tiles are padded to 16 elements, due to limitations in CuTe block load infrastructure.
@@ -121,11 +131,14 @@ public:
 
 private:
   SharedStorage &shared;
+  float* lse_ptr = nullptr;
+  int num_heads_q_param = 0;
+  int seq_len_qo_param = 0;
 
 public:
   static constexpr
   Params to_underlying_arguments(Arguments const &args, void * /* workspace */) {
-    return {};
+    return {args.lse_ptr, args.seq_len_qo, args.num_heads_q};
   }
 
   CUTLASS_HOST_DEVICE static bool can_implement(Arguments const&) {
@@ -133,7 +146,11 @@ public:
   }
 
   CUTLASS_HOST_DEVICE
-  FMHAFwdEpilogue(Params const&, SharedStorage& shared_) : shared(shared_) {}
+  FMHAFwdEpilogue(Params const& params_, SharedStorage& shared_)
+    : shared(shared_),
+      lse_ptr(params_.lse_ptr),
+      num_heads_q_param(params_.num_heads_q),
+      seq_len_qo_param(params_.seq_len_qo) {}
 
   template <bool SumIsReduced = false, typename QVCoord, typename FragSPRow>
   CUTLASS_DEVICE
@@ -144,6 +161,8 @@ public:
              FragSPRow      & tA_sum,   // Softmax row-wise partial sum (per-lane, deferred hreduce)
              QVCoord          blk_qv,   // WG tile indices: (q,v)
              int              thr_id,   // Work-item ID
+             int              head_q,   // Query-head index (for LSE output)
+             int              idx_b,    // Batch index (for LSE output)
              float            v_scale = 1.0f) { // Per-tensor V dequant scale (fp8 path)
 
     using namespace cute;
@@ -185,6 +204,36 @@ public:
     for (int i = 0; i < rA.size(); i++)
       tOrO(i) = static_cast<ElementO>(rA(i) * broadcast<0>(rA_sum, rA, i));
     copy(copy_o, tOrO, tOgO);
+
+    /* ---- Write LSE output if requested (compile-time gated so that the
+       non-LSE instantiation carries zero overhead) ---- */
+    if constexpr (EnableLSE) {
+      if (lse_ptr) {
+        /* The softmax uses exp2 throughout. LSE = max + log2(sum).
+           After rA_sum inversion: log2(1/rA_sum) = log(1/rA_sum) * log2(e). */
+        constexpr float kLog2e = 1.4426950408889634f;
+        int total_q_global = size<0>(O.shape());
+        int64_t lse_base = (int64_t)idx_b * (int64_t)num_heads_q_param * (int64_t)total_q_global +
+                            (int64_t)head_q * (int64_t)total_q_global;
+        /* The reduced O fragment (rA) is aligned with the per-thread partition of
+           the global-coordinate tensor (tOgO): tOgO(i) == (q, v) global coordinate
+           of rA(i) (the same tensor used by the O store).  Per-row max/sum are
+           fetched with broadcast<0>, exactly as the O store does.  Each (q,v)
+           element is owned by a single work-item, so writing only the v==0 element
+           of each row writes every Q row exactly once. */
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < rA.size(); ++i) {
+          if (get<1>(tOgO(i)) == 0) {
+            int q_global = get<0>(tOgO(i));
+            if (q_global < total_q_global) {
+              ElementA lse_val = broadcast<0>(tA_max, rA, i)
+                               + sycl::log(ElementA(1) / broadcast<0>(rA_sum, rA, i)) * kLog2e;
+              lse_ptr[lse_base + q_global] = static_cast<float>(lse_val);
+            }
+          }
+        }
+      }
+    }
   }
 
   // Reduce k-blocks of A and A_sum across WG, if needed.

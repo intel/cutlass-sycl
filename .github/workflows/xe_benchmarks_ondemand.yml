@@ -101,6 +101,9 @@ jobs:
         run: |
           python3 test/benchmarks/run_benchmarks.py
       - name: Upload logs
+        # Always upload, so the logs for a failing benchmark run are still available
+        # for triage instead of being lost with the failed job.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-artifacts

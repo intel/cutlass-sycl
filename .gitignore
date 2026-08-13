@@ -3,3 +3,5 @@ __pycache__/
 cutlass_library.egg-info/
 cutlass_sycl.egg-info/
 /build*
+# Editor/build caches (e.g. clangd index)
+.cache/

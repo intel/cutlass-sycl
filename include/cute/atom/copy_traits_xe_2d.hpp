@@ -875,8 +875,12 @@ block_2d_selector(CoordLayout const&, GlobalStride const&)
     //   (Rationale: we are already moving data, so layouts don't need to match)
     constexpr int y_stride = get_block_size<y_mode()>(slayout);
     constexpr int max_h = Store ? 8 : 32;
+#if defined(SYCL_INTEL_TARGET) && (SYCL_INTEL_TARGET == 35)
     constexpr int height = Store ? cute::gcd(resize ? get<y_mode()>(shape) : y_stride, max_h) :
                                    cute::gcd(get<y_mode()>(shape), max_h);
+#else
+    constexpr int height = cute::gcd(resize ? get<y_mode()>(shape) : y_stride, max_h);
+#endif
 
     if constexpr (Store)
       return XE_STORE_2D    <CopyBits, height, cwidth>{};

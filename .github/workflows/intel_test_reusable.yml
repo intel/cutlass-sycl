@@ -50,8 +50,7 @@ jobs:
             echo "IGC_VERSION_MINOR=11" >> $GITHUB_ENV
           fi
 
-      - name: Calculate job allocation based on memory for BMG
-        if: matrix.gpu == 'BMG'
+      - name: Calculate job allocation based on memory
         shell: bash
         run: |
           # Get total memory in KB and convert to GB
@@ -115,11 +114,7 @@ jobs:
             -DIGC_VERSION_MINOR=${{ env.IGC_VERSION_MINOR }} \
             -DCMAKE_CXX_FLAGS="-Werror" \
             -DCUTLASS_SYCL_RUNNING_CI=ON
-          if [ "${{ matrix.gpu }}" = "BMG" ]; then
-            cmake --build . -j ${{ env.BUILD_JOBS }}
-          else
-            cmake --build .
-          fi 
+          cmake --build . -j ${{ env.BUILD_JOBS }}
       
       - name: Unit test
         shell: bash

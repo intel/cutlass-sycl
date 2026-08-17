@@ -235,6 +235,13 @@ struct ExampleRunner {
     stride_C = cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(M, N, L));
     stride_D = cutlass::make_cute_packed_stride(StrideD{}, cute::make_shape(M, N, L));
 
+#if defined(CUTLASS_BMG_GEMM_INT4)
+    if (L > 1) {
+      get<2>(stride_A) = static_cast<int64_t>(M) * K / 2;
+      get<2>(stride_B) = static_cast<int64_t>(N) * K / 2;
+    }
+#endif
+
     block_A.reset(static_cast<std::size_t>(M) * K * L);
     block_B.reset(static_cast<std::size_t>(K) * N * L);
     block_C.reset(static_cast<std::size_t>(M) * N * L);

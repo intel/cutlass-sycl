@@ -50,6 +50,39 @@ cutlass_example_add_executable(
   ${GEMM_ARGS}
 )
 
+if (CUTLASS_TEST_FOR_CRI)
+  set(TEST_INTEGER_GEMM "--m=${CRI_GEMM_DEFAULT_SIZE} --n=${CRI_GEMM_DEFAULT_SIZE} --k=${CRI_GEMM_DEFAULT_SIZE} --l=1 --iterations=${CRI_DEFAULT_ITERATIONS} --verify=${CRI_DEFAULT_VERIFY}")
+else()
+  set(TEST_INTEGER_GEMM "--m=512 --n=512 --k=512 --l=2 --iterations=20 --verify=1")
+endif()
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int8
+  00_bmg_gemm.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INTEGER_GEMM
+)
+target_compile_definitions(00_bmg_gemm_int8 PRIVATE CUTLASS_BMG_GEMM_INT8=1)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4
+  00_bmg_gemm.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INTEGER_GEMM
+)
+target_compile_definitions(00_bmg_gemm_int4 PRIVATE CUTLASS_BMG_GEMM_INT4=1)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_packed_b
+  00_bmg_gemm.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INTEGER_GEMM
+)
+target_compile_definitions(00_bmg_gemm_int4_packed_b PRIVATE
+  CUTLASS_BMG_GEMM_INT4=1
+  CUTLASS_BMG_GEMM_INT4_PACKED_B=1
+)
+
 cutlass_example_add_executable(
   00_bmg_gemm_padded
   00_bmg_gemm_padded.cpp

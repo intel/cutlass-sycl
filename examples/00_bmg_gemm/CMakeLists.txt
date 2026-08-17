@@ -123,6 +123,90 @@ target_compile_definitions(00_bmg_gemm_int8_dequant_per_row_a_bf16 PRIVATE
   CUTLASS_BMG_GEMM_INT8_DEQUANT_PER_ROW_A=1
 )
 
+set(TEST_INT4_DEQUANT "--m=512 --n=512 --k=512 --l=2 --iterations=20 --verify=1")
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_fp32
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_bf16
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+target_compile_definitions(00_bmg_gemm_int4_dequant_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_BF16_C=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_per_row_a_fp32
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+target_compile_definitions(00_bmg_gemm_int4_dequant_per_row_a_fp32 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PER_ROW_A=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_per_row_a_bf16
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+target_compile_definitions(00_bmg_gemm_int4_dequant_per_row_a_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_BF16_C=1
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PER_ROW_A=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_packed_b_fp32
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+target_compile_definitions(00_bmg_gemm_int4_dequant_packed_b_fp32 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PACKED_B=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_packed_b_bf16
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+target_compile_definitions(00_bmg_gemm_int4_dequant_packed_b_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_BF16_C=1
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PACKED_B=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_packed_b_per_row_a_fp32
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+target_compile_definitions(00_bmg_gemm_int4_dequant_packed_b_per_row_a_fp32 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PACKED_B=1
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PER_ROW_A=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_dequant_packed_b_per_row_a_bf16
+  00_bmg_gemm_int4_dequant.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_DEQUANT
+)
+target_compile_definitions(00_bmg_gemm_int4_dequant_packed_b_per_row_a_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_BF16_C=1
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PACKED_B=1
+  CUTLASS_BMG_GEMM_INT4_DEQUANT_PER_ROW_A=1
+)
+
 cutlass_example_add_executable(
   00_bmg_gemm_padded
   00_bmg_gemm_padded.cpp

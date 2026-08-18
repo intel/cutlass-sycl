@@ -299,6 +299,23 @@ CUTE_DECLARE_XE_DPAS_TT(d,   s4,   s8,   d)
 
 #endif
 
+template <int M, typename TypeA, typename TypeB = TypeA>
+struct XE_DPAS_TT_INT_BLOCK_SCALED
+  : XE_DPAS_TT<M, dpas_type::d, TypeA, TypeB, dpas_type::d> {
+  static_assert(
+    (std::is_same_v<TypeA, dpas_type::s4> && std::is_same_v<TypeB, dpas_type::s4>) ||
+    (std::is_same_v<TypeA, dpas_type::s8> && std::is_same_v<TypeB, dpas_type::s8>),
+    "Integer block-scaled DPAS supports signed INT4xINT4 or INT8xINT8.");
+};
+
+template <int M>
+using XE_DPAS_TT_INT4_BLOCK_SCALED =
+    XE_DPAS_TT_INT_BLOCK_SCALED<M, dpas_type::s4>;
+
+template <int M>
+using XE_DPAS_TT_INT8_BLOCK_SCALED =
+    XE_DPAS_TT_INT_BLOCK_SCALED<M, dpas_type::s8>;
+
 #undef CUTE_DECLARE_XE_DPAS_TT
 #undef CUTE_DECLARE_XE_BDPAS_TT
 

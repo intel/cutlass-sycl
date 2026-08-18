@@ -207,6 +207,90 @@ target_compile_definitions(00_bmg_gemm_int4_dequant_packed_b_per_row_a_bf16 PRIV
   CUTLASS_BMG_GEMM_INT4_DEQUANT_PER_ROW_A=1
 )
 
+set(TEST_INT4_BLOCK_SCALED "--m=512 --n=512 --k=512 --l=2 --iterations=20 --verify=1")
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_block_scaled_128_packed_b_fp32
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_block_scaled_128_packed_b_bf16
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+target_compile_definitions(00_bmg_gemm_int4_block_scaled_128_packed_b_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_BLOCK_SCALED_BF16=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_block_scaled_256_packed_b_fp32
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+target_compile_definitions(00_bmg_gemm_int4_block_scaled_256_packed_b_fp32 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_BLOCK_SCALED_256=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int4_block_scaled_256_packed_b_bf16
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+target_compile_definitions(00_bmg_gemm_int4_block_scaled_256_packed_b_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT4_BLOCK_SCALED_256=1
+  CUTLASS_BMG_GEMM_INT4_BLOCK_SCALED_BF16=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int8_block_scaled_128_packed_b_fp32
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+target_compile_definitions(00_bmg_gemm_int8_block_scaled_128_packed_b_fp32 PRIVATE
+  CUTLASS_BMG_GEMM_INT8_BLOCK_SCALED=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int8_block_scaled_128_packed_b_bf16
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+target_compile_definitions(00_bmg_gemm_int8_block_scaled_128_packed_b_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT8_BLOCK_SCALED=1
+  CUTLASS_BMG_GEMM_BLOCK_SCALED_BF16=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int8_block_scaled_256_packed_b_fp32
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+target_compile_definitions(00_bmg_gemm_int8_block_scaled_256_packed_b_fp32 PRIVATE
+  CUTLASS_BMG_GEMM_INT8_BLOCK_SCALED=1
+  CUTLASS_BMG_GEMM_BLOCK_SCALED_256=1
+)
+
+cutlass_example_add_executable(
+  00_bmg_gemm_int8_block_scaled_256_packed_b_bf16
+  00_bmg_gemm_int4_block_scaled.cpp
+  TEST_COMMAND_OPTIONS
+  TEST_INT4_BLOCK_SCALED
+)
+target_compile_definitions(00_bmg_gemm_int8_block_scaled_256_packed_b_bf16 PRIVATE
+  CUTLASS_BMG_GEMM_INT8_BLOCK_SCALED=1
+  CUTLASS_BMG_GEMM_BLOCK_SCALED_256=1
+  CUTLASS_BMG_GEMM_BLOCK_SCALED_BF16=1
+)
+
 cutlass_example_add_executable(
   00_bmg_gemm_padded
   00_bmg_gemm_padded.cpp

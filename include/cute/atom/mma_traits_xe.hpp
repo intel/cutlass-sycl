@@ -220,4 +220,79 @@ struct MMA_Traits<XE_BDPAS_TT<M, TD, TA, TB, TC>> : public MMA_Traits<XE_DPAS_TT
 
 };
 
+template <int M, typename TypeA, typename TypeB>
+struct MMA_Traits<XE_DPAS_TT_INT_BLOCK_SCALED<M, TypeA, TypeB>>
+{
+  using MMAOp = XE_DPAS_TT_INT_BLOCK_SCALED<M, TypeA, TypeB>;
+  using RawOp = XE_DPAS_TT<M, dpas_type::d, TypeA, TypeB, dpas_type::d>;
+  using RawTraits = MMA_Traits<RawOp>;
+
+  static_assert(
+    (std::is_same_v<TypeA, dpas_type::s4> && std::is_same_v<TypeB, dpas_type::s4>) ||
+    (std::is_same_v<TypeA, dpas_type::s8> && std::is_same_v<TypeB, dpas_type::s8>),
+    "Integer block-scaled DPAS traits support signed INT4xINT4 or INT8xINT8.");
+
+  using ValTypeD = float;
+  using ValTypeA = typename RawTraits::ValTypeA;
+  using ValTypeB = typename RawTraits::ValTypeB;
+  using ValTypeC = float;
+
+  using FrgTypeD = float;
+  using FrgTypeC = float;
+
+  using Shape_MNK = typename RawTraits::Shape_MNK;
+  using ThrID = typename RawTraits::ThrID;
+  using ALayout = typename RawTraits::ALayout;
+  using BLayout = typename RawTraits::BLayout;
+  using CLayout = typename RawTraits::CLayout;
+
+  template <bool NoAcc = false,
+            class TD1, class DLayout,
+            class TA1, class ALayout1,
+            class TB1, class BLayout1,
+            class TC1, class CLayout1>
+  CUTE_DEVICE friend void
+  mma_unpack(MMA_Traits const&,
+             Tensor<TD1, DLayout>      & D,
+             Tensor<TA1, ALayout1> const& A,
+             Tensor<TB1, BLayout1> const& B,
+             Tensor<TC1, CLayout1> const& C)
+  {
+    using RegTypeD = typename remove_extent<typename RawOp::DRegisters>::type;
+    using RegTypeA = typename remove_extent<typename RawOp::ARegisters>::type;
+    using RegTypeB = typename remove_extent<typename RawOp::BRegisters>::type;
+    using RegTypeC = typename remove_extent<typename RawOp::CRegisters>::type;
+
+    using DValue = typename Tensor<TD1, DLayout>::value_type;
+    using CValue = typename Tensor<TC1, CLayout1>::value_type;
+
+    if constexpr (is_same_v<DValue, int32_t> && is_same_v<CValue, int32_t>) {
+      Tensor rA = recast<RegTypeA>(A);
+      Tensor rB = recast<RegTypeB>(B);
+      Tensor rD = recast<RegTypeD>(D);
+      Tensor rC = recast<RegTypeC>(C);
+      cute::detail::explode_mma<RawOp, NoAcc>(
+          rD, make_int_sequence<extent<typename RawOp::DRegisters>::value>{},
+          rA, make_int_sequence<extent<typename RawOp::ARegisters>::value>{},
+          rB, make_int_sequence<extent<typename RawOp::BRegisters>::value>{},
+          rC, make_int_sequence<extent<typename RawOp::CRegisters>::value>{});
+    }
+    else {
+      Tensor rA = recast<RegTypeA>(A);
+      Tensor rB = recast<RegTypeB>(B);
+      RegTypeD product{};
+      RegTypeC zero{};
+      RawOp::template fma<true>(product, rA[0], rB[0], zero);
+
+      for (int i = 0; i < M; ++i) {
+        float value = static_cast<float>(product[i]);
+        if constexpr (!NoAcc) {
+          value += static_cast<float>(C(i));
+        }
+        D(i) = static_cast<DValue>(value);
+      }
+    }
+  }
+};
+
 } /* namespace cute */

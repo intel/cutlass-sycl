@@ -94,6 +94,7 @@
 #include "cutlass/gemm/collective/xe_array_mma_blockscaled_mxfp.hpp"
 #include "cutlass/gemm/collective/xe_mma_blockscaled_fp8.hpp"
 #include "cutlass/gemm/collective/xe_array_mma_blockscaled_fp8.hpp"
+#include "cutlass/gemm/collective/xe_mma_int4_blockscaled.hpp"
 #endif
 
 #if defined(CUTLASS_ENABLE_SYCL)

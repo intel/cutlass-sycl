@@ -206,7 +206,7 @@ struct Mma<gemm::GemmShape<1, 1, 1>, 1, ElementA, LayoutA, ElementB, LayoutB, El
 
 /// Specifies internal data type for computation
 struct SPFormatType {
-  enum Kind {
+  enum Kind : unsigned char {
     Thread
   };
 };

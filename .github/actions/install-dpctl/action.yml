@@ -4,7 +4,7 @@ inputs:
   DPCTL_URL:
     description: URL of the DPCTL repository to use.
   DPCTL_BRANCH:
-    description: Name of the DPCTL branch to use.
+    description: Name of the DPCTL branch or tag to use. Set to latest-release to use the newest stable tag.
   DPCTL_PATH:
     description: Path where to put DPCTL
   VENV_PATH:
@@ -17,7 +17,15 @@ runs:
       shell: bash
       run: |
         export DPCTL_PATH=${{ inputs.DPCTL_PATH }}
-        git clone --depth=1 --branch ${{ inputs.DPCTL_BRANCH }} ${{ inputs.DPCTL_URL }} $DPCTL_PATH
+        DPCTL_REF="${{ inputs.DPCTL_BRANCH }}"
+        if [ "$DPCTL_REF" = "latest-release" ]; then
+          DPCTL_REF="$(git ls-remote --tags --refs ${{ inputs.DPCTL_URL }} \
+            | awk '{print $2}' \
+            | sed 's#refs/tags/##' \
+            | sort -V \
+            | tail -n 1)"
+        fi
+        git clone --depth=1 --branch "$DPCTL_REF" ${{ inputs.DPCTL_URL }} $DPCTL_PATH
         pushd $DPCTL_PATH
         source ${{ inputs.VENV_PATH }}/bin/activate
         pip install --no-cache-dir numpy cython scikit-build cmake ninja pytest versioneer

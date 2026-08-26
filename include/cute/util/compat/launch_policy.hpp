@@ -138,21 +138,20 @@ private:
 
 public:
   template <typename... Ts>
-  launch_policy(Range range, Ts... ts) : launch_policy(ts...) {
-    _range = range;
+  launch_policy(Range range, Ts... ts) : launch_policy(ts...), _range(range) {
     check_variadic_args(ts...);
   }
 
   template <typename... Ts>
-  launch_policy(dim3 global_range, Ts... ts) : launch_policy(ts...) {
-    _range = Range{global_range};
+  launch_policy(dim3 global_range, Ts... ts)
+      : launch_policy(ts...), _range(Range{global_range}) {
     check_variadic_args(ts...);
   }
 
   template <typename... Ts>
   launch_policy(dim3 global_range, dim3 local_range, Ts... ts)
-      : launch_policy(ts...) {
-    _range = Range{global_range * local_range, local_range};
+      : launch_policy(ts...),
+        _range(Range{global_range * local_range, local_range}) {
     check_variadic_args(ts...);
   }
 

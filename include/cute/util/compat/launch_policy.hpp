@@ -110,11 +110,14 @@ public:
   static constexpr bool HasLocalMem = LocalMem;
 
 private:
+  struct direct_init_t {};
+
   launch_policy() = default;
 
   template <typename... Ts>
-  launch_policy(Ts... ts)
-      : _kernel_properties{detail::property_getter<
+  launch_policy(direct_init_t, Range range, Ts... ts)
+      : _range{range},
+        _kernel_properties{detail::property_getter<
             kernel_properties, kernel_properties<KPropsT>, std::tuple<Ts...>>()(
             std::tuple<Ts...>(ts...))},
         _launch_properties{detail::property_getter<
@@ -138,22 +141,16 @@ private:
 
 public:
   template <typename... Ts>
-  launch_policy(Range range, Ts... ts) : launch_policy(ts...), _range(range) {
-    check_variadic_args(ts...);
-  }
+  launch_policy(Range range, Ts... ts)
+      : launch_policy(direct_init_t{}, range, ts...) {}
 
   template <typename... Ts>
   launch_policy(dim3 global_range, Ts... ts)
-      : launch_policy(ts...), _range(Range{global_range}) {
-    check_variadic_args(ts...);
-  }
+      : launch_policy(Range{global_range}, ts...) {}
 
   template <typename... Ts>
   launch_policy(dim3 global_range, dim3 local_range, Ts... ts)
-      : launch_policy(ts...),
-        _range(Range{global_range * local_range, local_range}) {
-    check_variadic_args(ts...);
-  }
+      : launch_policy(Range{global_range * local_range, local_range}, ts...) {}
 
   KProps get_kernel_properties() { return _kernel_properties.props; }
   LProps get_launch_properties() { return _launch_properties.props; }

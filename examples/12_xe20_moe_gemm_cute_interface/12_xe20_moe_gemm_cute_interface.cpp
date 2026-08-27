@@ -42,6 +42,7 @@
 
 #include <cute/tensor.hpp>
 #include <random>
+#include <vector>
 
 #include <cute/util/compat.hpp>
 #include <sycl/ext/intel/experimental/grf_size_properties.hpp>
@@ -74,18 +75,22 @@ using ElementAccumulator = float; // <- data type of accumulator
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Number of experts covered by the built-in measured row-count table below.
+static constexpr int kDefaultTableExperts = 32;
+
 // Command line options parsing
 struct Options {
 
   bool help;
   bool error;
 
-  int n, k, num_layers, verify;
+  int n, k, num_layers, verify, experts, rows_per_expert;
 
   Options():
     help(false),
     error(false),
-    n(2880), k(2880), num_layers(24), verify(1)
+    n(2880), k(2880), num_layers(24), verify(1),
+    experts(kDefaultTableExperts), rows_per_expert(0)
   { }
 
   // Parses the command line
@@ -101,6 +106,34 @@ struct Options {
     cmd.get_cmd_line_argument("k", k, 2880);
     cmd.get_cmd_line_argument("num_layers", num_layers, 24);
     cmd.get_cmd_line_argument("verify", verify, 1);
+    cmd.get_cmd_line_argument("experts", experts, kDefaultTableExperts);
+    cmd.get_cmd_line_argument("rows_per_expert", rows_per_expert, 0);
+
+    if (experts <= 0) {
+      std::cerr << "ERROR: --experts=" << experts
+                << " is invalid. The expert count must be positive." << std::endl;
+      error = true;
+      return;
+    }
+
+    if (rows_per_expert < 0) {
+      std::cerr << "ERROR: --rows_per_expert=" << rows_per_expert
+                << " is invalid. Pass a positive value for a uniform fill, or omit\n"
+                << "       the option to use the built-in measured row table."
+                << std::endl;
+      error = true;
+      return;
+    }
+
+    if (rows_per_expert == 0 && experts > kDefaultTableExperts) {
+      std::cerr << "ERROR: --experts=" << experts
+                << " exceeds the " << kDefaultTableExperts
+                << " experts covered by the built-in row table.\n"
+                << "       Pass --rows_per_expert=<int> to supply a uniform fill instead."
+                << std::endl;
+      error = true;
+      return;
+    }
   }
 
   /// Prints the usage statement.
@@ -112,7 +145,14 @@ struct Options {
       << "  --n=<int>                   Sets the N extent of the MoE GEMM (default: 2880)\n"
       << "  --k=<int>                   Sets the K extent of the MoE GEMM (default: 2880)\n"
       << "  --num_layers=<int>          Number of layers to test (default: 24)\n"
-      << "  --verify=<int>              Specify whether to verify (0=no, 1=yes, default: 1)\n\n";
+      << "  --verify=<int>              Specify whether to verify (0=no, 1=yes, default: 1)\n"
+      << "  --experts=<int>             Number of experts per layer. Values above " << kDefaultTableExperts << " require\n"
+      << "                              --rows_per_expert, since the built-in table only covers " << kDefaultTableExperts << ".\n"
+      << "                              (default: " << kDefaultTableExperts << ")\n"
+      << "  --rows_per_expert=<int>     Give every expert this many rows, replacing the built-in\n"
+      << "                              measured table. Use it to sweep throughput against MoE\n"
+      << "                              fill; routing at top_k over many experts lands far below\n"
+      << "                              the table mean. (default: 0 = use the built-in table)\n\n";
 
     return out;
   }
@@ -419,7 +459,12 @@ int main(int argc, const char **argv) {
     return 0;
   }
 
-  constexpr int num_experts = 32;
+  if (options.error) {
+    std::cerr << "Aborting execution." << std::endl;
+    return -1;
+  }
+
+  const int num_experts = options.experts;
   constexpr int max_layers = 24;
 
   if (options.num_layers > max_layers) {
@@ -430,7 +475,7 @@ int main(int argc, const char **argv) {
     return -1;
   }
 
-  int total_rows_for_each_expert[max_layers][num_experts] = {
+  static const int default_rows_for_each_expert[max_layers][kDefaultTableExperts] = {
       {148, 231, 404, 180, 127, 244, 224, 244, 110, 617, 289,
        845, 191, 424, 30,  97,  57,  324, 62,  77,  75,  144,
        250, 287, 629, 370, 161, 101, 215, 113, 224, 35},
@@ -496,10 +541,47 @@ int main(int argc, const char **argv) {
        33, 77, 6,    22, 73, 9, 8, 587, 1486, 32,  10, 244,  37,  0,   100, 9}};
 
   int num_layers = std::min(options.num_layers, max_layers);
-  
+
+  // Effective per-expert row counts. With --rows_per_expert unset the built-in
+  // measured table is used verbatim, so existing invocations are unchanged.
+  // With --rows_per_expert=<int> every expert is given the same row count,
+  // which makes throughput-versus-fill directly sweepable.
+  std::vector<int> rows_for_each_expert(static_cast<size_t>(max_layers) *
+                                        static_cast<size_t>(num_experts));
+  for (int l = 0; l < max_layers; ++l) {
+    for (int e = 0; e < num_experts; ++e) {
+      rows_for_each_expert[static_cast<size_t>(l) * num_experts + e] =
+          options.rows_per_expert > 0 ? options.rows_per_expert
+                                      : default_rows_for_each_expert[l][e];
+    }
+  }
+
+  double total_rows = 0.0;
+  for (int l = 0; l < num_layers; ++l) {
+    for (int e = 0; e < num_experts; ++e) {
+      total_rows +=
+          rows_for_each_expert[static_cast<size_t>(l) * num_experts + e];
+    }
+  }
+
+  std::cout << "MoE fill configuration" << std::endl;
+  std::cout << "  Experts          : " << num_experts << std::endl;
+  std::cout << "  Layers           : " << num_layers << std::endl;
+  if (options.rows_per_expert > 0) {
+    std::cout << "  Rows/expert      : uniform " << options.rows_per_expert
+              << std::endl;
+  } else {
+    std::cout << "  Rows/expert      : built-in measured table" << std::endl;
+  }
+  std::cout << "  Mean rows/expert : "
+            << (total_rows / (double(num_layers) * double(num_experts)))
+            << std::endl;
+
   for (int i = 0; i < num_layers; i++) {
-    launcher(total_rows_for_each_expert[i], 2 * options.n, options.k, num_experts, options.verify);
-    launcher(total_rows_for_each_expert[i], options.k, options.n, num_experts, options.verify);
+    int *layer_rows = rows_for_each_expert.data() +
+                      static_cast<size_t>(i) * static_cast<size_t>(num_experts);
+    launcher(layer_rows, 2 * options.n, options.k, num_experts, options.verify);
+    launcher(layer_rows, options.k, options.n, num_experts, options.verify);
   }
 
   return 0;

@@ -605,10 +605,13 @@ public:
           sycl_grid, sycl_block, launch_props, kernel_props
         };
 #if defined(CUTLASS_SYCL_PROFILING_ENABLED)
-        auto event = compat::experimental::launch<device_kernel<GemmKernel>, GemmKernel>(policy, q, params);
+        auto event = compat::experimental::launch<device_kernel<GemmKernel>>(
+            policy, q, params);
         EventManager::getInstance().addEvent(event);
 #else
-        compat::experimental::launch<device_kernel<GemmKernel>, GemmKernel, false>(policy, q, params);
+        compat::experimental::launch<device_kernel<GemmKernel>,
+                                     sycl::detail::auto_name, false>(policy,
+                                                                     q, params);
 #endif
 #endif // !defined(SYCL_EXT_ONEAPI_WORK_GROUP_SCRATCH_MEMORY)
 #else

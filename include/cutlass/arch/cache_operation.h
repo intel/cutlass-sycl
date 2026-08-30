@@ -42,7 +42,7 @@ namespace arch {
 
 /// Controls PTX cache operations
 struct CacheOperation {
-  enum Kind {
+  enum Kind : unsigned char {
     /// Cache at all levels - accessed again
     Always,
     /// Cache at global level

@@ -49,7 +49,7 @@ namespace thread {
 ///  1. Scalar means alpha/beta is a single value from host(constant param) or device memory.
 ///  2. Vector means alpha/beta is a vector always from device memory.
 struct ScaleType {
-  enum Kind {
+  enum Kind : unsigned char {
     Default,                           // D = scalar_alpha x Acc + scalar_beta x C
     NoBetaScaling,                     // D = scalar_alpha x Acc + C
     OnlyAlphaScaling,                  // D = scalar_alpha x Acc

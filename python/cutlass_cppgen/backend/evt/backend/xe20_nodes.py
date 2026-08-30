@@ -106,15 +106,23 @@ class xe20AuxLoadImpl(AuxLoadImpl):
     def type_decl(self):
         """
         Return the string defining the type using XeAuxLoad directly (no descriptor needed)
-        XeAuxLoad auto-deduces copy operation from Element type
+        XeAuxLoad auto-deduces copy operation from Element type.
+        EnableNullptr=false since inductor always provides valid aux tensor pointer.
+        SkipBoundsCheck=true to eliminate per-element predication overhead.
         """
         if self._type_decl is not None:
             return self._type_decl
 
+        alignment = 128 // DataTypeSize[self.element]
         self._type_decl = f"""
 using {self.name_camel} = cutlass::epilogue::fusion::XeAuxLoad<
     {DataTypeTag[self.element]},
-    {self.stride_mnl}
+    {self.stride_mnl},
+    void,
+    {alignment},
+    false,
+    false,
+    true
 >;
 """
         return self._type_decl

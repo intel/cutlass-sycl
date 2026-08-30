@@ -105,7 +105,7 @@ struct CollectiveBuilder<
   using KernelSchedule = std::conditional_t<cute::is_same_v<KernelScheduleType, KernelScheduleAuto>, KernelXe, KernelScheduleType>;
 
   static constexpr bool IsGroup = cute::is_same_v<KernelScheduleType, KernelXePtrArrayCooperative>;
-  static constexpr int PipelineStages = IsGroup ? 2 : 3;
+  static constexpr int PipelineStages = IsGroup ? 2 : 5;
   using DispatchPolicy = std::conditional_t<!IsGroup, cutlass::gemm::MainloopXeL1Staged<PipelineStages, KernelSchedule>,
                                                       cutlass::gemm::MainloopXeL1StagedGroup<PipelineStages, KernelSchedule>>;
 

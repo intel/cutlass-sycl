@@ -453,7 +453,8 @@ template <
   class CopyOpG2R_ = void,
   int Alignment = 128 / sizeof_bits_v<Element>,
   bool EnableNullptr = true,
-  bool UseBlock2DCopy = false
+  bool UseBlock2DCopy = false,
+  bool SkipBoundsCheck = false
 >
 struct XeAuxLoad {
   using SharedStorage = Element;
@@ -552,6 +553,20 @@ struct XeAuxLoad {
     RTensor tC_rAux;          // Register fragment (mma_v,mma_m,mma_n)
     Params const* params_ptr;
 
+    // Dimensions for bulk preload
+    static constexpr int EpiM_ = decltype(cute::size<1>(GTensor{}))::value;
+    static constexpr int EpiN_ = decltype(cute::size<2>(GTensor{}))::value;
+    static constexpr int ElemsPerTile_ = decltype(cute::size<0>(GTensor{}))::value;
+    static constexpr int TotalElems_ = EpiM_ * EpiN_ * ElemsPerTile_;
+
+    // Only use bulk preload when total elements fit comfortably in registers.
+    // For 128x128 tile: 64 elements (128 bytes = 4 GRFs) — safe.
+    // For 256x128 tile: 128 elements (256 bytes = 8 GRFs) — may cause spills.
+    static constexpr bool UseBulkPreload = SkipBoundsCheck && !EnableNullptr && (TotalElems_ <= 64);
+
+    // Register cache for bulk-preloaded aux data (only allocated when used)
+    Array<Element, UseBulkPreload ? TotalElems_ : 0> preloaded_regs;
+
     CUTLASS_DEVICE
     ConsumerStoreCallbacks(GTensor tCgAux_epi, CTensor gAux_coord, RTensor&& tC_rAux, Params const* params_ptr)
       : tCgAux_epi(tCgAux_epi), 
@@ -559,58 +574,94 @@ struct XeAuxLoad {
         tC_rAux(cute::forward<RTensor>(tC_rAux)), 
         params_ptr(params_ptr) { }
 
-    // Load aux data for epilogue tile (epi_m, epi_n)
+    // Bulk preload: load ALL epilogue tiles' aux data into registers before the loop.
+    // This allows the memory controller to pipeline all loads simultaneously,
+    // hiding L2 latency that would otherwise serialize in per-tile previsit().
     CUTLASS_DEVICE void
-    previsit(int epi_m, int epi_n, int load_iteration, bool is_producer_load_needed) {
-       if constexpr (EnableNullptr) {
-         if (params_ptr->use_default) {
-           fill(tC_rAux, params_ptr->null_default);
-           return;
-         }
-       }
-
-       // Load from global memory using vectorized copy_if with bounds checking (matches XeRowBroadcastLegacy pattern)
-       auto tCgAux_mn = tCgAux_epi(_,epi_m,epi_n);
-       auto coord_mn = gAux_coord(_,_,epi_m,epi_n);
-       auto [M, N, L] = params_ptr->mAux.shape();
-       auto problem_shape_mn = make_coord(M, N);
-       
-       // Zero-fill out-of-bounds elements first
-       clear(tC_rAux);
-       
-       constexpr auto MCL = decltype(max_common_layout(tCgAux_mn, tC_rAux)){};
-       constexpr int V = cute::min(Alignment, size(MCL));
-       if constexpr (V > 1) {
-        // vectorized load
-         using VecType = uint_bit_t<V * sizeof_bits_v<Element>>;
-         Tensor tCgAux_vec = recast<VecType>(coalesce(tCgAux_mn));
-         Tensor tCrAux_vec = recast<VecType>(coalesce(tC_rAux));
-         Tensor coord_vec = tensor<1>(zipped_divide(coord_mn, MCL.compose(Int<V>{})));
-         
-         auto pred_fn = [&](auto const&... coords) CUTLASS_LAMBDA_FUNC_INLINE {
-           return elem_less(coord_vec(coords...), problem_shape_mn);
-         };
-         copy_if(pred_fn, tCgAux_vec, tCrAux_vec);
-       } else {
-        // scalar load
-         auto pred_fn = [&](auto const&... coords) CUTLASS_LAMBDA_FUNC_INLINE {
-           return elem_less(coord_mn(coords...), problem_shape_mn);
-         };
-         copy_if(pred_fn, tCgAux_mn, tC_rAux);
-       }
+    begin() {
+      if constexpr (UseBulkPreload) {
+        CUTLASS_PRAGMA_UNROLL
+        for (int em = 0; em < EpiM_; em++) {
+          CUTLASS_PRAGMA_UNROLL
+          for (int en = 0; en < EpiN_; en++) {
+            auto tile_data = tCgAux_epi(_, em, en);
+            CUTLASS_PRAGMA_UNROLL
+            for (int i = 0; i < ElemsPerTile_; i++) {
+              preloaded_regs[(em * EpiN_ + en) * ElemsPerTile_ + i] = tile_data(i);
+            }
+          }
+        }
+      }
     }
 
-    // Return loaded aux values for epilogue computation
-    template <typename ElementAccumulator, int FragmentSize>
-    CUTLASS_DEVICE Array<Element, FragmentSize>
-    visit(Array<ElementAccumulator, FragmentSize> const&, int epi_v, int epi_m, int epi_n) {
-       Array<Element, FragmentSize> frg_aux;
-       CUTLASS_PRAGMA_UNROLL
-       for (int i = 0; i < FragmentSize; ++i) {
-         frg_aux[i] = tC_rAux(epi_v * FragmentSize + i);
-       }
-       return frg_aux;
-    }
+   // Load aux data for epilogue tile (epi_m, epi_n)
+   CUTLASS_DEVICE void
+   previsit(int epi_m, int epi_n, int load_iteration, bool is_producer_load_needed) {
+      if constexpr (EnableNullptr) {
+        if (params_ptr->use_default) {
+          fill(tC_rAux, params_ptr->null_default);
+          return;
+        }
+      }
+
+      if constexpr (UseBulkPreload) {
+        // Fast path: copy from preloaded register cache (zero memory latency)
+        int offset = (epi_m * EpiN_ + epi_n) * ElemsPerTile_;
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < ElemsPerTile_; i++) {
+          tC_rAux(i) = preloaded_regs[offset + i];
+        }
+      } else if constexpr (SkipBoundsCheck) {
+        auto tCgAux_mn = tCgAux_epi(_,epi_m,epi_n);
+        constexpr auto MCL = decltype(max_common_layout(tCgAux_mn, tC_rAux)){};
+        constexpr int V = cute::min(Alignment, size(MCL));
+        if constexpr (V > 1) {
+          using VecType = uint_bit_t<V * sizeof_bits_v<Element>>;
+          Tensor tCgAux_vec = recast<VecType>(coalesce(tCgAux_mn));
+          Tensor tCrAux_vec = recast<VecType>(coalesce(tC_rAux));
+          copy(tCgAux_vec, tCrAux_vec);
+        } else {
+          copy(tCgAux_mn, tC_rAux);
+        }
+      } else {
+        // Safe path: bounds checking with copy_if
+        auto tCgAux_mn = tCgAux_epi(_,epi_m,epi_n);
+        constexpr auto MCL = decltype(max_common_layout(tCgAux_mn, tC_rAux)){};
+        constexpr int V = cute::min(Alignment, size(MCL));
+        auto coord_mn = gAux_coord(_,_,epi_m,epi_n);
+        auto [M, N, L] = params_ptr->mAux.shape();
+        auto problem_shape_mn = make_coord(M, N);
+        clear(tC_rAux);
+
+        if constexpr (V > 1) {
+          using VecType = uint_bit_t<V * sizeof_bits_v<Element>>;
+          Tensor tCgAux_vec = recast<VecType>(coalesce(tCgAux_mn));
+          Tensor tCrAux_vec = recast<VecType>(coalesce(tC_rAux));
+          Tensor coord_vec = tensor<1>(zipped_divide(coord_mn, MCL.compose(Int<V>{})));
+          auto pred_fn = [&](auto const&... coords) CUTLASS_LAMBDA_FUNC_INLINE {
+            return elem_less(coord_vec(coords...), problem_shape_mn);
+          };
+          copy_if(pred_fn, tCgAux_vec, tCrAux_vec);
+        } else {
+          auto pred_fn = [&](auto const&... coords) CUTLASS_LAMBDA_FUNC_INLINE {
+            return elem_less(coord_mn(coords...), problem_shape_mn);
+          };
+          copy_if(pred_fn, tCgAux_mn, tC_rAux);
+        }
+      }
+   }
+
+   // Return loaded aux values for epilogue computation
+   template <typename ElementAccumulator, int FragmentSize>
+   CUTLASS_DEVICE Array<Element, FragmentSize>
+   visit(Array<ElementAccumulator, FragmentSize> const&, int epi_v, int epi_m, int epi_n) {
+      Array<Element, FragmentSize> frg_aux;
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < FragmentSize; ++i) {
+        frg_aux[i] = tC_rAux(epi_v * FragmentSize + i);
+      }
+      return frg_aux;
+   }
   };
 
   // Block 2D path callback

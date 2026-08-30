@@ -57,21 +57,21 @@ struct MainloopIntelXeXMX16Group_GemmConfig {
   using LayoutC = cutlass::layout::RowMajor;
   using LayoutD = cutlass::layout::RowMajor;
 
-  using GmemTiledCopyA = XE_2D_U16x32x32_LD_N;
-  using GmemTiledCopyB = XE_2D_U16x32x32_LD_V;
+  using GmemTiledCopyA = void; //XE_2D_U16x32x32_LD_N
+  using GmemTiledCopyB = void; //XE_2D_U16x32x32_LD_V
 
   // Workgroup-level tile
   using TileShape = Shape<_256, _256, _32>;
 
   using TiledMma =
-      TiledMMA<MMA_Atom<XE_8x16x16_F32BF16BF16F32_TT>,
+      TiledMMA<MMA_Atom<XE_DPAS_TT<8, float, cute::bfloat16_t>>, //XE_8x16x16_F32BF16BF16F32_TT
                Layout<Shape<_8, _4, _1>, Stride<_4, _1, _0>>,
                Tile<Layout<Shape<_8, _8, _4>, Stride<_1, _32, _8>>,
                     Layout<Shape<_16, _4, _4>, Stride<_1, _64, _16>>, _32>>;
 
   constexpr static int PipelineStages = 2;
   // Dispatch to grouped gemm algorithm
-  using GEMMDispatchPolicy = cutlass::gemm::MainloopIntelXeXMX16Group<PipelineStages>;
+  using GEMMDispatchPolicy = cutlass::gemm::MainloopXeL1StagedGroup<PipelineStages>;
   using EpilogueDispatchPolicy = cutlass::epilogue::IntelXeXMX16Group;
 
   using EpilogueOp = cutlass::epilogue::fusion::LinearCombination<ElementOutput, ElementComputeEpilogue,

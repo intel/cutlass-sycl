@@ -33,8 +33,41 @@ include(FindPackageHandleStandardArgs)
 
 set(DPCPP_USER_FLAGS "" CACHE STRING "Additional user-specified compiler flags for DPC++")
 
-get_filename_component(DPCPP_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
-find_library(DPCPP_LIB_DIR NAMES sycl sycl6 PATHS "${DPCPP_BIN_DIR}/../lib")
+# DPCLANG is an open source DPC++ compiler shipped with Linux distros
+function(parse_dpclang_version major minor patch)
+  # Execute the SYCL compiler with the --version flag to match the version string.
+  execute_process(COMMAND ${CMAKE_CXX_COMPILER} --version OUTPUT_VARIABLE SYCL_VERSION_STRING)
+  string(REGEX REPLACE "DPC\\+\\+ compiler ([0-9]+\\.[0-9]+\\.[0-9]+) (.*)" "\\1"
+               SYCL_VERSION_STRING_MATCH ${SYCL_VERSION_STRING})
+  string(REPLACE "." ";" SYCL_VERSION_LIST ${SYCL_VERSION_STRING_MATCH})
+  # Split the version number list into major, minor, and patch components.
+  list(GET SYCL_VERSION_LIST 0 VERSION_MAJOR)
+  list(GET SYCL_VERSION_LIST 1 VERSION_MINOR)
+  list(GET SYCL_VERSION_LIST 2 VERSION_PATCH)
+  set(${major} "${VERSION_MAJOR}" PARENT_SCOPE)
+  set(${minor} "${VERSION_MINOR}" PARENT_SCOPE)
+  set(${patch} "${VERSION_PATCH}" PARENT_SCOPE)
+endfunction()
+
+cmake_path(GET CMAKE_CXX_COMPILER FILENAME COMPILER_NAME)
+if (COMPILER_NAME MATCHES "dpclang")
+  find_package(PkgConfig REQUIRED)
+  parse_dpclang_version(
+    SYCL_COMPILER_VERSION_MAJOR
+    SYCL_COMPILER_VERSION_MINOR
+    SYCL_COMPILER_VERSION_PATCH)
+ pkg_check_modules(LIBSYCL REQUIRED IMPORTED_TARGET sycl-dpcpp-${SYCL_COMPILER_VERSION_MAJOR})
+else()
+  # LIBSYCL_INCLUDE_DIRS and LIBSYCL_LINK_LIBRARIES variable names are algined with
+  # the variables set by pkg_check_modules in the "dpclang" branch above.
+  get_filename_component(DPCPP_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
+  if (UNIX)
+    set(LIBSYCL_INCLUDE_DIRS "${DPCPP_BIN_DIR}/../include/sycl;${DPCPP_BIN_DIR}/../include")
+  else()
+    set(LIBSYCL_INCLUDE_DIRS "${DPCPP_BIN_DIR}/../include/sycl")
+  endif()
+  find_library(LIBSYCL_LINK_LIBRARIES NAMES sycl sycl6 PATHS "${DPCPP_BIN_DIR}/../lib")
+endif()
 
 add_library(DPCPP::DPCPP INTERFACE IMPORTED)
 
@@ -123,22 +156,14 @@ if (SYCL_INTEL_TARGET)
 
 endif()
 
-if(UNIX)
-  set_target_properties(DPCPP::DPCPP PROPERTIES
-    INTERFACE_COMPILE_OPTIONS "${DPCPP_FLAGS};${DPCPP_COMPILE_ONLY_FLAGS}"
-    INTERFACE_LINK_OPTIONS "${DPCPP_FLAGS};${DPCPP_LINK_ONLY_FLAGS}"
-    INTERFACE_LINK_LIBRARIES ${DPCPP_LIB_DIR}
-    INTERFACE_INCLUDE_DIRECTORIES "${DPCPP_BIN_DIR}/../include/sycl;${DPCPP_BIN_DIR}/../include")
-  message(STATUS "DPCPP INCLUDE DIR: ${DPCPP_BIN_DIR}/../include/sycl;${DPCPP_BIN_DIR}/../include")
-  message(STATUS "Using DPCPP compile flags: ${DPCPP_FLAGS};${DPCPP_COMPILE_ONLY_FLAGS}")
-  message(STATUS "Using DPCPP link flags: ${DPCPP_FLAGS};${DPCPP_LINK_ONLY_FLAGS}")
-else()
-  set_target_properties(DPCPP::DPCPP PROPERTIES
-    INTERFACE_COMPILE_OPTIONS "${DPCPP_FLAGS};${DPCPP_COMPILE_ONLY_FLAGS}"
-    INTERFACE_LINK_OPTIONS "${DPCPP_FLAGS};${DPCPP_LINK_ONLY_FLAGS}"
-    INTERFACE_LINK_LIBRARIES ${DPCPP_LIB_DIR}
-    INTERFACE_INCLUDE_DIRECTORIES "${DPCPP_BIN_DIR}/../include/sycl")
-endif()
+set_target_properties(DPCPP::DPCPP PROPERTIES
+  INTERFACE_COMPILE_OPTIONS "${DPCPP_FLAGS};${DPCPP_COMPILE_ONLY_FLAGS}"
+  INTERFACE_LINK_OPTIONS "${DPCPP_FLAGS};${DPCPP_LINK_ONLY_FLAGS}"
+  INTERFACE_LINK_LIBRARIES ${LIBSYCL_LINK_LIBRARIES}
+  INTERFACE_INCLUDE_DIRECTORIES "${LIBSYCL_INCLUDE_DIRS}")
+message(STATUS "DPCPP INCLUDE DIR: ${LIBSYCL_INCLUDE_DIRS}")
+message(STATUS "Using DPCPP compile flags: ${DPCPP_FLAGS};${DPCPP_COMPILE_ONLY_FLAGS}")
+message(STATUS "Using DPCPP link flags: ${DPCPP_FLAGS};${DPCPP_LINK_ONLY_FLAGS}")
 
 function(add_sycl_to_target)
   set(options)
@@ -163,7 +188,6 @@ endfunction()
 
 function(add_sycl_include_directories_to_target NAME)
   target_include_directories(${NAME} SYSTEM
-    PUBLIC ${DPCPP_BIN_DIR}/../include/sycl
-    PUBLIC ${DPCPP_BIN_DIR}/../include
+    PUBLIC ${LIBSYCL_INCLUDE_DIRS}
   )
 endfunction()

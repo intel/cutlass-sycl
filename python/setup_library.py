@@ -37,7 +37,7 @@ from setuptools import setup
 def perform_setup():
     setup(
         name='cutlass_library_xe',
-        version='0.9.1',
+        version='0.9.2',
         description='SYCL*TLA library generation scripts',
         packages=['cutlass_library']
     )

@@ -1261,6 +1261,21 @@ struct MainloopIntelXeXMX16 {
   using ClusterShape = Shape<_1,_1,_1>;
 };
 
+template<int Stages_, int BlockK_, class KernelSchedule = KernelXe>
+struct MainloopIntelXeXMX16IntBlockScaled : MainloopIntelXeXMX16<Stages_, KernelSchedule> {
+  static_assert(BlockK_ == 128 || BlockK_ == 256, "Integer block scaling supports K blocks of 128 or 256.");
+  static_assert(BlockK_ % 32 == 0, "Integer block scaling K block must be divisible by the INT8 DPAS K tile.");
+  static constexpr int GroupK = BlockK_;
+};
+
+template<int Stages_, int BlockK_, class KernelSchedule = KernelXe>
+using MainloopIntelXeXMX16Int4BlockScaled =
+    MainloopIntelXeXMX16IntBlockScaled<Stages_, BlockK_, KernelSchedule>;
+
+template<int Stages_, int BlockK_, class KernelSchedule = KernelXe>
+using MainloopIntelXeXMX16Int8BlockScaled =
+    MainloopIntelXeXMX16IntBlockScaled<Stages_, BlockK_, KernelSchedule>;
+
 template<int Stages_, class KernelScheduler = KernelXePtrArrayCooperative>
 struct MainloopIntelXeXMX16Group : MainloopIntelXeXMX16<Stages_, KernelScheduler> {
 };

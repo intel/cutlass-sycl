@@ -235,6 +235,13 @@ struct ExampleRunner {
     stride_C = cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(M, N, L));
     stride_D = cutlass::make_cute_packed_stride(StrideD{}, cute::make_shape(M, N, L));
 
+#if defined(CUTLASS_BMG_GEMM_INT4)
+    if (L > 1) {
+      get<2>(stride_A) = static_cast<int64_t>(M) * K / 2;
+      get<2>(stride_B) = static_cast<int64_t>(N) * K / 2;
+    }
+#endif
+
     block_A.reset(static_cast<std::size_t>(M) * K * L);
     block_B.reset(static_cast<std::size_t>(K) * N * L);
     block_C.reset(static_cast<std::size_t>(M) * N * L);
@@ -251,11 +258,14 @@ struct ExampleRunner {
 
     initialize(problem_size);
 
+    ElementCompute alpha = static_cast<ElementCompute>(options.alpha);
+    ElementCompute beta = static_cast<ElementCompute>(options.beta);
+
     typename Gemm::GemmKernel::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
       problem_size,
       {block_A.get(), stride_A, block_B.get(), stride_B},
-      {{options.alpha, options.beta}, block_C.get(), stride_C, block_D.get(), stride_D},
+      {{alpha, beta}, block_C.get(), stride_C, block_D.get(), stride_D},
       hw_info
     };
 
@@ -295,9 +305,13 @@ struct ExampleRunner {
       compat::wait();
 
       float cute_time = timer.seconds() / options.iterations;
-      double tflops = (2.0 * options.m * options.n * options.k * options.l) * 1e-12;
+      double operations = (2.0 * options.m * options.n * options.k * options.l) * 1e-12;
       std::cout << "Problem Size: " << options.m << 'x' << options.n << 'x' << options.k << 'x' << options.l << std::endl;
-      printf("Cutlass GEMM Performance:     [%4.3f]TFlop/s  (%6.4f)ms\n", tflops / cute_time, cute_time*1000);
+    #if defined(CUTLASS_BMG_GEMM_INT4) || defined(CUTLASS_BMG_GEMM_INT8)
+      printf("Cutlass GEMM Performance:     [%4.3f]TOPS    (%6.4f)ms\n", operations / cute_time, cute_time*1000);
+    #else
+      printf("Cutlass GEMM Performance:     [%4.3f]TFlop/s  (%6.4f)ms\n", operations / cute_time, cute_time*1000);
+    #endif
     }
 
     return cutlass::Status::kSuccess;
@@ -341,14 +355,32 @@ int main(int argc, const char** argv)
 
   // The code section below describes datatype for input, output matrices and computation between
   // elements in input matrices.
+#if defined(CUTLASS_BMG_GEMM_INT4)
+  using ElementAccumulator = int32_t;
+  using ElementComputeEpilogue = int32_t;
+  using ElementInputA = int4_t;
+  using ElementInputB = int4_t;
+  using ElementOutput = int32_t;
+#elif defined(CUTLASS_BMG_GEMM_INT8)
+  using ElementAccumulator = int32_t;
+  using ElementComputeEpilogue = int32_t;
+  using ElementInputA = int8_t;
+  using ElementInputB = int8_t;
+  using ElementOutput = int32_t;
+#else
   using ElementAccumulator = float;      // <- data type of accumulator
   using ElementComputeEpilogue = float;  // <- data type of epilogue operations
   using ElementInputA = bfloat16_t;      // <- data type of elements in input matrix A
   using ElementInputB = bfloat16_t;      // <- data type of elements in input matrix B
   using ElementOutput = float;           // <- data type of elements in output matrix D
+#endif
 
   using LayoutA = cutlass::layout::RowMajor;
+#if defined(CUTLASS_BMG_GEMM_INT4_PACKED_B)
+  using LayoutB = cutlass::layout::ColumnMajor;
+#else
   using LayoutB = cutlass::layout::RowMajor;
+#endif
   using LayoutC = cutlass::layout::RowMajor;
   using LayoutD = cutlass::layout::RowMajor;
 
@@ -360,8 +392,15 @@ int main(int argc, const char** argv)
   using GmemTiledCopyA = void; //XE_LOAD_2D<16, 32, 32>;
   using GmemTiledCopyB = void; //XE_LOAD_2D_VNNI<16, 32, 32>;
 
-  // Workgroup-level tile
+  // Workgroup-level tile. The INT8 path uses two DPAS K steps per global-memory
+  // tile, while INT4 uses one step because its native DPAS K is 64.
+#if defined(CUTLASS_BMG_GEMM_INT4)
+  using TileShape = Shape<_256, _256, _64>;
+#elif defined(CUTLASS_BMG_GEMM_INT8)
+  using TileShape = Shape<_256, _256, _64>;
+#else
   using TileShape = Shape<_256, _256, _32>;
+#endif
 
   // A TiledMMA struct defines a tiling of an MMA atom over M, N and K, combining both additional
   // hardware (sub-groups for Intel BMG) and iterations by each sub-group.
@@ -374,7 +413,16 @@ int main(int argc, const char** argv)
   // each sub-group operates on a contiguous 32x64x32 chunk (4x4x2 iterations). See
   // 0t_mma_atom.md#TiledMMAs for more info. Sub-groups are arranged row-major (stride 4,1,0) for
   // performance reasons.
-  using TiledMma = typename TiledMMAHelper<MMA_Atom<XE_DPAS_TT<8, float, cute::bfloat16_t>>, Layout<TileShape>, Layout<Shape<_8, _4, _1>, Stride<_4, _1, _0>>>::TiledMMA;
+#if defined(CUTLASS_BMG_GEMM_INT4)
+  using SubgroupLayout = Layout<Shape<_4, _8, _1>, Stride<_8, _1, _0>>;
+#else
+  using SubgroupLayout = Layout<Shape<_8, _4, _1>, Stride<_4, _1, _0>>;
+#endif
+
+    using TiledMma = typename TiledMMAHelper<
+      MMA_Atom<XE_DPAS_TT<8, ElementAccumulator, ElementInputA, ElementInputB>>,
+      Layout<TileShape>,
+    SubgroupLayout>::TiledMMA;
 
   // For Intel BMG, PipelineStages defines how many k-blocks ahead to prefetch from A and B.
   constexpr int PipelineStages = 2;
@@ -425,7 +473,8 @@ int main(int argc, const char** argv)
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
           Shape<int, int, int, int>, // Defer global problem shape definition to runtime
           CollectiveMainloop,
-          CollectiveEpilogue
+      CollectiveEpilogue,
+      void
   >;
 
   // The GemmUniversalAdapter wraps the defined GEMM kernel and handles the launch, and e.g.
